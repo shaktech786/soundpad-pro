@@ -24,11 +24,12 @@ function createWindow() {
 
   mainWindow.setTitle('SoundPad Pro'); // Ensure title is set
 
-  const url = isDev 
-    ? 'http://localhost:3005' // Updated port to match Next.js
-    : `file://${path.join(__dirname, '../out/index.html')}`;
-    
-  mainWindow.loadURL(url);
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:3005');
+  } else {
+    // In production, serve the static files properly
+    mainWindow.loadFile(path.join(__dirname, '../out/index.html'));
+  }
   
   if (isDev) {
     mainWindow.webContents.openDevTools();

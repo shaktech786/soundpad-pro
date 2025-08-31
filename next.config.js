@@ -7,6 +7,7 @@ const nextConfig = {
   swcMinify: true,
   // Important for Electron
   output: 'export',
+  assetPrefix: isDev ? undefined : './',
   images: {
     unoptimized: true,
   },
