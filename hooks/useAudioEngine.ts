@@ -11,6 +11,8 @@ interface AudioFile {
 export function useAudioEngine() {
   const [loadedSounds, setLoadedSounds] = useState<Map<string, Howl>>(new Map())
   const [isPlaying, setIsPlaying] = useState<Map<string, boolean>>(new Map())
+  const [isLoading, setIsLoading] = useState<Map<string, boolean>>(new Map())
+  const [loadErrors, setLoadErrors] = useState<Map<string, string>>(new Map())
   const audioContextRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
@@ -31,29 +33,72 @@ export function useAudioEngine() {
   const loadSound = useCallback(async (filePath: string): Promise<void> => {
     return new Promise((resolve, reject) => {
       if (loadedSounds.has(filePath)) {
+        console.log(`Sound already loaded: ${filePath}`)
         resolve()
         return
       }
-
-      const sound = new Howl({
-        src: [filePath],
-        html5: true, // Use HTML5 Audio for better compatibility
-        preload: true,
-        volume: 1.0,
-        onload: () => {
-          setLoadedSounds(prev => new Map(prev).set(filePath, sound))
-          resolve()
-        },
-        onloaderror: (_id, error) => {
-          console.error('Error loading sound:', error)
-          reject(error)
-        },
-        onend: () => {
-          setIsPlaying(prev => new Map(prev).set(filePath, false))
-        }
+      
+      if (isLoading.get(filePath)) {
+        console.log(`Sound already loading: ${filePath}`)
+        resolve()
+        return
+      }
+      
+      setIsLoading(prev => new Map(prev).set(filePath, true))
+      setLoadErrors(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        return newMap
       })
+
+      try {
+        const sound = new Howl({
+          src: [filePath],
+          html5: true, // Use HTML5 Audio for better compatibility
+          preload: true,
+          volume: 1.0,
+          format: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm'],
+          onload: () => {
+            console.log(`Sound loaded successfully: ${filePath}`)
+            setLoadedSounds(prev => new Map(prev).set(filePath, sound))
+            setIsLoading(prev => {
+              const newMap = new Map(prev)
+              newMap.delete(filePath)
+              return newMap
+            })
+            resolve()
+          },
+          onloaderror: (_id, error) => {
+            const errorMsg = error || 'Unknown error'
+            console.error(`Error loading sound ${filePath}:`, errorMsg)
+            setLoadErrors(prev => new Map(prev).set(filePath, String(errorMsg)))
+            setIsLoading(prev => {
+              const newMap = new Map(prev)
+              newMap.delete(filePath)
+              return newMap
+            })
+            reject(new Error(`Failed to load ${filePath}: ${errorMsg}`))
+          },
+          onplayerror: (_id, error) => {
+            console.error(`Error playing sound ${filePath}:`, error)
+            setIsPlaying(prev => new Map(prev).set(filePath, false))
+          },
+          onend: () => {
+            setIsPlaying(prev => new Map(prev).set(filePath, false))
+          }
+        })
+      } catch (error) {
+        console.error(`Exception loading sound ${filePath}:`, error)
+        setLoadErrors(prev => new Map(prev).set(filePath, String(error)))
+        setIsLoading(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(filePath)
+          return newMap
+        })
+        reject(error)
+      }
     })
-  }, [loadedSounds])
+  }, [loadedSounds, isLoading])
 
   const playSound = useCallback((filePath: string, options?: {
     volume?: number
@@ -126,6 +171,8 @@ export function useAudioEngine() {
     setVolume,
     setMasterVolume,
     isPlaying,
+    isLoading,
+    loadErrors,
     loadedSounds: Array.from(loadedSounds.keys())
   }
 }

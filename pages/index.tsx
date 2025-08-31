@@ -8,11 +8,13 @@ import { MappingConfig } from '../components/MappingConfig'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { Settings } from '../components/Settings'
 import { ControllerSelector } from '../components/ControllerSelector'
+import { ControllerDiagnostics } from '../components/ControllerDiagnostics'
 
 export default function Home() {
   const [isConfiguring, setIsConfiguring] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [selectedControllerIndex, setSelectedControllerIndex] = useState(0)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
@@ -22,6 +24,19 @@ export default function Home() {
   
   // Get the selected controller
   const selectedController = controllers[selectedControllerIndex] || controllers[0]
+
+  // Add keyboard shortcut for diagnostics
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault()
+        setShowDiagnostics(prev => !prev)
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyPress)
+    return () => document.removeEventListener('keydown', handleKeyPress)
+  }, [])
 
   useEffect(() => {
     // Initialize virtual audio output
@@ -64,7 +79,9 @@ export default function Home() {
         if (pressed) {
           const soundFile = soundMappings.get(buttonIndex)
           if (soundFile) {
-            playSound(soundFile)
+            // Extract actual URL from metadata
+            const actualUrl = soundFile.includes('#') ? soundFile.split('#')[0] : soundFile
+            playSound(actualUrl)
           }
         }
       })
@@ -72,8 +89,20 @@ export default function Home() {
   }, [buttonStates, soundMappings, playSound, selectedController])
 
   const handleSoundMapping = (buttonIndex: number, audioFile: string) => {
-    setSoundMappings(prev => new Map(prev).set(buttonIndex, audioFile))
-    loadSound(audioFile)
+    if (!audioFile) {
+      // Remove mapping
+      setSoundMappings(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(buttonIndex)
+        return newMap
+      })
+    } else {
+      // Add/update mapping
+      setSoundMappings(prev => new Map(prev).set(buttonIndex, audioFile))
+      // Extract actual URL from metadata
+      const actualUrl = audioFile.includes('#') ? audioFile.split('#')[0] : audioFile
+      loadSound(actualUrl)
+    }
   }
 
   return (
@@ -172,6 +201,9 @@ export default function Home() {
         onClose={() => setIsSettingsOpen(false)}
         soundMappings={soundMappings}
       />
+      
+      {/* Diagnostics Panel - Toggle with Ctrl+D */}
+      {showDiagnostics && <ControllerDiagnostics />}
     </div>
   )
 }

@@ -26,14 +26,32 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
     }
   }, [buttonStates, listeningForButton])
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (selectedButton === null || !event.target.files?.[0]) return
     
     const file = event.target.files[0]
+    
+    // Validate file type
+    const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/flac', 'audio/webm']
+    if (!validTypes.some(type => file.type.startsWith(type.split('/')[0]))) {
+      console.error('Invalid file type:', file.type)
+      alert('Please select a valid audio file (MP3, WAV, OGG, M4A, FLAC, or WebM)')
+      return
+    }
+    
+    // Create object URL for the file
     const filePath = URL.createObjectURL(file)
     
-    onMapSound(selectedButton, filePath)
+    // Store the original filename as metadata
+    const filePathWithName = `${filePath}#${file.name}`
+    
+    onMapSound(selectedButton, filePathWithName)
     setSelectedButton(null)
+    
+    // Reset file input
+    if (event.target) {
+      event.target.value = ''
+    }
   }
 
   const handleRemoveMapping = (buttonIndex: number) => {
@@ -43,6 +61,10 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
 
   const getSoundName = (filePath: string) => {
     if (!filePath) return 'Not mapped'
+    // Extract filename from metadata if present
+    if (filePath.includes('#')) {
+      return filePath.split('#')[1]
+    }
     if (filePath.startsWith('blob:')) return 'Loaded sound'
     const parts = filePath.split(/[/\\]/)
     return parts[parts.length - 1]
