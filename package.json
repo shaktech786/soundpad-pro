@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
@@ -64,7 +64,16 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "allowElevation": true,
+      "perMachine": false,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "uninstallDisplayName": "SoundPad Pro",
+      "guid": "a8c4e9d5-7b3f-4e8a-9c2d-1f6e8b9a7c5d",
+      "include": "installer.nsh",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
     }
   }
 }

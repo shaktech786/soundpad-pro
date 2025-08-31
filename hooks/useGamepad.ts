@@ -89,6 +89,9 @@ export function useGamepad() {
 
     const handleGamepadConnected = (e: GamepadEvent) => {
       console.log('Gamepad connected:', e.gamepad.id)
+      console.log('Index:', e.gamepad.index)
+      console.log('Buttons:', e.gamepad.buttons.length)
+      console.log('Axes:', e.gamepad.axes.length)
       scanGamepads()
     }
 

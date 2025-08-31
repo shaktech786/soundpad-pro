@@ -7,16 +7,21 @@ import { useAudioEngine } from '../hooks/useAudioEngine'
 import { MappingConfig } from '../components/MappingConfig'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { Settings } from '../components/Settings'
+import { ControllerSelector } from '../components/ControllerSelector'
 
 export default function Home() {
   const [isConfiguring, setIsConfiguring] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [selectedControllerIndex, setSelectedControllerIndex] = useState(0)
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
   const { controllers, buttonStates } = useGamepad()
   const { playSound, loadSound, stopAll } = useAudioEngine()
+  
+  // Get the selected controller
+  const selectedController = controllers[selectedControllerIndex] || controllers[0]
 
   useEffect(() => {
     // Initialize virtual audio output
@@ -52,17 +57,19 @@ export default function Home() {
     }
   }, []) // Only run on mount
 
-  // Handle controller button presses
+  // Handle controller button presses (only from selected controller)
   useEffect(() => {
-    buttonStates.forEach((pressed, buttonIndex) => {
-      if (pressed) {
-        const soundFile = soundMappings.get(buttonIndex)
-        if (soundFile) {
-          playSound(soundFile)
+    if (selectedController) {
+      buttonStates.forEach((pressed, buttonIndex) => {
+        if (pressed) {
+          const soundFile = soundMappings.get(buttonIndex)
+          if (soundFile) {
+            playSound(soundFile)
+          }
         }
-      }
-    })
-  }, [buttonStates, soundMappings, playSound])
+      })
+    }
+  }, [buttonStates, soundMappings, playSound, selectedController])
 
   const handleSoundMapping = (buttonIndex: number, audioFile: string) => {
     setSoundMappings(prev => new Map(prev).set(buttonIndex, audioFile))
@@ -82,27 +89,34 @@ export default function Home() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
             SoundPad Pro
           </h1>
-          <div className="flex gap-4">
-            <button
-              onClick={() => setIsConfiguring(!isConfiguring)}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
-            >
-              {isConfiguring ? 'Done' : 'Configure'}
-            </button>
-            <button
-              onClick={stopAll}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition flex items-center gap-2"
-              title="Press ESC to stop all audio"
-            >
-              <span>Stop All</span>
-              <kbd className="px-1 py-0.5 bg-red-700 rounded text-xs">ESC</kbd>
-            </button>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition"
-            >
-              Settings
-            </button>
+          <div className="flex items-center gap-4">
+            <ControllerSelector
+              controllers={controllers}
+              selectedIndex={selectedControllerIndex}
+              onSelect={setSelectedControllerIndex}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsConfiguring(!isConfiguring)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
+              >
+                {isConfiguring ? 'Done' : 'Configure'}
+              </button>
+              <button
+                onClick={stopAll}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition flex items-center gap-2"
+                title="Press ESC to stop all audio"
+              >
+                <span>Stop All</span>
+                <kbd className="px-1 py-0.5 bg-red-700 rounded text-xs">ESC</kbd>
+              </button>
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition"
+              >
+                Settings
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -112,7 +126,7 @@ export default function Home() {
           {/* Controller Status */}
           <div className="lg:col-span-1">
             <ControllerDisplay 
-              controllers={controllers}
+              controllers={[selectedController].filter(Boolean)}
               buttonStates={buttonStates}
             />
           </div>
