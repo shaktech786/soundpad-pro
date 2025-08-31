@@ -1,0 +1,70 @@
+{
+  "name": "soundpad-pro",
+  "version": "1.0.0",
+  "description": "Professional soundboard for streamers with controller support",
+  "main": "main/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:next\" \"npm run dev:electron\"",
+    "dev:next": "next dev -p 3004",
+    "dev:electron": "wait-on http://localhost:3004 && electron .",
+    "build": "next build",
+    "build:win": "electron-builder --win",
+    "start": "electron simple-main.js",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "soundboard",
+    "electron",
+    "streaming",
+    "controller"
+  ],
+  "author": "SoundPad Pro",
+  "license": "MIT",
+  "dependencies": {
+    "electron-is-dev": "^2.0.0",
+    "electron-store": "^8.1.0",
+    "howler": "^2.2.4",
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/howler": "^2.2.8",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.0",
+    "concurrently": "^8.0.0",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.0.0",
+    "electron-icon-builder": "^2.0.1",
+    "png-to-ico": "^3.0.1",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5.0.0",
+    "wait-on": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.soundpadpro.app",
+    "productName": "SoundPad Pro",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "simple-main.js",
+      "simple-soundpad.html",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

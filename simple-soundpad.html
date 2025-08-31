@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoundPad Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #151521 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #8b5cf6;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #7c3aed;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        
+        main {
+            flex: 1;
+            display: flex;
+            padding: 2rem;
+            gap: 2rem;
+        }
+        
+        .panel {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .controller-panel {
+            flex: 0 0 300px;
+        }
+        
+        .soundpad-panel {
+            flex: 1;
+        }
+        
+        .pad-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .pad {
+            aspect-ratio: 1;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        
+        .pad:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: scale(1.05);
+        }
+        
+        .pad.active {
+            background: #8b5cf6;
+            border-color: #a855f7;
+            animation: pulse 0.3s;
+        }
+        
+        .pad.has-sound {
+            background: rgba(139, 92, 246, 0.2);
+            border-color: #8b5cf6;
+        }
+        
+        .pad-number {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            font-size: 0.75rem;
+            opacity: 0.5;
+        }
+        
+        .pad-label {
+            font-size: 0.875rem;
+            text-align: center;
+            word-break: break-word;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+            100% { transform: scale(1); }
+        }
+        
+        .status {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .config-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1e1e2e;
+            padding: 2rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+            min-width: 400px;
+        }
+        
+        .config-modal.show {
+            display: block;
+        }
+        
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+        
+        .modal-overlay.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>SoundPad Pro</h1>
+        <div class="controls">
+            <button class="btn-primary" onclick="startConfig()">Configure</button>
+            <button class="btn-danger" onclick="stopAll()">Stop All</button>
+        </div>
+    </header>
+    
+    <main>
+        <div class="panel controller-panel">
+            <h2>Controller Status</h2>
+            <div id="controller-status" class="status">
+                No controller connected
+            </div>
+            <div id="button-status" style="margin-top: 1rem;"></div>
+        </div>
+        
+        <div class="panel soundpad-panel">
+            <h2>Sound Pads</h2>
+            <div class="pad-grid" id="pad-grid">
+                <!-- Pads will be generated here -->
+            </div>
+        </div>
+    </main>
+    
+    <div class="modal-overlay" id="modal-overlay" onclick="closeConfig()"></div>
+    <div class="config-modal" id="config-modal">
+        <h3>Configure Button Mapping</h3>
+        <p style="margin: 1rem 0;">Press a controller button...</p>
+        <div id="config-status"></div>
+        <button class="btn-primary" onclick="closeConfig()" style="margin-top: 1rem;">Cancel</button>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
+    <script>
+        // Sound mappings
+        const soundMappings = new Map();
+        const sounds = new Map();
+        let configuring = false;
+        let selectedButton = null;
+        
+        // Initialize pads
+        function initPads() {
+            const grid = document.getElementById('pad-grid');
+            for (let i = 0; i < 16; i++) {
+                const pad = document.createElement('div');
+                pad.className = 'pad';
+                pad.dataset.index = i;
+                pad.innerHTML = `
+                    <span class="pad-number">${i + 1}</span>
+                    <span class="pad-label">Empty</span>
+                `;
+                pad.onclick = () => playPad(i);
+                grid.appendChild(pad);
+            }
+        }
+        
+        // Gamepad handling
+        let controllers = {};
+        let previousButtons = {};
+        
+        function scanGamepads() {
+            const gamepads = navigator.getGamepads();
+            const status = document.getElementById('controller-status');
+            const buttonStatus = document.getElementById('button-status');
+            
+            let connected = false;
+            for (let i = 0; i < gamepads.length; i++) {
+                const gamepad = gamepads[i];
+                if (gamepad) {
+                    connected = true;
+                    controllers[i] = gamepad;
+                    
+                    status.innerHTML = `<strong>${gamepad.id}</strong><br>Connected`;
+                    
+                    // Check buttons
+                    gamepad.buttons.forEach((button, index) => {
+                        const wasPressed = previousButtons[index] || false;
+                        const isPressed = button.pressed;
+                        
+                        // Trigger on press, not hold
+                        if (isPressed && !wasPressed) {
+                            handleButtonPress(index);
+                        }
+                        
+                        previousButtons[index] = isPressed;
+                    });
+                    
+                    // Show button states
+                    const pressedButtons = gamepad.buttons
+                        .map((b, i) => b.pressed ? i + 1 : null)
+                        .filter(b => b !== null);
+                    
+                    if (pressedButtons.length > 0) {
+                        buttonStatus.textContent = `Pressed: ${pressedButtons.join(', ')}`;
+                    } else {
+                        buttonStatus.textContent = '';
+                    }
+                }
+            }
+            
+            if (!connected) {
+                status.innerHTML = 'No controller connected<br><small>Connect a gamepad and press any button</small>';
+                controllers = {};
+            }
+        }
+        
+        function handleButtonPress(buttonIndex) {
+            if (configuring) {
+                selectedButton = buttonIndex;
+                document.getElementById('config-status').innerHTML = `
+                    <p>Button ${buttonIndex + 1} selected</p>
+                    <input type="file" accept="audio/*" onchange="mapSound(event)" style="margin: 1rem 0;">
+                `;
+            } else {
+                // Play sound if mapped
+                const soundFile = soundMappings.get(buttonIndex);
+                if (soundFile) {
+                    playSound(soundFile);
+                    highlightPad(buttonIndex);
+                }
+            }
+        }
+        
+        function mapSound(event) {
+            if (!event.target.files[0] || selectedButton === null) return;
+            
+            const file = event.target.files[0];
+            const url = URL.createObjectURL(file);
+            
+            soundMappings.set(selectedButton, url);
+            
+            // Load the sound
+            const sound = new Howl({
+                src: [url],
+                html5: true
+            });
+            sounds.set(url, sound);
+            
+            // Update pad display
+            updatePad(selectedButton, file.name);
+            
+            closeConfig();
+        }
+        
+        function updatePad(index, filename) {
+            const pad = document.querySelector(`[data-index="${index}"]`);
+            if (pad) {
+                pad.classList.add('has-sound');
+                pad.querySelector('.pad-label').textContent = filename.replace(/\.[^/.]+$/, '');
+            }
+        }
+        
+        function playSound(url) {
+            const sound = sounds.get(url);
+            if (sound) {
+                sound.stop();
+                sound.play();
+            }
+        }
+        
+        function playPad(index) {
+            const soundFile = soundMappings.get(index);
+            if (soundFile) {
+                playSound(soundFile);
+                highlightPad(index);
+            }
+        }
+        
+        function highlightPad(index) {
+            const pad = document.querySelector(`[data-index="${index}"]`);
+            if (pad) {
+                pad.classList.add('active');
+                setTimeout(() => pad.classList.remove('active'), 300);
+            }
+        }
+        
+        function stopAll() {
+            Howler.stop();
+        }
+        
+        function startConfig() {
+            configuring = true;
+            document.getElementById('modal-overlay').classList.add('show');
+            document.getElementById('config-modal').classList.add('show');
+        }
+        
+        function closeConfig() {
+            configuring = false;
+            selectedButton = null;
+            document.getElementById('modal-overlay').classList.remove('show');
+            document.getElementById('config-modal').classList.remove('show');
+        }
+        
+        // Initialize
+        initPads();
+        
+        // Gamepad events
+        window.addEventListener('gamepadconnected', (e) => {
+            console.log('Gamepad connected:', e.gamepad.id);
+        });
+        
+        window.addEventListener('gamepaddisconnected', (e) => {
+            console.log('Gamepad disconnected:', e.gamepad.id);
+        });
+        
+        // Poll for gamepad state
+        setInterval(scanGamepads, 16); // 60fps
+    </script>
+</body>
+</html>
