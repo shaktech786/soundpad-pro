@@ -5,8 +5,8 @@
   "main": "main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:next\" \"npm run dev:electron\"",
-    "dev:next": "next dev -p 3004",
-    "dev:electron": "wait-on http://localhost:3004 && electron .",
+    "dev:next": "next dev -p 3005",
+    "dev:electron": "wait-on http://localhost:3005 && cross-env ELECTRON=true electron .",
     "build": "next build",
     "build:win": "electron-builder --win",
     "start": "electron simple-main.js",
@@ -51,8 +51,8 @@
       "output": "dist"
     },
     "files": [
-      "simple-main.js",
-      "simple-soundpad.html",
+      "main/**/*",
+      "out/**/*",
       "node_modules/**/*",
       "package.json"
     ],
