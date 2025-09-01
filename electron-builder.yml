@@ -1,0 +1,42 @@
+appId: com.soundpadpro.app
+productName: SoundPad Pro
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - "**/*"
+  - "!**/*.ts"
+  - "!**/*.tsx"
+  - "!src"
+  - "!components"
+  - "!hooks"
+  - "!utils"
+  - "!pages"
+  - "!styles"
+  - "!.next"
+  - "!node_modules/.cache"
+  - "!node_modules/**/test"
+  - "!node_modules/**/tests"
+  - "!node_modules/**/*.md"
+  - "!node_modules/**/*.map"
+  - "!dist"
+
+asar: true
+compression: maximum
+
+win:
+  target: nsis
+  icon: icon.ico
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SoundPad Pro
+  uninstallDisplayName: SoundPad Pro
+  artifactName: ${productName}-Setup-${version}.${ext}
+  warningsAsErrors: false

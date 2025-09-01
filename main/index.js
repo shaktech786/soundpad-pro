@@ -1,16 +1,39 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
+const Store = require('electron-store');
+
+// Initialize electron-store for persistent storage
+const store = new Store({
+  name: 'soundpad-pro-settings',
+  defaults: {
+    soundMappings: [],
+    globalHotkeysEnabled: true,
+    hotkeyMappings: [],
+    stopHotkey: 'Escape',
+    windowBounds: { width: 1400, height: 900 }
+  }
+});
+
+// Disable GPU acceleration to fix rendering issues
+app.disableHardwareAcceleration();
 
 let mainWindow;
 let globalHotkeysEnabled = true;
 let registeredHotkeys = new Map();
 
 function createWindow() {
+  // Get saved window bounds or use defaults
+  const windowBounds = store.get('windowBounds', { 
+    width: 1400, 
+    height: 900,
+    x: undefined,
+    y: undefined
+  });
+
   mainWindow = new BrowserWindow({
     title: 'SoundPad Pro',
-    width: 1400,
-    height: 900,
+    ...windowBounds,
     minWidth: 1200,
     minHeight: 700,
     webPreferences: {
@@ -21,6 +44,17 @@ function createWindow() {
     },
     backgroundColor: '#1a1a1a'
   });
+  
+  // Save window position and size when it changes
+  mainWindow.on('resize', () => saveWindowBounds());
+  mainWindow.on('move', () => saveWindowBounds());
+  
+  function saveWindowBounds() {
+    if (!mainWindow.isMaximized() && !mainWindow.isMinimized()) {
+      const bounds = mainWindow.getBounds();
+      store.set('windowBounds', bounds);
+    }
+  }
 
   mainWindow.setTitle('SoundPad Pro'); // Ensure title is set
 
@@ -87,6 +121,45 @@ ipcMain.handle('get-controllers', async () => {
   // The renderer will use Web Gamepad API
   // We just need to enable it
   return { enabled: true };
+});
+
+// File dialog for audio selection
+ipcMain.handle('dialog:openFile', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Audio Files', extensions: ['mp3', 'wav', 'ogg', 'webm', 'm4a', 'flac', 'aac', 'opus', 'weba'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    return {
+      filePath: result.filePaths[0],
+      fileName: path.basename(result.filePaths[0])
+    };
+  }
+  return null;
+});
+
+// Store management for persistent data
+ipcMain.handle('store:get', (event, key) => {
+  return store.get(key);
+});
+
+ipcMain.handle('store:set', (event, key, value) => {
+  store.set(key, value);
+  return true;
+});
+
+ipcMain.handle('store:delete', (event, key) => {
+  store.delete(key);
+  return true;
+});
+
+ipcMain.handle('store:clear', () => {
+  store.clear();
+  return true;
 });
 
 // Global hotkey management

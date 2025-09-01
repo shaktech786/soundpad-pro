@@ -1,4 +1,5 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
+import { extractAudioUrl, extractFilename } from '../utils/audioUtils'
 
 interface SoundPadProps {
   soundMappings: Map<number, string>
@@ -11,26 +12,46 @@ export const SoundPad: React.FC<SoundPadProps> = ({
   buttonStates, 
   onPlaySound 
 }) => {
-  const padCount = 16 // 4x4 grid
+  // Memoize pad count calculation
+  const { padCount, gridCols } = useMemo(() => {
+    const keys = Array.from(soundMappings.keys())
+    const maxMappedIndex = keys.length > 0 ? Math.max(...keys, 15) : 15
+    const count = Math.min(32, Math.max(16, maxMappedIndex + 1))
+    
+    let cols = 'grid-cols-4'
+    if (count <= 16) cols = 'grid-cols-4'
+    else if (count <= 20) cols = 'grid-cols-5'
+    else if (count <= 24) cols = 'grid-cols-6'
+    else cols = 'grid-cols-8'
+    
+    return { padCount: count, gridCols: cols }
+  }, [soundMappings])
 
   const handlePadClick = useCallback((index: number) => {
     const soundFile = soundMappings.get(index)
     if (soundFile) {
-      onPlaySound(soundFile, { restart: true })
+      // Extract actual URL using utility function
+      const actualUrl = extractAudioUrl(soundFile)
+      onPlaySound(actualUrl, { restart: true })
     }
   }, [soundMappings, onPlaySound])
 
-  const getSoundName = (filePath: string) => {
-    if (!filePath) return 'Empty'
-    const parts = filePath.split(/[/\\]/)
-    const filename = parts[parts.length - 1]
-    return filename.replace(/\.[^/.]+$/, '') // Remove extension
-  }
+  const getSoundName = useCallback((filePath: string) => {
+    return extractFilename(filePath)
+  }, [])
+
+  // Count how many sounds are actually mapped
+  const mappedCount = soundMappings.size
 
   return (
     <div className="bg-gray-800 rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4">Sound Pads</h2>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Sound Pads</h2>
+        <span className="text-sm text-gray-400">
+          {mappedCount} sound{mappedCount !== 1 ? 's' : ''} mapped
+        </span>
+      </div>
+      <div className={`grid ${gridCols} gap-3`}>
         {Array.from({ length: padCount }, (_, index) => {
           const isActive = buttonStates.get(index) || false
           const soundFile = soundMappings.get(index)
@@ -41,7 +62,7 @@ export const SoundPad: React.FC<SoundPadProps> = ({
               key={index}
               onClick={() => handlePadClick(index)}
               className={`
-                relative h-24 rounded-lg border-2 transition-all transform
+                relative h-20 rounded-lg border-2 transition-all transform
                 ${isActive 
                   ? 'bg-purple-600 border-purple-400 scale-95' 
                   : hasSound
@@ -51,10 +72,10 @@ export const SoundPad: React.FC<SoundPadProps> = ({
               `}
             >
               <div className="flex flex-col items-center justify-center h-full">
-                <span className="text-xs text-gray-400 absolute top-2 left-2">
+                <span className="text-xs text-gray-400 absolute top-1 left-2">
                   {index + 1}
                 </span>
-                <span className="text-sm font-medium px-2 text-center">
+                <span className="text-xs font-medium px-1 text-center line-clamp-2">
                   {hasSound ? getSoundName(soundFile) : 'Empty'}
                 </span>
                 {isActive && (

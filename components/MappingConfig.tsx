@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { isValidAudioFile, extractFilename, createAudioMetadata, formatFileSize } from '../utils/audioUtils'
 
 interface MappingConfigProps {
   buttonStates: Map<number, boolean>
@@ -26,24 +27,59 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
     }
   }, [buttonStates, listeningForButton])
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async () => {
+    if (selectedButton === null) return
+    
+    // Use Electron's native file dialog if available
+    if (typeof window !== 'undefined' && window.electronAPI?.selectAudioFile) {
+      try {
+        const result = await window.electronAPI.selectAudioFile()
+        if (result && result.filePath) {
+          // Store the actual file path with metadata
+          const filePathWithName = createAudioMetadata(result.filePath, result.fileName)
+          onMapSound(selectedButton, filePathWithName)
+          setSelectedButton(null)
+          console.log('Selected file:', result.filePath)
+        }
+      } catch (error) {
+        console.error('Error selecting file:', error)
+        alert('Failed to select audio file')
+      }
+    } else {
+      // Fallback to HTML file input for web
+      fileInputRef.current?.click()
+    }
+  }
+  
+  const handleWebFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (selectedButton === null || !event.target.files?.[0]) return
     
     const file = event.target.files[0]
     
-    // Validate file type
-    const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/flac', 'audio/webm']
-    if (!validTypes.some(type => file.type.startsWith(type.split('/')[0]))) {
-      console.error('Invalid file type:', file.type)
-      alert('Please select a valid audio file (MP3, WAV, OGG, M4A, FLAC, or WebM)')
+    // Validate file type using utility function
+    if (!isValidAudioFile(file)) {
+      console.error('Invalid file type:', file.type, file.name)
+      alert(`Invalid audio file format.\nSupported formats: MP3, WAV, OGG, M4A, FLAC, WebM, AAC, OPUS`)
+      if (event.target) event.target.value = ''
       return
     }
     
-    // Create object URL for the file
+    // Check file size (warn if > 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      const proceed = window.confirm(
+        `This file is ${formatFileSize(file.size)}.\nLarge files may take longer to load.\nContinue?`
+      )
+      if (!proceed) {
+        if (event.target) event.target.value = ''
+        return
+      }
+    }
+    
+    // Create object URL for the file (only for web fallback)
     const filePath = URL.createObjectURL(file)
     
-    // Store the original filename as metadata
-    const filePathWithName = `${filePath}#${file.name}`
+    // Store with metadata using utility function
+    const filePathWithName = createAudioMetadata(filePath, file.name)
     
     onMapSound(selectedButton, filePathWithName)
     setSelectedButton(null)
@@ -61,13 +97,7 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
 
   const getSoundName = (filePath: string) => {
     if (!filePath) return 'Not mapped'
-    // Extract filename from metadata if present
-    if (filePath.includes('#')) {
-      return filePath.split('#')[1]
-    }
-    if (filePath.startsWith('blob:')) return 'Loaded sound'
-    const parts = filePath.split(/[/\\]/)
-    return parts[parts.length - 1]
+    return extractFilename(filePath)
   }
 
   return (
@@ -98,12 +128,12 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
               ref={fileInputRef}
               type="file"
               accept="audio/*"
-              onChange={handleFileSelect}
+              onChange={handleWebFileSelect}
               className="hidden"
             />
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition"
+              onClick={handleFileSelect}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
             >
               Choose Audio File
             </button>
@@ -113,39 +143,34 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
 
       <div className="space-y-2">
         <h3 className="text-lg font-medium mb-2">Current Mappings</h3>
-        {Array.from(soundMappings.entries()).length === 0 ? (
-          <p className="text-gray-400">No mappings configured</p>
-        ) : (
-          <div className="space-y-2">
-            {Array.from(soundMappings.entries()).map(([button, file]) => (
-              <div 
-                key={button}
-                className="flex items-center justify-between p-3 bg-gray-700 rounded"
-              >
-                <div>
-                  <span className="font-medium">Button {button + 1}: </span>
-                  <span className="text-gray-300">{getSoundName(file)}</span>
+        <div className="max-h-96 overflow-y-auto">
+          {Array.from({ length: 16 }, (_, i) => {
+            const mapping = soundMappings.get(i)
+            if (!mapping) return null
+
+            return (
+              <div key={i} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium bg-gray-600 px-2 py-1 rounded">
+                    Button {i + 1}
+                  </span>
+                  <span className="text-sm text-gray-300">
+                    {getSoundName(mapping)}
+                  </span>
                 </div>
                 <button
-                  onClick={() => handleRemoveMapping(button)}
+                  onClick={() => handleRemoveMapping(i)}
                   className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition"
                 >
                   Remove
                 </button>
               </div>
-            ))}
-          </div>
+            )
+          }).filter(Boolean)}
+        </div>
+        {soundMappings.size === 0 && (
+          <p className="text-gray-400 text-center py-4">No mappings configured yet</p>
         )}
-      </div>
-
-      <div className="mt-6 p-4 bg-gray-700 rounded-lg">
-        <h3 className="text-sm font-medium mb-2 text-gray-300">Instructions:</h3>
-        <ul className="text-sm text-gray-400 space-y-1">
-          <li>1. Click "Click to map a button"</li>
-          <li>2. Press a button on your controller</li>
-          <li>3. Select an audio file to map to that button</li>
-          <li>4. The sound will play when you press that button</li>
-        </ul>
       </div>
     </div>
   )

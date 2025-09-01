@@ -11,9 +11,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return result;
   },
   
-  // Store management
-  saveConfig: (config) => ipcRenderer.invoke('store:save', config),
-  loadConfig: () => ipcRenderer.invoke('store:load'),
+  // Store management for persistent data
+  storeGet: (key) => ipcRenderer.invoke('store:get', key),
+  storeSet: (key, value) => ipcRenderer.invoke('store:set', key, value),
+  storeDelete: (key) => ipcRenderer.invoke('store:delete', key),
+  storeClear: () => ipcRenderer.invoke('store:clear'),
   
   // Global hotkey management
   registerHotkey: (key, buttonIndex) => ipcRenderer.invoke('register-hotkey', { key, buttonIndex }),

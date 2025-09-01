@@ -1,36 +1,53 @@
 import { useEffect, useState, useRef } from 'react'
 import Head from 'next/head'
+import { extractAudioUrl } from '../utils/audioUtils'
 import { SoundPad } from '../components/SoundPad'
 import { ControllerDisplay } from '../components/ControllerDisplay'
-import { useGamepad } from '../hooks/useGamepad'
+import { useGamepad } from '../hooks/useGamepadOptimized'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { MappingConfig } from '../components/MappingConfig'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { Settings } from '../components/Settings'
 import { ControllerSelector } from '../components/ControllerSelector'
 import { ControllerDiagnostics } from '../components/ControllerDiagnostics'
+import { ControllerTest } from '../components/ControllerTest'
+import { PerformanceMonitor } from '../components/PerformanceMonitor'
+import { AudioStatus } from '../components/AudioStatus'
+import logger from '../utils/logger'
 
 export default function Home() {
   const [isConfiguring, setIsConfiguring] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [selectedControllerIndex, setSelectedControllerIndex] = useState(0)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [showControllerTest, setShowControllerTest] = useState(false)
+  const [showPerformance, setShowPerformance] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [initError, setInitError] = useState<string | null>(null)
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
   const { controllers, buttonStates } = useGamepad()
-  const { playSound, loadSound, stopAll } = useAudioEngine()
+  const { playSound, loadSound, unloadSound, stopAll, isLoading, loadErrors, loadedSounds } = useAudioEngine()
   
   // Get the selected controller
   const selectedController = controllers[selectedControllerIndex] || controllers[0]
 
-  // Add keyboard shortcut for diagnostics
+  // Add keyboard shortcuts for diagnostics and test mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'd') {
         e.preventDefault()
         setShowDiagnostics(prev => !prev)
+      }
+      if (e.ctrlKey && e.key === 't') {
+        e.preventDefault()
+        setShowControllerTest(prev => !prev)
+      }
+      if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault()
+        setShowPerformance(prev => !prev)
       }
     }
     
@@ -39,30 +56,58 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    // Initialize virtual audio output
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      window.electronAPI.setupVirtualAudio().then((result: any) => {
-        console.log('Virtual audio setup:', result)
-      })
-      
-      // Listen for global hotkey events
-      window.electronAPI.onHotkeyTriggered((buttonIndex: number) => {
-        const soundFile = soundMappings.get(buttonIndex)
-        if (soundFile) {
-          playSound(soundFile)
+    const initializeApp = async () => {
+      try {
+        setIsInitializing(true)
+        setInitError(null)
+        
+        // Initialize virtual audio output
+        if (typeof window !== 'undefined' && window.electronAPI) {
+          try {
+            const result = await window.electronAPI.setupVirtualAudio()
+            logger.info('Virtual audio setup:', result)
+          } catch (error) {
+            logger.error('Failed to setup virtual audio:', error)
+            setInitError('Failed to initialize virtual audio')
+          }
+          
+          // Listen for global hotkey events
+          window.electronAPI.onHotkeyTriggered((buttonIndex: number) => {
+            const soundFile = soundMappings.get(buttonIndex)
+            if (soundFile) {
+              const actualUrl = extractAudioUrl(soundFile)
+              playSound(actualUrl)
+            }
+          })
+          
+          // Listen for global stop command
+          window.electronAPI.onGlobalStopAudio(() => {
+            stopAll()
+          })
         }
-      })
-      
-      // Listen for global stop command
-      window.electronAPI.onGlobalStopAudio(() => {
-        stopAll()
-      })
+        
+        // Reload all saved sound mappings
+        const loadPromises: Promise<void>[] = []
+        soundMappings.forEach((audioFile) => {
+          const actualUrl = extractAudioUrl(audioFile)
+          logger.debug('Loading saved sound:', actualUrl)
+          loadPromises.push(
+            loadSound(actualUrl).catch(err => {
+              logger.error('Failed to load saved sound:', err)
+            })
+          )
+        })
+        
+        await Promise.allSettled(loadPromises)
+      } catch (error) {
+        logger.error('Initialization error:', error)
+        setInitError('Failed to initialize application')
+      } finally {
+        setIsInitializing(false)
+      }
     }
     
-    // Reload all saved sound mappings
-    soundMappings.forEach((audioFile) => {
-      loadSound(audioFile)
-    })
+    initializeApp()
     
     // Cleanup listeners on unmount
     return () => {
@@ -79,8 +124,7 @@ export default function Home() {
         if (pressed) {
           const soundFile = soundMappings.get(buttonIndex)
           if (soundFile) {
-            // Extract actual URL from metadata
-            const actualUrl = soundFile.includes('#') ? soundFile.split('#')[0] : soundFile
+            const actualUrl = extractAudioUrl(soundFile)
             playSound(actualUrl)
           }
         }
@@ -93,18 +137,88 @@ export default function Home() {
       // Remove mapping
       setSoundMappings(prev => {
         const newMap = new Map(prev)
+        // Get the old file to unload it from audio engine
+        const oldFile = prev.get(buttonIndex)
+        if (oldFile) {
+          const oldUrl = extractAudioUrl(oldFile)
+          unloadSound(oldUrl)
+          logger.debug('Removed mapping for button:', buttonIndex, oldUrl)
+        }
         newMap.delete(buttonIndex)
         return newMap
       })
     } else {
       // Add/update mapping
-      setSoundMappings(prev => new Map(prev).set(buttonIndex, audioFile))
-      // Extract actual URL from metadata
-      const actualUrl = audioFile.includes('#') ? audioFile.split('#')[0] : audioFile
-      loadSound(actualUrl)
+      setSoundMappings(prev => {
+        const newMap = new Map(prev)
+        // Check if there's an existing mapping to replace
+        const oldFile = prev.get(buttonIndex)
+        if (oldFile) {
+          const oldUrl = extractAudioUrl(oldFile)
+          const newUrl = extractAudioUrl(audioFile)
+          
+          // If it's the same file being re-selected, force reload it
+          // Otherwise, unload the old one first
+          if (oldUrl === newUrl) {
+            logger.debug('Force reloading same file:', oldUrl)
+            // Force reload will be handled below
+          } else {
+            logger.debug('Replacing sound:', oldUrl, 'with:', newUrl)
+            unloadSound(oldUrl)
+          }
+        }
+        newMap.set(buttonIndex, audioFile)
+        return newMap
+      })
+      
+      // Load the new sound (with force reload if it's already loaded)
+      const actualUrl = extractAudioUrl(audioFile)
+      const forceReload = loadedSounds.includes(actualUrl)
+      loadSound(actualUrl, forceReload).catch(err => {
+        logger.error('Failed to load sound:', err)
+        alert('Failed to load audio file. Please try a different file.')
+      })
     }
   }
 
+  // Show loading screen while initializing
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mb-4">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Initializing SoundPad Pro...</h2>
+          <p className="text-gray-400">Loading your saved sounds and settings</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // Show error screen if initialization failed
+  if (initError) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="mb-4 text-red-400">
+            <svg className="inline-block w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Initialization Error</h2>
+          <p className="text-gray-400 mb-4">{initError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+  
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <Head>
@@ -144,6 +258,13 @@ export default function Home() {
                 className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition"
               >
                 Settings
+              </button>
+              <button
+                onClick={() => setShowControllerTest(true)}
+                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+                title="Test controller buttons (Ctrl+T)"
+              >
+                Test
               </button>
             </div>
           </div>
@@ -204,6 +325,22 @@ export default function Home() {
       
       {/* Diagnostics Panel - Toggle with Ctrl+D */}
       {showDiagnostics && <ControllerDiagnostics />}
+      
+      {/* Performance Monitor - Toggle with Ctrl+P */}
+      {showPerformance && <PerformanceMonitor />}
+      
+      {/* Controller Test Mode - Toggle with Ctrl+T */}
+      <ControllerTest
+        isOpen={showControllerTest}
+        onClose={() => setShowControllerTest(false)}
+      />
+      
+      {/* Audio Loading Status */}
+      <AudioStatus
+        loadingStates={isLoading}
+        loadErrors={loadErrors}
+        loadedSounds={loadedSounds}
+      />
     </div>
   )
 }

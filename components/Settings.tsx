@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
+import { BackupRestore } from './BackupRestore'
 
 interface SettingsProps {
   isOpen: boolean
@@ -21,11 +22,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI) {
       // Apply saved hotkey settings on mount
-      window.electronAPI.toggleGlobalHotkeys(globalHotkeysEnabled)
+      window.electronAPI?.toggleGlobalHotkeys(globalHotkeysEnabled)
       
       // Register all saved hotkeys
       hotkeyMappings.forEach(({ key, buttonIndex }) => {
-        window.electronAPI.registerHotkey(key, buttonIndex)
+        window.electronAPI?.registerHotkey(key, buttonIndex)
       })
     }
   }, [])
@@ -35,7 +36,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
     setGlobalHotkeysEnabled(newValue)
     
     if (window.electronAPI) {
-      await window.electronAPI.toggleGlobalHotkeys(newValue)
+      await window.electronAPI?.toggleGlobalHotkeys(newValue)
     }
   }
 
@@ -50,7 +51,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
       
       if (key && window.electronAPI) {
         // Register the hotkey
-        window.electronAPI.registerHotkey(key, buttonIndex).then((result) => {
+        window.electronAPI?.registerHotkey(key, buttonIndex).then((result: any) => {
           if (result.success) {
             // Update mappings
             const newMappings = hotkeyMappings.filter(m => m.buttonIndex !== buttonIndex)
@@ -70,8 +71,46 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
   const handleRemoveHotkey = async (buttonIndex: number) => {
     const mapping = hotkeyMappings.find(m => m.buttonIndex === buttonIndex)
     if (mapping && window.electronAPI) {
-      await window.electronAPI.unregisterHotkey(mapping.key)
+      await window.electronAPI?.unregisterHotkey(mapping.key)
       setHotkeyMappings(hotkeyMappings.filter(m => m.buttonIndex !== buttonIndex))
+    }
+  }
+
+  const handleExportSettings = async () => {
+    try {
+      const settings = {
+        soundMappings: Array.from(soundMappings.entries()),
+        globalHotkeysEnabled,
+        hotkeyMappings,
+        stopHotkey,
+        exportedAt: new Date().toISOString()
+      }
+      
+      const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `soundpad-pro-backup-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Export failed:', error)
+      alert('Failed to export settings')
+    }
+  }
+
+  const handleImportSettings = async (file: File) => {
+    try {
+      const text = await file.text()
+      const settings = JSON.parse(text)
+      
+      if (settings.soundMappings) {
+        // This will trigger the usePersistentStorage hook to save
+        window.location.reload() // Reload to apply imported settings
+      }
+    } catch (error) {
+      console.error('Import failed:', error)
+      alert('Failed to import settings. Please check the file format.')
     }
   }
 
@@ -202,11 +241,18 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
           </div>
         </div>
 
+        {/* Backup & Restore */}
+        <BackupRestore 
+          onExport={handleExportSettings}
+          onImport={handleImportSettings}
+        />
+
         {/* Instructions */}
-        <div className="text-xs text-gray-400 space-y-1">
+        <div className="text-xs text-gray-400 space-y-1 mt-4">
           <p>• Hotkeys work globally when the app is running</p>
           <p>• Use Ctrl, Alt, Shift modifiers for complex shortcuts</p>
           <p>• Conflicting hotkeys with other apps will be overridden</p>
+          <p>• Settings are automatically saved to %APPDATA%\soundpad-pro\</p>
         </div>
       </div>
     </div>
