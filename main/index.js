@@ -10,7 +10,7 @@ const store = new Store({
     soundMappings: [],
     globalHotkeysEnabled: true,
     hotkeyMappings: [],
-    stopHotkey: 'Escape',
+    stopHotkey: '',
     windowBounds: { width: 1400, height: 900 }
   }
 });
@@ -77,12 +77,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   
-  // Register default global stop hotkey
-  globalShortcut.register('Escape', () => {
-    if (mainWindow && globalHotkeysEnabled) {
-      mainWindow.webContents.send('global-stop-audio');
-    }
-  });
+  // No default global stop hotkey - user can configure in settings
 });
 
 app.on('window-all-closed', () => {

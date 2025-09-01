@@ -259,10 +259,12 @@ export default function Home() {
               <button
                 onClick={stopAll}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition flex items-center gap-2"
-                title="Press ESC to stop all audio"
+                title={stopButtonIndex !== null ? `Controller Button ${stopButtonIndex + 1} stops all audio` : "Stop all playing audio"}
               >
                 <span>Stop All</span>
-                <kbd className="px-1 py-0.5 bg-red-700 rounded text-xs">ESC</kbd>
+                {stopButtonIndex !== null && (
+                  <kbd className="px-1 py-0.5 bg-red-700 rounded text-xs">B{stopButtonIndex + 1}</kbd>
+                )}
               </button>
               <button
                 onClick={() => setIsSettingsOpen(true)}

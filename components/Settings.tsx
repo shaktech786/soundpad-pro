@@ -25,7 +25,7 @@ export const Settings: React.FC<SettingsProps> = ({
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = usePersistentStorage('global-hotkeys-enabled', true)
   const [hotkeyMappings, setHotkeyMappings] = usePersistentStorage<HotkeyMapping[]>('hotkey-mappings', [])
   const [isRecording, setIsRecording] = useState<number | null>(null)
-  const [stopHotkey, setStopHotkey] = usePersistentStorage('stop-hotkey', 'Escape')
+  const [stopHotkey, setStopHotkey] = usePersistentStorage('stop-hotkey', '')
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI) {
@@ -200,7 +200,7 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-400">Current:</span>
               <code className="px-2 py-1 bg-gray-600 rounded">{stopHotkey}</code>
-              <span className="text-xs text-gray-400">(Press ESC to stop all audio)</span>
+              <span className="text-xs text-gray-400">(Configure keyboard hotkey for stop)</span>
             </div>
           </div>
           
