@@ -6,6 +6,8 @@ interface SettingsProps {
   isOpen: boolean
   onClose: () => void
   soundMappings: Map<number, string>
+  stopButtonIndex?: number | null
+  onStopButtonChange?: (index: number | null) => void
 }
 
 interface HotkeyMapping {
@@ -13,7 +15,13 @@ interface HotkeyMapping {
   key: string
 }
 
-export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappings }) => {
+export const Settings: React.FC<SettingsProps> = ({ 
+  isOpen, 
+  onClose, 
+  soundMappings,
+  stopButtonIndex,
+  onStopButtonChange 
+}) => {
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = usePersistentStorage('global-hotkeys-enabled', true)
   const [hotkeyMappings, setHotkeyMappings] = usePersistentStorage<HotkeyMapping[]>('hotkey-mappings', [])
   const [isRecording, setIsRecording] = useState<number | null>(null)
@@ -182,13 +190,76 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, soundMappin
           )}
         </div>
 
-        {/* Stop All Hotkey */}
+        {/* Stop All Options */}
         <div className="mb-6 p-4 bg-gray-700 rounded-lg">
-          <h3 className="text-lg font-semibold mb-2">Universal Stop Key</h3>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-400">Current:</span>
-            <code className="px-2 py-1 bg-gray-600 rounded">{stopHotkey}</code>
-            <span className="text-xs text-gray-400">(Press ESC to stop all audio)</span>
+          <h3 className="text-lg font-semibold mb-4">Stop All Audio</h3>
+          
+          {/* Keyboard Stop Key */}
+          <div className="mb-4">
+            <h4 className="text-sm font-medium mb-2">Keyboard:</h4>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Current:</span>
+              <code className="px-2 py-1 bg-gray-600 rounded">{stopHotkey}</code>
+              <span className="text-xs text-gray-400">(Press ESC to stop all audio)</span>
+            </div>
+          </div>
+          
+          {/* Controller Stop Button */}
+          <div>
+            <h4 className="text-sm font-medium mb-2">Controller Button:</h4>
+            {stopButtonIndex !== null && stopButtonIndex !== undefined ? (
+              <div className="flex items-center justify-between">
+                <span className="text-green-400">
+                  Button {stopButtonIndex + 1} assigned as Stop button
+                </span>
+                <button
+                  onClick={() => onStopButtonChange?.(null)}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-400 mb-2">
+                  No controller button assigned
+                </p>
+                <button
+                  onClick={() => {
+                    const message = document.createElement('div')
+                    message.className = 'text-yellow-400 text-sm mt-2'
+                    message.textContent = 'Press any controller button within 5 seconds...'
+                    const button = event?.target as HTMLElement
+                    button.parentElement?.appendChild(message)
+                    
+                    // Listen for the next button press
+                    const checkButtons = setInterval(() => {
+                      const gamepads = navigator.getGamepads()
+                      for (const gamepad of gamepads) {
+                        if (!gamepad) continue
+                        for (let i = 0; i < gamepad.buttons.length; i++) {
+                          if (gamepad.buttons[i].pressed) {
+                            onStopButtonChange?.(i)
+                            clearInterval(checkButtons)
+                            message.remove()
+                            return
+                          }
+                        }
+                      }
+                    }, 50)
+                    
+                    // Stop listening after 5 seconds
+                    setTimeout(() => {
+                      clearInterval(checkButtons)
+                      message.remove()
+                    }, 5000)
+                  }}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm"
+                >
+                  Assign Controller Button
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

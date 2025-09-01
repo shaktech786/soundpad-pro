@@ -28,6 +28,10 @@ export default function Home() {
     'soundpad-mappings',
     new Map()
   )
+  const [stopButtonIndex, setStopButtonIndex] = usePersistentStorage<number | null>(
+    'soundpad-stop-button',
+    null
+  )
   const { controllers, buttonStates } = useGamepad()
   const { playSound, loadSound, unloadSound, stopAll, isLoading, loadErrors, loadedSounds } = useAudioEngine()
   
@@ -122,6 +126,13 @@ export default function Home() {
     if (selectedController) {
       buttonStates.forEach((pressed, buttonIndex) => {
         if (pressed) {
+          // Check if this is the stop button
+          if (stopButtonIndex !== null && buttonIndex === stopButtonIndex) {
+            stopAll()
+            return
+          }
+          
+          // Otherwise play the mapped sound
           const soundFile = soundMappings.get(buttonIndex)
           if (soundFile) {
             const actualUrl = extractAudioUrl(soundFile)
@@ -130,7 +141,7 @@ export default function Home() {
         }
       })
     }
-  }, [buttonStates, soundMappings, playSound, selectedController])
+  }, [buttonStates, soundMappings, playSound, selectedController, stopButtonIndex, stopAll])
 
   const handleSoundMapping = (buttonIndex: number, audioFile: string) => {
     if (!audioFile) {
@@ -321,6 +332,8 @@ export default function Home() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         soundMappings={soundMappings}
+        stopButtonIndex={stopButtonIndex}
+        onStopButtonChange={setStopButtonIndex}
       />
       
       {/* Diagnostics Panel - Toggle with Ctrl+D */}
