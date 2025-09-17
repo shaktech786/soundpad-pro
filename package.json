@@ -8,7 +8,8 @@
     "dev:next": "next dev -p 3005",
     "dev:electron": "wait-on http://localhost:3005 && cross-env ELECTRON=true electron .",
     "build": "next build",
-    "build:win": "electron-builder --win",
+    "build:win": "npm run build && electron-builder --win --config .electron-builder.config.js",
+    "build:win:portable": "npm run build && electron-builder --win portable --config .electron-builder.config.js",
     "start": "electron simple-main.js",
     "type-check": "tsc --noEmit"
   },
@@ -35,54 +36,12 @@
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.0",
     "concurrently": "^8.0.0",
+    "cross-env": "^7.0.3",
     "electron": "^27.0.0",
     "electron-builder": "^24.0.0",
-    "electron-icon-builder": "^2.0.1",
-    "png-to-ico": "^3.0.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.3.0",
     "typescript": "^5.0.0",
     "wait-on": "^7.0.0"
-  },
-  "build": {
-    "appId": "com.soundpadpro.app",
-    "productName": "SoundPad Pro",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "main/**/*",
-      "out/**/*",
-      "package.json",
-      "!node_modules/**/test/**",
-      "!node_modules/**/tests/**",
-      "!node_modules/**/*.md",
-      "!node_modules/**/*.map",
-      "!node_modules/**/.bin",
-      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
-      "!.editorconfig",
-      "!**/._*",
-      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
-      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
-      "!**/{appveyor.yml,.travis.yml,circle.yml}",
-      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
-    ],
-    "extraResources": [],
-    "win": {
-      "target": "nsis",
-      "icon": "icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "SoundPad Pro",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
-    },
-    "compression": "maximum",
-    "npmRebuild": false,
-    "nodeGypRebuild": false
   }
 }

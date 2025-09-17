@@ -7,10 +7,15 @@ const nextConfig = {
   swcMinify: true,
   // Important for Electron
   output: 'export',
+  distDir: 'out',
   assetPrefix: isDev ? undefined : './',
   images: {
     unoptimized: true,
   },
+  // Optimization settings
+  compress: true,
+  poweredByHeader: false,
+  generateEtags: false,
   webpack: (config, { isServer }) => {
     // Only set electron-renderer target when running in Electron
     if (!isServer && isElectron) {
@@ -26,6 +31,48 @@ const nextConfig = {
         })
       );
     }
+
+    // Optimize production builds
+    if (!isDev && !isServer) {
+      config.optimization = {
+        ...config.optimization,
+        minimize: true,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            vendor: {
+              name: 'vendor',
+              chunks: 'all',
+              test: /node_modules/,
+              priority: 20
+            },
+            common: {
+              name: 'common',
+              chunks: 'all',
+              minChunks: 2,
+              priority: 10,
+              reuseExistingChunk: true,
+              enforce: true
+            }
+          }
+        }
+      };
+    }
+
+    // External electron in production
+    if (!isDev) {
+      if (!config.externals) {
+        config.externals = [];
+      }
+      if (Array.isArray(config.externals)) {
+        config.externals.push('electron');
+      } else {
+        config.externals = [config.externals, 'electron'];
+      }
+    }
+
     return config;
   },
 }
