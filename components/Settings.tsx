@@ -29,6 +29,11 @@ export const Settings: React.FC<SettingsProps> = ({
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI) {
+      // Migration: Clear old "Escape" default value
+      if (stopHotkey === 'Escape') {
+        setStopHotkey('')
+      }
+      
       // Apply saved hotkey settings on mount
       window.electronAPI?.toggleGlobalHotkeys(globalHotkeysEnabled)
       
@@ -91,6 +96,7 @@ export const Settings: React.FC<SettingsProps> = ({
         globalHotkeysEnabled,
         hotkeyMappings,
         stopHotkey,
+        stopButtonIndex,
         exportedAt: new Date().toISOString()
       }
       
@@ -112,13 +118,47 @@ export const Settings: React.FC<SettingsProps> = ({
       const text = await file.text()
       const settings = JSON.parse(text)
       
-      if (settings.soundMappings) {
-        // This will trigger the usePersistentStorage hook to save
+      // Validate the imported settings structure
+      if (!settings || typeof settings !== 'object') {
+        throw new Error('Invalid settings format')
+      }
+      
+      // Import all settings through electron-store if available
+      if (window.electronAPI) {
+        // Import sound mappings
+        if (settings.soundMappings && Array.isArray(settings.soundMappings)) {
+          await window.electronAPI.storeSet('soundpad-mappings', settings.soundMappings)
+        }
+        
+        // Import global hotkeys enabled state
+        if (typeof settings.globalHotkeysEnabled === 'boolean') {
+          await window.electronAPI.storeSet('global-hotkeys-enabled', settings.globalHotkeysEnabled)
+        }
+        
+        // Import hotkey mappings
+        if (settings.hotkeyMappings && Array.isArray(settings.hotkeyMappings)) {
+          await window.electronAPI.storeSet('hotkey-mappings', settings.hotkeyMappings)
+        }
+        
+        // Import stop hotkey
+        if (typeof settings.stopHotkey === 'string') {
+          await window.electronAPI.storeSet('stop-hotkey', settings.stopHotkey)
+        }
+        
+        // Import stop button index if present
+        if (typeof settings.stopButtonIndex === 'number' || settings.stopButtonIndex === null) {
+          await window.electronAPI.storeSet('soundpad-stop-button', settings.stopButtonIndex)
+        }
+        
+        alert('Settings imported successfully! The app will reload to apply changes.')
         window.location.reload() // Reload to apply imported settings
+      } else {
+        alert('Settings import is only available in the desktop app')
       }
     } catch (error) {
       console.error('Import failed:', error)
-      alert('Failed to import settings. Please check the file format.')
+      const errorMessage = error instanceof Error ? error.message : 'Invalid file format'
+      alert(`Failed to import settings: ${errorMessage}`)
     }
   }
 
@@ -198,8 +238,20 @@ export const Settings: React.FC<SettingsProps> = ({
           <div className="mb-4">
             <h4 className="text-sm font-medium mb-2">Keyboard:</h4>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">Current:</span>
-              <code className="px-2 py-1 bg-gray-600 rounded">{stopHotkey}</code>
+              {stopHotkey && stopHotkey !== '' ? (
+                <>
+                  <span className="text-sm text-gray-400">Current:</span>
+                  <code className="px-2 py-1 bg-gray-600 rounded">{stopHotkey}</code>
+                  <button
+                    onClick={() => setStopHotkey('')}
+                    className="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : (
+                <span className="text-sm text-gray-400">No keyboard hotkey assigned</span>
+              )}
               <span className="text-xs text-gray-400">(Configure keyboard hotkey for stop)</span>
             </div>
           </div>

@@ -5,12 +5,14 @@ interface MappingConfigProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
   onMapSound: (buttonIndex: number, audioFile: string) => void
+  controllerButtonCount?: number
 }
 
 export const MappingConfig: React.FC<MappingConfigProps> = ({
   buttonStates,
   soundMappings,
-  onMapSound
+  onMapSound,
+  controllerButtonCount = 16
 }) => {
   const [selectedButton, setSelectedButton] = useState<number | null>(null)
   const [listeningForButton, setListeningForButton] = useState(false)
@@ -29,6 +31,19 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
 
   const handleFileSelect = async () => {
     if (selectedButton === null) return
+    
+    // Check if button already has a mapping
+    const existingMapping = soundMappings.get(selectedButton)
+    if (existingMapping) {
+      const existingName = extractFilename(existingMapping)
+      const confirmed = window.confirm(
+        `Button ${selectedButton + 1} is already mapped to "${existingName}".\n\nReplace with a new sound?`
+      )
+      if (!confirmed) {
+        setSelectedButton(null)
+        return
+      }
+    }
     
     // Use Electron's native file dialog if available
     if (typeof window !== 'undefined' && window.electronAPI?.selectAudioFile) {
@@ -101,29 +116,68 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4">Configure Button Mappings</h2>
-      
-      <div className="mb-6">
-        <button
-          onClick={() => setListeningForButton(true)}
-          className={`
-            px-6 py-3 rounded-lg font-medium transition-all
-            ${listeningForButton 
-              ? 'bg-yellow-600 animate-pulse' 
-              : 'bg-purple-600 hover:bg-purple-700'
+    <div className="bg-gray-900 rounded-xl p-8 shadow-2xl">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+          Configure Button Mappings
+        </h2>
+        <div className="text-sm text-gray-400">
+          {soundMappings.size} / 16 mapped
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <div className="flex gap-4">
+          <button
+            onClick={() => setListeningForButton(true)}
+            className={`
+              px-8 py-4 rounded-xl font-semibold transition-all shadow-lg
+              ${listeningForButton
+                ? 'bg-gradient-to-r from-yellow-500 to-orange-500 animate-pulse shadow-orange-500/50'
+                : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-purple-500/30'
+              }
+            `}
+          >
+            {listeningForButton
+              ? '🎮 Press a controller button...'
+              : '🎵 Map a Sound to Button'
             }
-          `}
-        >
-          {listeningForButton 
-            ? 'Press a controller button...' 
-            : 'Click to map a button'
-          }
-        </button>
+          </button>
+
+          {selectedButton === null && !listeningForButton && (
+            <button
+              onClick={() => {
+                if (window.confirm('Clear all sound mappings?')) {
+                  soundMappings.forEach((_, key) => handleRemoveMapping(key))
+                }
+              }}
+              className="px-6 py-4 bg-gray-800 hover:bg-gray-700 rounded-xl transition shadow-lg"
+            >
+              Clear All
+            </button>
+          )}
+        </div>
 
         {selectedButton !== null && (
-          <div className="mt-4 p-4 bg-gray-700 rounded-lg">
-            <p className="mb-2">Selected Button: <strong>{selectedButton + 1}</strong></p>
+          <div className="mt-6 p-6 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-inner">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center font-bold text-lg shadow-lg">
+                  {selectedButton + 1}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Selected Pad</p>
+                  <p className="font-semibold">Button {selectedButton + 1}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedButton(null)}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition"
+              >
+                Cancel
+              </button>
+            </div>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -133,43 +187,69 @@ export const MappingConfig: React.FC<MappingConfigProps> = ({
             />
             <button
               onClick={handleFileSelect}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition"
+              className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 rounded-xl font-semibold transition shadow-lg shadow-green-500/30"
             >
-              Choose Audio File
+              📁 Choose Audio File
             </button>
           </div>
         )}
       </div>
 
-      <div className="space-y-2">
-        <h3 className="text-lg font-medium mb-2">Current Mappings</h3>
-        <div className="max-h-96 overflow-y-auto">
-          {Array.from({ length: 16 }, (_, i) => {
-            const mapping = soundMappings.get(i)
+      <div className="space-y-3">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <span>Current Mappings</span>
+          <span className="text-xs px-2 py-1 bg-gray-800 rounded-full text-gray-400">
+            Sorted by button number
+          </span>
+        </h3>
+
+        <div className="grid gap-2 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+          {Array.from(soundMappings.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([i, mapping]) => {
             if (!mapping) return null
 
+            // Color code by row like in the pad display
+            const row = Math.floor(i / 4)
+            const rowColors = [
+              'from-blue-600/20 to-blue-700/20 border-blue-500/30',
+              'from-green-600/20 to-green-700/20 border-green-500/30',
+              'from-yellow-600/20 to-yellow-700/20 border-yellow-500/30',
+              'from-red-600/20 to-red-700/20 border-red-500/30'
+            ]
+
             return (
-              <div key={i} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium bg-gray-600 px-2 py-1 rounded">
-                    Button {i + 1}
-                  </span>
-                  <span className="text-sm text-gray-300">
-                    {getSoundName(mapping)}
-                  </span>
+              <div
+                key={i}
+                className={`flex items-center justify-between p-4 bg-gradient-to-r ${rowColors[row % 4]} border rounded-xl backdrop-blur-sm`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-gray-900/50 rounded-lg flex items-center justify-center font-bold">
+                    {i + 1}
+                  </div>
+                  <div>
+                    <span className="font-medium text-white">
+                      {getSoundName(mapping)}
+                    </span>
+                    <p className="text-xs text-gray-400 mt-1">Pad {i + 1}</p>
+                  </div>
                 </div>
                 <button
                   onClick={() => handleRemoveMapping(i)}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition"
+                  className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded-lg text-sm font-medium transition shadow-sm"
                 >
                   Remove
                 </button>
               </div>
             )
-          }).filter(Boolean)}
+          })}
         </div>
+
         {soundMappings.size === 0 && (
-          <p className="text-gray-400 text-center py-4">No mappings configured yet</p>
+          <div className="text-center py-12 bg-gray-800/50 rounded-xl">
+            <p className="text-gray-400">No sound mappings configured</p>
+            <p className="text-sm text-gray-500 mt-2">Press the button above to start mapping sounds</p>
+          </div>
         )}
       </div>
     </div>

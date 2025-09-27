@@ -126,13 +126,14 @@ export default function Home() {
     if (selectedController) {
       buttonStates.forEach((pressed, buttonIndex) => {
         if (pressed) {
-          // Check if this is the stop button
+          // Check if this is the stop button FIRST (priority over sound mappings)
           if (stopButtonIndex !== null && buttonIndex === stopButtonIndex) {
             stopAll()
+            // Don't process as a sound button
             return
           }
           
-          // Otherwise play the mapped sound
+          // Only play sound if it's not the stop button
           const soundFile = soundMappings.get(buttonIndex)
           if (soundFile) {
             const actualUrl = extractAudioUrl(soundFile)
@@ -301,12 +302,14 @@ export default function Home() {
                 buttonStates={buttonStates}
                 soundMappings={soundMappings}
                 onMapSound={handleSoundMapping}
+                controllerButtonCount={selectedController?.buttons?.length || 16}
               />
             ) : (
               <SoundPad
                 soundMappings={soundMappings}
                 buttonStates={buttonStates}
                 onPlaySound={playSound}
+                controllerButtonCount={selectedController?.buttons?.length || 16}
               />
             )}
           </div>

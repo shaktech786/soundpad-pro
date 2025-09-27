@@ -56,12 +56,6 @@ export function useAudioEngine() {
       const sounds = loadedSoundsRef.current
       const loading = loadingRef.current
       
-      if (sounds.has(filePath) && !forceReload) {
-        logger.debug(`Sound already loaded: ${filePath}`)
-        resolve()
-        return
-      }
-      
       // If force reload, unload the existing sound first
       if (forceReload && sounds.has(filePath)) {
         const existingSound = sounds.get(filePath)
@@ -76,6 +70,11 @@ export function useAudioEngine() {
             return newMap
           })
         }
+      } else if (sounds.has(filePath)) {
+        // Already loaded and not force reloading
+        logger.debug(`Sound already loaded: ${filePath}`)
+        resolve()
+        return
       }
       
       if (loading.has(filePath)) {

@@ -12,7 +12,12 @@ export const ControllerSelector: React.FC<ControllerSelectorProps> = ({
   onSelect
 }) => {
   if (controllers.length === 0) {
-    return null
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-700 rounded-lg">
+        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+        <span className="text-sm text-gray-400">No Controller</span>
+      </div>
+    )
   }
 
   if (controllers.length === 1) {
