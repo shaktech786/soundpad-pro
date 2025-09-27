@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
@@ -10,6 +10,8 @@
     "build": "next build",
     "build:win": "npm run build && electron-builder --win --config .electron-builder.config.js",
     "build:win:portable": "npm run build && electron-builder --win portable --config .electron-builder.config.js",
+    "build:deploy": "npm run build:win && powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1 -Force",
+    "shortcut": "powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1",
     "start": "electron simple-main.js",
     "type-check": "tsc --noEmit"
   },
