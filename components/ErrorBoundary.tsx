@@ -27,11 +27,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to console in development
-    if (process.env.NODE_ENV === 'development') {
-      console.error('ErrorBoundary caught an error:', error, errorInfo)
-    }
-    
+    // Always log errors to console
+    console.error('ErrorBoundary caught an error:', error, errorInfo)
+
     // Store error details
     this.setState({
       error,
@@ -72,10 +70,10 @@ export class ErrorBoundary extends Component<Props, State> {
               An unexpected error occurred. The application has been notified.
             </p>
             
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {this.state.error && (
               <details className="mb-6">
                 <summary className="cursor-pointer text-gray-400 hover:text-gray-300">
-                  Error details (Development only)
+                  Error details
                 </summary>
                 <pre className="mt-2 p-4 bg-gray-900 rounded text-xs overflow-auto">
                   {this.state.error.toString()}

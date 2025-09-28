@@ -8,7 +8,7 @@ const nextConfig = {
   // Important for Electron
   output: 'export',
   distDir: 'out',
-  assetPrefix: isDev ? undefined : './',
+  assetPrefix: './',
   images: {
     unoptimized: true,
   },
