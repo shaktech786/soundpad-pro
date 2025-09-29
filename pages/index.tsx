@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react'
-import dynamic from 'next/dynamic'
 import Head from 'next/head'
 import { extractAudioUrl } from '../utils/audioUtils'
 import { SoundPad } from '../components/SoundPad'
@@ -16,9 +15,6 @@ import { PerformanceMonitor } from '../components/PerformanceMonitor'
 import { AudioStatus } from '../components/AudioStatus'
 import { LogViewer } from '../components/LogViewer'
 import logger from '../utils/logger'
-
-// Load ClientOnly component dynamically to avoid SSR issues
-const ClientOnly = dynamic(() => import('../components/ClientOnly'), { ssr: false })
 
 function SoundPadApp() {
   const [isConfiguring, setIsConfiguring] = useState(false)
@@ -408,21 +404,25 @@ function SoundPadApp() {
 }
 
 export default function Home() {
-  return (
-    <ClientOnly
-      fallback={
-        <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-          <div className="text-center">
-            <div className="mb-4">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Loading SoundPad Pro...</h2>
-            <p className="text-gray-400">Please wait...</p>
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mb-4">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
           </div>
+          <h2 className="text-xl font-semibold mb-2">Loading SoundPad Pro...</h2>
+          <p className="text-gray-400">Please wait...</p>
         </div>
-      }
-    >
-      <SoundPadApp />
-    </ClientOnly>
-  )
+      </div>
+    )
+  }
+
+  return <SoundPadApp />
 }
