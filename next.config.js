@@ -20,14 +20,19 @@ const nextConfig = {
     // Only set electron-renderer target when running in Electron
     if (!isServer && isElectron) {
       config.target = 'electron-renderer';
-    } else if (!isServer) {
-      // For browser, polyfill global
+    }
+
+    // Always provide process polyfill for client-side code
+    if (!isServer) {
+      // For browser, polyfill global and process
       config.resolve.fallback = {
         ...config.resolve.fallback,
+        process: require.resolve('process/browser'),
       };
       config.plugins.push(
         new (require('webpack').ProvidePlugin)({
           global: ['globalThis', 'global'],
+          process: 'process/browser',
         })
       );
     }
