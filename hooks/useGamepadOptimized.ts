@@ -90,18 +90,25 @@ export function useGamepad() {
       // Always update button states to reflect current state
       // Build complete button state map
       const currentButtonStates = new Map<number, boolean>()
+      let hasActiveGamepad = false
 
       for (let i = 0; i < gamepads.length; i++) {
         const gamepad = gamepads[i]
         if (!gamepad || !gamepad.connected) continue
+        hasActiveGamepad = true
 
-        // Include ALL button states, not just changed ones
+        // Include ALL button states - both pressed and released
         for (let btnIndex = 0; btnIndex < Math.min(gamepad.buttons.length, MAX_BUTTONS); btnIndex++) {
           const button = gamepad.buttons[btnIndex]
           const isPressed = button.pressed || button.value > 0.5
-          if (isPressed) {
-            currentButtonStates.set(btnIndex, true)
+
+          // Log any button press for debugging
+          if (isPressed && !previousButtonStatesRef.current.get(btnIndex)) {
+            console.log(`🎮 Gamepad button ${btnIndex} detected as pressed (value: ${button.value})`)
           }
+
+          // Always set the state, not just when pressed
+          currentButtonStates.set(btnIndex, isPressed)
         }
 
         // Include axis states
@@ -109,12 +116,9 @@ export function useGamepad() {
           const axisValue = gamepad.axes[axisIndex]
           const virtualButtonIndex = MAX_BUTTONS + (axisIndex * 2)
 
-          if (axisValue > AXIS_THRESHOLD) {
-            currentButtonStates.set(virtualButtonIndex, true)
-          }
-          if (axisValue < -AXIS_THRESHOLD) {
-            currentButtonStates.set(virtualButtonIndex + 1, true)
-          }
+          // Set both positive and negative axis states
+          currentButtonStates.set(virtualButtonIndex, axisValue > AXIS_THRESHOLD)
+          currentButtonStates.set(virtualButtonIndex + 1, axisValue < -AXIS_THRESHOLD)
         }
       }
 
