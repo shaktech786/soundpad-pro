@@ -129,9 +129,12 @@ ipcMain.handle('dialog:openFile', async () => {
   });
   
   if (!result.canceled && result.filePaths.length > 0) {
+    const filePath = result.filePaths[0];
+    // Convert to proper file URL to avoid temp file issues
+    const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
     return {
-      filePath: result.filePaths[0],
-      fileName: path.basename(result.filePaths[0])
+      filePath: fileUrl,
+      fileName: path.basename(filePath)
     };
   }
   return null;

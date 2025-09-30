@@ -161,39 +161,46 @@ function SoundPadApp() {
 
   // Handle controller button presses with edge detection (only trigger on button down)
   useEffect(() => {
-    if (selectedController) {
-      const now = Date.now()
+    // Don't require selectedController - buttonStates come from all connected controllers
+    const now = Date.now()
 
-      buttonStates.forEach((currentlyPressed, buttonIndex) => {
-        const wasPressed = previousButtonStates.current.get(buttonIndex) || false
-        const lastTriggerTime = buttonCooldowns.current.get(buttonIndex) || 0
-        const cooldownMs = 50 // Minimum 50ms between triggers
+    buttonStates.forEach((currentlyPressed, buttonIndex) => {
+      const wasPressed = previousButtonStates.current.get(buttonIndex) || false
+      const lastTriggerTime = buttonCooldowns.current.get(buttonIndex) || 0
+      const cooldownMs = 50 // Minimum 50ms between triggers
 
-        // Only trigger on the rising edge (button just pressed down) AND cooldown has passed
-        if (currentlyPressed && !wasPressed && (now - lastTriggerTime) > cooldownMs) {
-          // Update cooldown
-          buttonCooldowns.current.set(buttonIndex, now)
+      // Debug logging
+      if (currentlyPressed !== wasPressed) {
+        console.log(`Button ${buttonIndex}: ${wasPressed ? 'released' : 'pressed'}`)
+      }
 
-          // Check if this is the stop button FIRST (priority over sound mappings)
-          if (stopButtonIndex !== null && buttonIndex === stopButtonIndex) {
-            stopAll()
-            console.log(`Stop button ${buttonIndex} pressed`)
+      // Only trigger on the rising edge (button just pressed down) AND cooldown has passed
+      if (currentlyPressed && !wasPressed && (now - lastTriggerTime) > cooldownMs) {
+        // Update cooldown
+        buttonCooldowns.current.set(buttonIndex, now)
+        console.log(`Button ${buttonIndex} edge detected, checking for action...`)
+
+        // Check if this is the stop button FIRST (priority over sound mappings)
+        if (stopButtonIndex !== null && buttonIndex === stopButtonIndex) {
+          stopAll()
+          console.log(`Stop button ${buttonIndex} triggered!`)
+        } else {
+          // Only play sound if it's not the stop button
+          const soundFile = soundMappings.get(buttonIndex)
+          if (soundFile) {
+            const actualUrl = extractAudioUrl(soundFile)
+            console.log(`Playing sound for button ${buttonIndex}:`, actualUrl)
+            playSound(actualUrl, { restart: true })
           } else {
-            // Only play sound if it's not the stop button
-            const soundFile = soundMappings.get(buttonIndex)
-            if (soundFile) {
-              const actualUrl = extractAudioUrl(soundFile)
-              console.log(`Button ${buttonIndex} pressed, playing:`, actualUrl)
-              playSound(actualUrl, { restart: true })
-            }
+            console.log(`Button ${buttonIndex} pressed but no sound mapped`)
           }
         }
+      }
 
-        // Update previous state for next frame
-        previousButtonStates.current.set(buttonIndex, currentlyPressed)
-      })
-    }
-  }, [buttonStates, soundMappings, playSound, selectedController, stopButtonIndex, stopAll])
+      // Update previous state for next frame
+      previousButtonStates.current.set(buttonIndex, currentlyPressed)
+    })
+  }, [buttonStates, soundMappings, playSound, stopButtonIndex, stopAll])
 
   const handleSoundMapping = (buttonIndex: number, audioFile: string) => {
     if (!audioFile) {

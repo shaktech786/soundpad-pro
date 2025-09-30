@@ -98,21 +98,23 @@ export function useAudioEngine() {
         // Handle different path formats
         let audioUrl = filePath
         
-        // Handle file:// protocol
+        // Handle file:// protocol - keep as-is for Howler.js
         if (filePath.startsWith('file://')) {
-          // Convert file:// to proper path for Howler.js
-          audioUrl = filePath.replace('file:///', '').replace(/\\/g, '/')
+          audioUrl = filePath
         }
-        
         // Handle Windows paths (C:\path\to\file.mp3)
-        if (/^[A-Z]:\\/.test(filePath)) {
+        else if (/^[A-Z]:\\/.test(filePath)) {
           // Windows path - convert to file:// URL for Howler.js
           audioUrl = 'file:///' + filePath.replace(/\\/g, '/')
         }
-        
         // Handle blob URLs (keep as-is)
-        if (filePath.startsWith('blob:')) {
+        else if (filePath.startsWith('blob:')) {
           audioUrl = filePath
+        }
+        // Handle relative paths or temp file issues
+        else if (filePath.includes('\\') || filePath.includes('AppData\\Local\\Temp')) {
+          // Convert Windows paths to proper file URLs
+          audioUrl = 'file:///' + filePath.replace(/\\/g, '/')
         }
         
         logger.debug('Loading audio from:', audioUrl)
