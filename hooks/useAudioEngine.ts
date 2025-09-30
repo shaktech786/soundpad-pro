@@ -97,26 +97,39 @@ export function useAudioEngine() {
       try {
         // Handle different path formats
         let audioUrl = filePath
-        
-        // Handle file:// protocol - keep as-is for Howler.js
-        if (filePath.startsWith('file://')) {
-          audioUrl = filePath
-        }
-        // Handle Windows paths (C:\path\to\file.mp3)
-        else if (/^[A-Z]:\\/.test(filePath)) {
-          // Windows path - convert to file:// URL for Howler.js
-          audioUrl = 'file:///' + filePath.replace(/\\/g, '/')
-        }
+
         // Handle blob URLs (keep as-is)
-        else if (filePath.startsWith('blob:')) {
+        if (filePath.startsWith('blob:')) {
           audioUrl = filePath
         }
-        // Handle relative paths or temp file issues
-        else if (filePath.includes('\\') || filePath.includes('AppData\\Local\\Temp')) {
-          // Convert Windows paths to proper file URLs
-          audioUrl = 'file:///' + filePath.replace(/\\/g, '/')
+        // Handle file:// protocol - ensure it's properly formatted
+        else if (filePath.startsWith('file://')) {
+          // Already a file URL, ensure proper formatting
+          audioUrl = filePath
         }
-        
+        // Handle Windows absolute paths (C:\path\to\file.mp3)
+        else if (/^[A-Z]:[\\\/]/.test(filePath)) {
+          // Windows absolute path - convert to file URL
+          // Replace backslashes and encode special characters
+          const normalizedPath = filePath.replace(/\\/g, '/')
+          audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
+        }
+        // Handle UNC paths (\\server\share\file.mp3)
+        else if (filePath.startsWith('\\\\')) {
+          // UNC path - convert to file URL
+          audioUrl = 'file:' + filePath.replace(/\\/g, '/')
+        }
+        // Handle any other Windows-style paths
+        else if (filePath.includes('\\')) {
+          // Convert to file URL
+          const normalizedPath = filePath.replace(/\\/g, '/')
+          audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
+        }
+        // Keep other URLs as-is (http, https, etc)
+        else {
+          audioUrl = filePath
+        }
+
         logger.debug('Loading audio from:', audioUrl)
         
         const sound = new Howl({
