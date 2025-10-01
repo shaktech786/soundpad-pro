@@ -52,6 +52,31 @@ export default function Home() {
     autoLoadSounds()
   }, [soundMappings.size, autoLoadComplete, setSoundMappings, loadSound])
 
+  // Track previous button states for edge detection
+  const [prevButtonStates, setPrevButtonStates] = useState<Map<number, boolean>>(new Map())
+
+  // Play sound when controller buttons are pressed
+  useEffect(() => {
+    buttonStates.forEach((isPressed, buttonIndex) => {
+      const wasPressed = prevButtonStates.get(buttonIndex) || false
+
+      // Edge detection - only trigger on button down (not release)
+      if (isPressed && !wasPressed) {
+        const soundFile = soundMappings.get(buttonIndex)
+        if (soundFile) {
+          const cleanUrl = soundFile.split('#')[0]
+          console.log(`Controller button ${buttonIndex} pressed, playing:`, cleanUrl)
+          playSound(cleanUrl, { restart: true })
+        } else {
+          console.log(`Button ${buttonIndex} pressed but no sound mapped`)
+        }
+      }
+    })
+
+    // Update previous states
+    setPrevButtonStates(new Map(buttonStates))
+  }, [buttonStates, soundMappings, playSound, prevButtonStates])
+
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
     console.log('Playing sound:', cleanUrl)
