@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import { extractAudioUrl, extractFilename } from '../utils/audioUtils'
 
 interface SoundPadProps {
@@ -14,16 +14,18 @@ export const SoundPad: React.FC<SoundPadProps> = ({
   onPlaySound,
   controllerButtonCount = 16
 }) => {
-  // Fixed 4x4 grid layout like professional pad controllers (Haute42 style)
-  const padCount = 16
-  const gridCols = 'grid-cols-4'
-
+  // Debug logging for buttonStates prop
+  useEffect(() => {
+    const pressedButtons = Array.from(buttonStates.entries()).filter(([k,v]) => v).map(([k]) => k)
+    if (pressedButtons.length > 0) {
+      console.log(`🟣 SoundPad Component: Received buttonStates with pressed buttons: [${pressedButtons.join(', ')}]`)
+    }
+  }, [buttonStates])
   const handlePadClick = useCallback((index: number) => {
     const soundFile = soundMappings.get(index)
     if (soundFile) {
-      // Extract actual URL using utility function
       const actualUrl = extractAudioUrl(soundFile)
-      console.log(`Playing sound from pad ${index + 1}:`, actualUrl)
+      console.log(`Playing sound from pad ${index}:`, actualUrl)
       onPlaySound(actualUrl, { restart: true })
     }
   }, [soundMappings, onPlaySound])
@@ -32,16 +34,12 @@ export const SoundPad: React.FC<SoundPadProps> = ({
     return extractFilename(filePath)
   }, [])
 
-  // Count how many sounds are actually mapped
-  const mappedCount = soundMappings.size
-
-  // Define professional pad colors (inspired by MPC/Maschine style)
+  // Get pad color based on row (Haute42/MPC style)
   const getPadColor = useCallback((index: number, hasSound: boolean, isActive: boolean) => {
     if (isActive) {
       return 'bg-gradient-to-br from-purple-500 to-pink-500 border-purple-300 shadow-lg shadow-purple-500/50'
     }
     if (hasSound) {
-      // Different colors for each row for visual organization
       const row = Math.floor(index / 4)
       const colors = [
         'bg-gradient-to-br from-blue-600 to-blue-700 border-blue-500 hover:from-blue-500 hover:to-blue-600',
@@ -60,12 +58,12 @@ export const SoundPad: React.FC<SoundPadProps> = ({
         <div className="flex items-center gap-3">
           <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
           <h2 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Sound Pad Controller
+            Haute42 Pad Controller
           </h2>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-400">
-            {mappedCount} / {padCount} pads
+            {soundMappings.size} / 16 pads
           </span>
           <span className="text-xs px-2 py-1 bg-gray-800 rounded-full text-gray-400">
             4x4 GRID
@@ -73,71 +71,89 @@ export const SoundPad: React.FC<SoundPadProps> = ({
         </div>
       </div>
 
-      {/* Pad grid container with aspect ratio */}
-      <div className="relative bg-gray-950 rounded-xl p-6 shadow-inner">
-        <div className={`grid ${gridCols} gap-4 max-w-2xl mx-auto`}>
-          {Array.from({ length: padCount }, (_, index) => {
+      {/* Haute42 4x4 Pad Grid */}
+      <div className="relative bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl p-8 shadow-inner">
+        <div className="grid grid-cols-4 gap-4 max-w-3xl mx-auto">
+          {Array.from({ length: 16 }, (_, index) => {
             const isActive = buttonStates.get(index) || false
             const soundFile = soundMappings.get(index)
             const hasSound = !!soundFile
+
+            // Debug logging for active buttons
+            if (isActive) {
+              console.log(`🟦 Pad ${index}: RENDERING AS ACTIVE (has sound: ${hasSound})`)
+            }
 
             return (
               <button
                 key={index}
                 onClick={() => handlePadClick(index)}
+                data-button-index={index}
+                data-active={isActive}
                 className={`
-                  relative aspect-square rounded-xl border-2 transition-all duration-150 transform
+                  relative aspect-square rounded-lg border-4 transition-all duration-100 transform
                   ${getPadColor(index, hasSound, isActive)}
-                  ${isActive ? 'scale-95' : 'hover:scale-105'}
-                  shadow-lg hover:shadow-xl
+                  ${isActive ? 'scale-90 shadow-inner' : 'hover:scale-105 shadow-xl'}
                   flex flex-col items-center justify-center
                   overflow-hidden
+                  min-h-[120px]
                 `}
               >
                 {/* Pad number badge */}
-                <div className="absolute top-2 left-2 w-6 h-6 bg-black/50 rounded-full flex items-center justify-center">
-                  <span className="text-[10px] font-bold text-white/80">
-                    {index + 1}
+                <div className="absolute top-2 left-2 w-8 h-8 bg-black/60 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                  <span className="text-xs font-bold text-white">
+                    {index}
                   </span>
                 </div>
 
                 {/* Sound name */}
-                <div className="px-3 py-2 text-center">
-                  <span className="text-sm font-semibold text-white drop-shadow-md line-clamp-2">
-                    {hasSound ? getSoundName(soundFile) : ''}
-                  </span>
-                  {!hasSound && (
-                    <span className="text-xs text-gray-500">Empty</span>
+                <div className="px-3 py-2 text-center flex-1 flex items-center justify-center">
+                  {hasSound ? (
+                    <span className="text-sm font-bold text-white drop-shadow-lg line-clamp-2">
+                      {getSoundName(soundFile)}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500 font-medium">EMPTY</span>
                   )}
                 </div>
 
-                {/* Active indicator */}
+                {/* Active indicator with velocity bar */}
                 {isActive && (
-                  <div className="absolute inset-0 bg-white opacity-20 animate-pulse" />
+                  <>
+                    <div className="absolute inset-0 bg-white opacity-30 animate-pulse rounded-lg" />
+                    <div className="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400" />
+                  </>
                 )}
 
-                {/* Velocity/pressure indicator (visual only for now) */}
-                {isActive && hasSound && (
-                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 animate-pulse" />
-                )}
+                {/* Pad inner shadow effect */}
+                <div className="absolute inset-0 rounded-lg shadow-inner pointer-events-none opacity-30" />
               </button>
             )
           })}
         </div>
 
-        {/* Visual indicators for pad banks (like MPC) */}
-        <div className="mt-6 flex justify-center gap-2">
-          <div className="flex gap-1">
-            {[1, 2, 3, 4].map((bank) => (
-              <div
-                key={bank}
-                className={`w-2 h-2 rounded-full ${
-                  bank === 1 ? 'bg-purple-500' : 'bg-gray-700'
-                }`}
-              />
-            ))}
+        {/* Status bar below pads */}
+        <div className="mt-6 flex justify-center items-center gap-6 text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+            <span>Active</span>
           </div>
-          <span className="text-xs text-gray-500 ml-2">Bank A</span>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-blue-600" />
+            <span>Row 1</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-green-600" />
+            <span>Row 2</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-yellow-600" />
+            <span>Row 3</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-red-600" />
+            <span>Row 4</span>
+          </div>
         </div>
       </div>
     </div>

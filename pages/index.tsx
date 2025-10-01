@@ -161,6 +161,14 @@ function SoundPadApp() {
 
   // Handle controller button presses with edge detection (only trigger on button down)
   useEffect(() => {
+    // Debug: log the buttonStates size and content
+    const pressedButtons = Array.from(buttonStates.entries()).filter(([k,v]) => v).map(([k]) => k)
+    if (pressedButtons.length > 0) {
+      console.log(`📊 Index.tsx: ButtonStates update - ${buttonStates.size} total buttons, pressed: [${pressedButtons.join(', ')}]`)
+    } else if (buttonStates.size > 0) {
+      console.log(`📊 Index.tsx: ButtonStates update - ${buttonStates.size} buttons tracked, none pressed`)
+    }
+
     // Don't require selectedController - buttonStates come from all connected controllers
     buttonStates.forEach((currentlyPressed, buttonIndex) => {
       const wasPressed = previousButtonStates.current.get(buttonIndex) || false

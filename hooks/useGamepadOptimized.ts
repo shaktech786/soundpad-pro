@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { APP_CONFIG } from '../config/constants'
 import logger from '../utils/logger'
+import { logButtonPress } from '../utils/controllerMapping'
 
 interface GamepadState {
   controllers: Gamepad[]
@@ -17,6 +18,7 @@ export function useGamepad() {
   const [controllers, setControllers] = useState<Gamepad[]>([])
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const previousButtonStatesRef = useRef<Map<number, boolean>>(new Map())
+  const lastButtonStatesStringRef = useRef<string>("")
   const previousAxisStatesRef = useRef<Map<string, boolean>>(new Map())
   const isPollingRef = useRef(false)
   const lastScanTimeRef = useRef(0)
@@ -91,6 +93,7 @@ export function useGamepad() {
       // Build complete button state map
       const currentButtonStates = new Map<number, boolean>()
       let hasActiveGamepad = false
+      let hasChanges = false
 
       for (let i = 0; i < gamepads.length; i++) {
         const gamepad = gamepads[i]
@@ -101,10 +104,15 @@ export function useGamepad() {
         for (let btnIndex = 0; btnIndex < Math.min(gamepad.buttons.length, MAX_BUTTONS); btnIndex++) {
           const button = gamepad.buttons[btnIndex]
           const isPressed = button.pressed || button.value > 0.5
+          const wasPressed = previousButtonStatesRef.current.get(btnIndex) || false
 
-          // Log any button press for debugging
-          if (isPressed && !previousButtonStatesRef.current.get(btnIndex)) {
-            console.log(`🎮 Gamepad button ${btnIndex} detected as pressed (value: ${button.value})`)
+          // Log any button press for debugging with proper button names
+          if (isPressed && !wasPressed) {
+            logButtonPress(btnIndex, true, gamepad.id.toLowerCase().includes('playstation') ? 'playstation' : 'xbox')
+            hasChanges = true
+          } else if (!isPressed && wasPressed) {
+            logButtonPress(btnIndex, false, gamepad.id.toLowerCase().includes('playstation') ? 'playstation' : 'xbox')
+            hasChanges = true
           }
 
           // Always set the state, not just when pressed
@@ -122,8 +130,30 @@ export function useGamepad() {
         }
       }
 
-      // Always update with current state
-      setButtonStates(currentButtonStates)
+      // Create a string representation to detect real changes
+      const stateString = Array.from(currentButtonStates.entries())
+        .filter(([_, v]) => v)
+        .sort(([a], [b]) => a - b)
+        .map(([k]) => k)
+        .join(',')
+
+      // Only update state if there are actual changes
+      if (stateString !== lastButtonStatesStringRef.current) {
+        const prevString = lastButtonStatesStringRef.current
+        lastButtonStatesStringRef.current = stateString
+
+        if (stateString) {
+          console.log(`🎮 Button state changed! Pressed buttons: [${stateString}]`)
+        } else if (prevString) {
+          console.log(`🎮 All buttons released`)
+        }
+
+        // Create new Map to trigger React update
+        const newMap = new Map(currentButtonStates)
+        console.log(`📤 useGamepad: Calling setButtonStates with ${newMap.size} entries, pressed: [${stateString}]`)
+        setButtonStates(newMap)
+        console.log(`📤 useGamepad: setButtonStates called successfully`)
+      }
     } catch (error) {
       console.error('Gamepad scan error:', error)
     }
