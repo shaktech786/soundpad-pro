@@ -117,6 +117,9 @@ export function useGamepad() {
 
           // Always set the state, not just when pressed
           currentButtonStates.set(btnIndex, isPressed)
+
+          // Update previous state tracking
+          previousButtonStatesRef.current.set(btnIndex, isPressed)
         }
 
         // Include axis states
@@ -136,6 +139,11 @@ export function useGamepad() {
         .sort(([a], [b]) => a - b)
         .map(([k]) => k)
         .join(',')
+
+      // Debug: log the comparison
+      if (stateString || lastButtonStatesStringRef.current) {
+        console.log(`🔍 Comparing states: current="${stateString}" vs previous="${lastButtonStatesStringRef.current}"`)
+      }
 
       // Only update state if there are actual changes
       if (stateString !== lastButtonStatesStringRef.current) {

@@ -1,466 +1,116 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState } from 'react'
 import Head from 'next/head'
-import { extractAudioUrl } from '../utils/audioUtils'
-import { SoundPad } from '../components/SoundPad'
-import { ControllerDisplay } from '../components/ControllerDisplay'
-import { useGamepad } from '../hooks/useGamepadOptimized'
+import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
+import { SimplePad } from '../components/SimplePad'
 import { useAudioEngine } from '../hooks/useAudioEngine'
-import { MappingConfig } from '../components/MappingConfig'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
-import { Settings } from '../components/Settings'
-import { ControllerSelector } from '../components/ControllerSelector'
-import { ControllerDiagnostics } from '../components/ControllerDiagnostics'
-import { ControllerTest } from '../components/ControllerTest'
-import { PerformanceMonitor } from '../components/PerformanceMonitor'
-import { AudioStatus } from '../components/AudioStatus'
-import { LogViewer } from '../components/LogViewer'
-import logger from '../utils/logger'
 
-function SoundPadApp() {
-  const [isConfiguring, setIsConfiguring] = useState(false)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [selectedControllerIndex, setSelectedControllerIndex] = useState(0)
-  const [showDiagnostics, setShowDiagnostics] = useState(false)
-  const [showControllerTest, setShowControllerTest] = useState(false)
-  const [showPerformance, setShowPerformance] = useState(false)
-  const [showLogs, setShowLogs] = useState(false)
-  const [isInitializing, setIsInitializing] = useState(true)
-  const [initError, setInitError] = useState<string | null>(null)
-
-  // Auto-show logs on error
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      console.error('Global error caught:', event.error)
-      setShowLogs(true) // Auto-show logs on error
-    }
-
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      console.error('Unhandled promise rejection:', event.reason)
-      setShowLogs(true) // Auto-show logs on promise rejection
-    }
-
-    window.addEventListener('error', handleError)
-    window.addEventListener('unhandledrejection', handleUnhandledRejection)
-
-    return () => {
-      window.removeEventListener('error', handleError)
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
-    }
-  }, [])
+export default function Home() {
+  const { buttonStates, connected } = useSimpleGamepad()
+  const { playSound, stopAll } = useAudioEngine()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
-  const [stopButtonIndex, setStopButtonIndex] = usePersistentStorage<number | null>(
-    'soundpad-stop-button',
-    null
-  )
-  const { controllers, buttonStates } = useGamepad()
-  const { playSound, loadSound, unloadSound, stopAll, isLoading, loadErrors, loadedSounds } = useAudioEngine()
 
-  // Track previous button states for edge detection
-  const previousButtonStates = useRef<Map<number, boolean>>(new Map())
-  const buttonCooldowns = useRef<Map<number, number>>(new Map())
+  const handlePlaySound = (url: string) => {
+    const cleanUrl = url.split('#')[0]
+    console.log('Playing sound:', cleanUrl)
+    playSound(cleanUrl, { restart: true })
+  }
 
-  // Get the selected controller
-  const selectedController = controllers[selectedControllerIndex] || controllers[0]
-
-  // Add keyboard shortcuts for diagnostics and test mode
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'd') {
-        e.preventDefault()
-        setShowDiagnostics(prev => !prev)
-      }
-      if (e.ctrlKey && e.key === 't') {
-        e.preventDefault()
-        setShowControllerTest(prev => !prev)
-      }
-      if (e.ctrlKey && e.key === 'p') {
-        e.preventDefault()
-        setShowPerformance(prev => !prev)
-      }
-      if (e.ctrlKey && e.key === 'l') {
-        e.preventDefault()
-        setShowLogs(prev => !prev)
-      }
-    }
-    
-    document.addEventListener('keydown', handleKeyPress)
-    return () => document.removeEventListener('keydown', handleKeyPress)
-  }, [])
-
-  useEffect(() => {
-    const initializeApp = async () => {
+  const handleMapSound = async (index: number) => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
       try {
-        setIsInitializing(true)
-        setInitError(null)
-
-        // Log initialization start
-        console.log('SoundPad Pro initializing...', {
-          timestamp: new Date().toISOString(),
-          platform: typeof window !== 'undefined' ? window.navigator.platform : 'unknown',
-          userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'unknown'
-        })
-        
-        // Initialize virtual audio output
-        if (typeof window !== 'undefined' && window.electronAPI) {
-          try {
-            const result = await window.electronAPI.setupVirtualAudio()
-            logger.info('Virtual audio setup:', result)
-          } catch (error) {
-            logger.error('Failed to setup virtual audio:', error)
-            setInitError('Failed to initialize virtual audio')
-          }
-          
-          // Listen for global hotkey events
-          window.electronAPI.onHotkeyTriggered((buttonIndex: number) => {
-            const soundFile = soundMappings.get(buttonIndex)
-            if (soundFile) {
-              const actualUrl = extractAudioUrl(soundFile)
-              playSound(actualUrl)
-            }
-          })
-          
-          // Listen for global stop command
-          window.electronAPI.onGlobalStopAudio(() => {
-            stopAll()
+        const result = await (window as any).electronAPI.selectAudioFile()
+        if (result && result.filePath) {
+          console.log(`Mapping pad ${index} to:`, result.filePath)
+          setSoundMappings(prev => {
+            const newMap = new Map(prev)
+            newMap.set(index, result.filePath)
+            return newMap
           })
         }
-        
-        // Reload all saved sound mappings
-        const loadPromises: Promise<void>[] = []
-        soundMappings.forEach((audioFile) => {
-          const actualUrl = extractAudioUrl(audioFile)
-          logger.debug('Loading saved sound:', actualUrl)
-          loadPromises.push(
-            loadSound(actualUrl).catch(err => {
-              logger.error('Failed to load saved sound:', err)
-            })
-          )
-        })
-        
-        await Promise.allSettled(loadPromises)
       } catch (error) {
-        logger.error('Initialization error:', error)
-        setInitError('Failed to initialize application')
-      } finally {
-        setIsInitializing(false)
+        console.error('Error selecting file:', error)
       }
     }
-    
-    initializeApp()
-    
-    // Cleanup listeners on unmount
-    return () => {
-      if (window.electronAPI) {
-        window.electronAPI.removeAllListeners()
-      }
-    }
-  }, []) // Only run on mount
+  }
 
-  // Handle controller button presses with edge detection (only trigger on button down)
-  useEffect(() => {
-    // Debug: log the buttonStates size and content
-    const pressedButtons = Array.from(buttonStates.entries()).filter(([k,v]) => v).map(([k]) => k)
-    if (pressedButtons.length > 0) {
-      console.log(`📊 Index.tsx: ButtonStates update - ${buttonStates.size} total buttons, pressed: [${pressedButtons.join(', ')}]`)
-    } else if (buttonStates.size > 0) {
-      console.log(`📊 Index.tsx: ButtonStates update - ${buttonStates.size} buttons tracked, none pressed`)
-    }
-
-    // Don't require selectedController - buttonStates come from all connected controllers
-    buttonStates.forEach((currentlyPressed, buttonIndex) => {
-      const wasPressed = previousButtonStates.current.get(buttonIndex) || false
-      const now = Date.now() // Get current time for each button check
-      const lastTriggerTime = buttonCooldowns.current.get(buttonIndex) || 0
-      const cooldownMs = 50 // Minimum 50ms between triggers
-
-      // Debug logging for state changes
-      if (currentlyPressed !== wasPressed) {
-        console.log(`Controller Button ${buttonIndex}: ${currentlyPressed ? 'PRESSED' : 'RELEASED'}`)
-
-        // Log additional debug info when pressed
-        if (currentlyPressed) {
-          const soundFile = soundMappings.get(buttonIndex)
-          console.log(`  - Has sound mapping: ${soundFile ? 'YES' : 'NO'}`)
-          console.log(`  - Cooldown passed: ${(now - lastTriggerTime) > cooldownMs ? 'YES' : 'NO'} (${now - lastTriggerTime}ms since last trigger)`)
-        }
-      }
-
-      // Only trigger on the rising edge (button just pressed down) AND cooldown has passed
-      if (currentlyPressed && !wasPressed && (now - lastTriggerTime) > cooldownMs) {
-        // Update cooldown
-        buttonCooldowns.current.set(buttonIndex, now)
-        console.log(`🎮 Button ${buttonIndex} TRIGGERED - executing action...`)
-
-        // Check if this is the stop button FIRST (priority over sound mappings)
-        if (stopButtonIndex !== null && buttonIndex === stopButtonIndex) {
-          console.log(`🛑 Stop button ${buttonIndex} activated!`)
-          stopAll()
-        } else {
-          // Only play sound if it's not the stop button
-          const soundFile = soundMappings.get(buttonIndex)
-          if (soundFile) {
-            const actualUrl = extractAudioUrl(soundFile)
-            console.log(`🔊 Playing sound for button ${buttonIndex}: ${actualUrl}`)
-            playSound(actualUrl, { restart: true })
-          } else {
-            console.log(`⚠️ Button ${buttonIndex} pressed but no sound mapped`)
-          }
-        }
-      }
-
-      // Update previous state for next frame
-      previousButtonStates.current.set(buttonIndex, currentlyPressed)
+  const handleClearMapping = (index: number) => {
+    setSoundMappings(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(index)
+      return newMap
     })
-  }, [buttonStates, soundMappings, playSound, stopButtonIndex, stopAll])
-
-  const handleSoundMapping = (buttonIndex: number, audioFile: string) => {
-    if (!audioFile) {
-      // Remove mapping
-      setSoundMappings(prev => {
-        const newMap = new Map(prev)
-        // Get the old file to unload it from audio engine
-        const oldFile = prev.get(buttonIndex)
-        if (oldFile) {
-          const oldUrl = extractAudioUrl(oldFile)
-          unloadSound(oldUrl)
-          logger.debug('Removed mapping for button:', buttonIndex, oldUrl)
-        }
-        newMap.delete(buttonIndex)
-        return newMap
-      })
-    } else {
-      // Add/update mapping
-      setSoundMappings(prev => {
-        const newMap = new Map(prev)
-        // Check if there's an existing mapping to replace
-        const oldFile = prev.get(buttonIndex)
-        if (oldFile) {
-          const oldUrl = extractAudioUrl(oldFile)
-          const newUrl = extractAudioUrl(audioFile)
-          
-          // If it's the same file being re-selected, force reload it
-          // Otherwise, unload the old one first
-          if (oldUrl === newUrl) {
-            logger.debug('Force reloading same file:', oldUrl)
-            // Force reload will be handled below
-          } else {
-            logger.debug('Replacing sound:', oldUrl, 'with:', newUrl)
-            unloadSound(oldUrl)
-          }
-        }
-        newMap.set(buttonIndex, audioFile)
-        return newMap
-      })
-      
-      // Load the new sound (with force reload if it's already loaded)
-      const actualUrl = extractAudioUrl(audioFile)
-      const forceReload = loadedSounds.includes(actualUrl)
-      loadSound(actualUrl, forceReload).catch(err => {
-        logger.error('Failed to load sound:', err)
-        alert('Failed to load audio file. Please try a different file.')
-      })
-    }
   }
 
-  // Show loading screen while initializing
-  if (isInitializing) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="mb-4">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Initializing SoundPad Pro...</h2>
-          <p className="text-gray-400">Loading your saved sounds and settings</p>
-        </div>
-      </div>
-    )
-  }
-  
-  // Show error screen if initialization failed
-  if (initError) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <div className="mb-4 text-red-400">
-            <svg className="inline-block w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Initialization Error</h2>
-          <p className="text-gray-400 mb-4">{initError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    )
-  }
-  
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <>
       <Head>
-        <title>SoundPad Pro - Professional Soundboard</title>
-        <meta name="description" content="Professional soundboard with controller support" />
-        <link rel="icon" href="/favicon.ico" />
+        <title>SoundPad Pro</title>
       </Head>
 
-      <header className="bg-gray-800 p-4 shadow-xl">
-        <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            SoundPad Pro
-          </h1>
-          <div className="flex items-center gap-4">
-            <ControllerSelector
-              controllers={controllers}
-              selectedIndex={selectedControllerIndex}
-              onSelect={setSelectedControllerIndex}
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsConfiguring(!isConfiguring)}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition"
-              >
-                {isConfiguring ? 'Done' : 'Configure'}
-              </button>
-              <button
-                onClick={stopAll}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition flex items-center gap-2"
-                title={stopButtonIndex !== null ? `Controller Button ${stopButtonIndex + 1} stops all audio` : "Stop all playing audio"}
-              >
-                <span>Stop All</span>
-                {stopButtonIndex !== null && (
-                  <kbd className="px-1 py-0.5 bg-red-700 rounded text-xs">B{stopButtonIndex + 1}</kbd>
-                )}
-              </button>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition"
-              >
-                Settings
-              </button>
-              <button
-                onClick={() => setShowControllerTest(true)}
-                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
-                title="Test controller buttons (Ctrl+T)"
-              >
-                Test
-              </button>
+      <div className="min-h-screen bg-gray-950 py-8">
+        <div className="max-w-6xl mx-auto px-4">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-white mb-4">SoundPad Pro</h1>
+            <div className="flex items-center justify-center gap-4">
+              <div className={`px-6 py-3 rounded-full font-bold ${connected ? 'bg-green-500' : 'bg-red-500'}`}>
+                <span className="text-white">
+                  {connected ? '✓ Controller Connected' : '✗ No Controller'}
+                </span>
+              </div>
+              <div className="text-gray-400 text-sm">
+                {soundMappings.size} / 16 pads mapped
+              </div>
             </div>
           </div>
-        </div>
-      </header>
 
-      <main className="container mx-auto p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Controller Status */}
-          <div className="lg:col-span-1">
-            <ControllerDisplay 
-              controllers={[selectedController].filter(Boolean)}
-              buttonStates={buttonStates}
-            />
+          {/* Pad Grid */}
+          <SimplePad
+            buttonStates={buttonStates}
+            soundMappings={soundMappings}
+            onPlaySound={handlePlaySound}
+            onMapSound={handleMapSound}
+          />
+
+          {/* Controls */}
+          <div className="mt-8 flex justify-center gap-4">
+            <button
+              onClick={stopAll}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+            >
+              STOP ALL SOUNDS
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Clear all pad mappings?')) {
+                  setSoundMappings(new Map())
+                }
+              }}
+              className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
+            >
+              CLEAR ALL MAPPINGS
+            </button>
           </div>
 
-          {/* Sound Pad Grid */}
-          <div className="lg:col-span-2">
-            {isConfiguring ? (
-              <MappingConfig
-                buttonStates={buttonStates}
-                soundMappings={soundMappings}
-                onMapSound={handleSoundMapping}
-                controllerButtonCount={selectedController?.buttons?.length || 16}
-              />
-            ) : (
-              <SoundPad
-                soundMappings={soundMappings}
-                buttonStates={buttonStates}
-                onPlaySound={playSound}
-                controllerButtonCount={selectedController?.buttons?.length || 16}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Status Bar */}
-        <div className="mt-8 p-4 bg-gray-800 rounded-lg">
-          <div className="flex justify-between items-center">
-            <div>
-              <span className="text-sm text-gray-400">Status:</span>
-              <span className="ml-2 text-green-400">
-                {controllers.length > 0 ? `${controllers.length} Controller(s) Connected` : 'No Controllers'}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-400">Audio Output:</span>
-              <span className="ml-2 text-blue-400">SoundPad Pro Virtual Audio</span>
+          {/* Debug Info */}
+          <div className="mt-6 p-4 bg-gray-900 rounded-lg">
+            <div className="text-white text-sm font-mono">
+              <div className="mb-2 font-bold">Debug Info:</div>
+              <div>Pressed buttons: {Array.from(buttonStates.entries())
+                .filter(([_, pressed]) => pressed)
+                .map(([idx]) => `${idx}`)
+                .join(', ') || 'None'}</div>
+              <div className="mt-2 text-gray-400">
+                Instructions: Click empty pads to map sounds. Click mapped pads to play. Press controller buttons to trigger.
+              </div>
             </div>
           </div>
-        </div>
-      </main>
-      
-      {/* Settings Modal */}
-      <Settings
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        soundMappings={soundMappings}
-        stopButtonIndex={stopButtonIndex}
-        onStopButtonChange={setStopButtonIndex}
-      />
-      
-      {/* Diagnostics Panel - Toggle with Ctrl+D */}
-      {showDiagnostics && <ControllerDiagnostics />}
-      
-      {/* Performance Monitor - Toggle with Ctrl+P */}
-      {showPerformance && <PerformanceMonitor />}
-      
-      {/* Controller Test Mode - Toggle with Ctrl+T */}
-      <ControllerTest
-        isOpen={showControllerTest}
-        onClose={() => setShowControllerTest(false)}
-      />
-      
-      {/* Audio Loading Status */}
-      <AudioStatus
-        loadingStates={isLoading}
-        loadErrors={loadErrors}
-        loadedSounds={loadedSounds}
-      />
-
-      {/* Log Viewer - Toggle with Ctrl+L */}
-      <LogViewer
-        isOpen={showLogs}
-        onClose={() => setShowLogs(false)}
-      />
-    </div>
-  )
-}
-
-export default function Home() {
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="mb-4">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Loading SoundPad Pro...</h2>
-          <p className="text-gray-400">Please wait...</p>
         </div>
       </div>
-    )
-  }
-
-  return <SoundPadApp />
+    </>
+  )
 }
