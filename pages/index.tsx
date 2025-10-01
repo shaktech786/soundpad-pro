@@ -1,17 +1,56 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Head from 'next/head'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
-import { SimplePad } from '../components/SimplePad'
+import { Haute42Layout } from '../components/Haute42Layout'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 
 export default function Home() {
   const { buttonStates, connected } = useSimpleGamepad()
-  const { playSound, stopAll } = useAudioEngine()
+  const { playSound, stopAll, loadSound } = useAudioEngine()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
+  const [autoLoadComplete, setAutoLoadComplete] = useState(false)
+
+  // Auto-load sounds from SoundBoard directory on first run
+  useEffect(() => {
+    const autoLoadSounds = async () => {
+      // Only auto-load if we have no mappings yet
+      if (soundMappings.size === 0 && !autoLoadComplete) {
+        const soundFiles = [
+          'C:\\Users\\shake\\Documents\\SoundBoard\\go_to_jail.wav',
+          'C:\\Users\\shake\\Documents\\SoundBoard\\just_up_v1.wav',
+          'C:\\Users\\shake\\Documents\\SoundBoard\\little_brother.wav',
+          'C:\\Users\\shake\\Documents\\SoundBoard\\pauL_creenis.wav',
+          'C:\\Users\\shake\\Documents\\SoundBoard\\spaghetti.wav'
+        ]
+
+        const newMappings = new Map<number, string>()
+        soundFiles.forEach((file, index) => {
+          if (index < 16) { // Map to first 16 pads
+            newMappings.set(index, file)
+          }
+        })
+
+        setSoundMappings(newMappings)
+        setAutoLoadComplete(true)
+        console.log('Auto-loaded', newMappings.size, 'sounds')
+
+        // Pre-load all sounds
+        for (const [_, filepath] of newMappings) {
+          try {
+            await loadSound(filepath)
+          } catch (err) {
+            console.error('Failed to preload:', filepath, err)
+          }
+        }
+      }
+    }
+
+    autoLoadSounds()
+  }, [soundMappings.size, autoLoadComplete, setSoundMappings, loadSound])
 
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
@@ -37,18 +76,10 @@ export default function Home() {
     }
   }
 
-  const handleClearMapping = (index: number) => {
-    setSoundMappings(prev => {
-      const newMap = new Map(prev)
-      newMap.delete(index)
-      return newMap
-    })
-  }
-
   return (
     <>
       <Head>
-        <title>SoundPad Pro</title>
+        <title>SoundPad Pro - Haute42</title>
       </Head>
 
       <div className="min-h-screen bg-gray-950 py-8">
@@ -59,17 +90,17 @@ export default function Home() {
             <div className="flex items-center justify-center gap-4">
               <div className={`px-6 py-3 rounded-full font-bold ${connected ? 'bg-green-500' : 'bg-red-500'}`}>
                 <span className="text-white">
-                  {connected ? '✓ Controller Connected' : '✗ No Controller'}
+                  {connected ? '✓ Haute42 Connected' : '✗ No Controller'}
                 </span>
               </div>
               <div className="text-gray-400 text-sm">
-                {soundMappings.size} / 16 pads mapped
+                {soundMappings.size} sounds loaded
               </div>
             </div>
           </div>
 
-          {/* Pad Grid */}
-          <SimplePad
+          {/* Haute42 Layout */}
+          <Haute42Layout
             buttonStates={buttonStates}
             soundMappings={soundMappings}
             onPlaySound={handlePlaySound}
@@ -88,25 +119,25 @@ export default function Home() {
               onClick={() => {
                 if (confirm('Clear all pad mappings?')) {
                   setSoundMappings(new Map())
+                  setAutoLoadComplete(false)
                 }
               }}
               className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
             >
-              CLEAR ALL MAPPINGS
+              RELOAD SOUNDS
             </button>
           </div>
 
-          {/* Debug Info */}
+          {/* Instructions */}
           <div className="mt-6 p-4 bg-gray-900 rounded-lg">
-            <div className="text-white text-sm font-mono">
-              <div className="mb-2 font-bold">Debug Info:</div>
-              <div>Pressed buttons: {Array.from(buttonStates.entries())
-                .filter(([_, pressed]) => pressed)
-                .map(([idx]) => `${idx}`)
-                .join(', ') || 'None'}</div>
-              <div className="mt-2 text-gray-400">
-                Instructions: Click empty pads to map sounds. Click mapped pads to play. Press controller buttons to trigger.
-              </div>
+            <div className="text-white text-sm">
+              <div className="font-bold mb-2">Instructions:</div>
+              <ul className="list-disc list-inside text-gray-400 space-y-1">
+                <li>Press Haute42 buttons to trigger sounds</li>
+                <li>Pads 0-4: Auto-loaded from SoundBoard directory</li>
+                <li>Click empty pads to map custom sounds</li>
+                <li>Click mapped pads to play manually</li>
+              </ul>
             </div>
           </div>
         </div>
