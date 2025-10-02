@@ -15,7 +15,7 @@ export default function Home() {
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
 
-  // Load button mapping from localStorage
+  // Load button mapping from localStorage and redirect to onboarding if needed
   useEffect(() => {
     const savedMapping = localStorage.getItem('haute42-button-mapping')
     if (savedMapping) {
@@ -26,9 +26,14 @@ export default function Home() {
           map.set(Number(visualId), Number(gamepadBtn))
         })
         setButtonMapping(map)
-        console.log('Loaded button mapping:', mappingObj)
       } catch (err) {
         console.error('Failed to load button mapping:', err)
+      }
+    } else {
+      // First time user - redirect to onboarding
+      const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
+      if (!hasSeenOnboarding && typeof window !== 'undefined') {
+        window.location.href = '/onboarding'
       }
     }
   }, [])
@@ -200,12 +205,12 @@ export default function Home() {
           {/* Instructions */}
           <div className="mt-6 p-4 bg-gray-900 rounded-lg">
             <div className="text-white text-sm">
-              <div className="font-bold mb-2">Instructions:</div>
+              <div className="font-bold mb-2">Quick Guide:</div>
               <ul className="list-disc list-inside text-gray-400 space-y-1">
-                <li>Press Haute42 buttons to trigger sounds</li>
-                <li>Pads 0-4: Auto-loaded from SoundBoard directory</li>
-                <li>Click empty pads to map custom sounds</li>
-                <li>Click mapped pads to play manually</li>
+                <li>Press buttons on your Haute42 to trigger sounds</li>
+                <li>Click <span className="text-gray-300">empty pads</span> to assign custom sounds</li>
+                <li>Click <span className="text-blue-400">mapped pads</span> to preview sounds</li>
+                <li>Use "Remap Buttons" if your controller layout doesn't match</li>
               </ul>
             </div>
           </div>

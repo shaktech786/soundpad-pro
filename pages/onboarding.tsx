@@ -90,6 +90,7 @@ export default function OnboardingPage() {
     })
 
     localStorage.setItem('haute42-button-mapping', JSON.stringify(mappingObj))
+    localStorage.setItem('onboarding-complete', 'true')
     console.log('Saved mapping:', mappingObj)
 
     // Redirect to main page
@@ -127,7 +128,10 @@ export default function OnboardingPage() {
                   Step {currentStep + 1} of {totalButtons}
                 </h2>
                 <p className="text-gray-300 text-lg mb-2">
-                  Press the button on your controller that corresponds to the <span className="text-yellow-400 font-bold">HIGHLIGHTED YELLOW</span> button below.
+                  Look at the <span className="text-yellow-400 font-bold">YELLOW</span> button below, then press the <span className="font-bold">same physical button</span> on your Haute42 controller.
+                </p>
+                <p className="text-gray-400 text-sm mb-4">
+                  Tip: Match the position, not the number. The yellow button shows where it is on your controller.
                 </p>
                 <div className="w-full bg-gray-700 rounded-full h-4 mt-4">
                   <div

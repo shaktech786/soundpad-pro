@@ -85,11 +85,12 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           }
         `}
       >
-        <div className="text-white font-bold text-xs">{index}</div>
-        {hasSound && (
-          <div className="text-white text-[8px] px-1 text-center line-clamp-1 mt-0.5">
+        {hasSound ? (
+          <div className="text-white text-[10px] px-1 text-center line-clamp-2 font-medium leading-tight">
             {extractFilename(soundFile)}
           </div>
+        ) : (
+          <div className="text-gray-500 text-xs">+</div>
         )}
       </button>
     )
@@ -104,14 +105,6 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         {BUTTON_LAYOUT.map(btn => (
           <PadButton key={btn.id} index={btn.id} x={btn.x} y={btn.y} />
         ))}
-      </div>
-
-      {/* Debug Info */}
-      <div className="mt-6 text-center text-sm text-gray-400">
-        Pressed: {Array.from(buttonStates.entries())
-          .filter(([_, pressed]) => pressed)
-          .map(([idx]) => `${idx}`)
-          .join(', ') || 'None'}
       </div>
     </div>
   )
