@@ -4,13 +4,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
   setupVirtualAudio: () => ipcRenderer.invoke('setup-virtual-audio'),
   getControllers: () => ipcRenderer.invoke('get-controllers'),
-  
+
+  // Navigation for static export
+  navigate: (route) => ipcRenderer.invoke('navigate', route),
+
   // File system access for audio files
   selectAudioFile: async () => {
     const result = await ipcRenderer.invoke('dialog:openFile');
     return result;
   },
-  
+
   // Store management for persistent data
   storeGet: (key) => ipcRenderer.invoke('store:get', key),
   storeSet: (key, value) => ipcRenderer.invoke('store:set', key, value),

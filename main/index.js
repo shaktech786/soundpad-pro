@@ -139,6 +139,15 @@ ipcMain.handle('dialog:openFile', async () => {
   return null;
 });
 
+// Navigation handler for static export
+ipcMain.handle('navigate', (event, route) => {
+  if (mainWindow && !isDev) {
+    // In production, load the appropriate HTML file
+    const htmlFile = route === '/' ? 'index.html' : `${route}.html`;
+    mainWindow.loadFile(path.join(__dirname, '../out', htmlFile));
+  }
+});
+
 // Store management for persistent data
 ipcMain.handle('store:get', (event, key) => {
   return store.get(key);

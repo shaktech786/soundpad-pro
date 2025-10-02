@@ -17,6 +17,17 @@ export default function Home() {
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
 
+  // Helper to navigate properly in Electron and browser
+  const navigateTo = async (route: string) => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.navigate) {
+      // Use Electron navigation in production
+      await (window as any).electronAPI.navigate(route)
+    } else {
+      // Use Next.js router in dev/browser
+      router.push(route)
+    }
+  }
+
   // Load button mapping from localStorage and redirect to onboarding if needed
   useEffect(() => {
     const savedMapping = localStorage.getItem('haute42-button-mapping')
@@ -35,7 +46,7 @@ export default function Home() {
       // First time user - redirect to onboarding
       const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
       if (!hasSeenOnboarding) {
-        router.push('/onboarding')
+        navigateTo('/onboarding')
       }
     }
   }, [router])
@@ -194,7 +205,7 @@ export default function Home() {
               onClick={() => {
                 if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
                   localStorage.removeItem('haute42-button-mapping')
-                  router.push('/onboarding')
+                  navigateTo('/onboarding')
                 }
               }}
               className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
