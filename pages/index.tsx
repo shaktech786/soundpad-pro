@@ -13,6 +13,25 @@ export default function Home() {
     new Map()
   )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
+  const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
+
+  // Load button mapping from localStorage
+  useEffect(() => {
+    const savedMapping = localStorage.getItem('haute42-button-mapping')
+    if (savedMapping) {
+      try {
+        const mappingObj = JSON.parse(savedMapping)
+        const map = new Map<number, number>()
+        Object.entries(mappingObj).forEach(([visualId, gamepadBtn]) => {
+          map.set(Number(visualId), Number(gamepadBtn))
+        })
+        setButtonMapping(map)
+        console.log('Loaded button mapping:', mappingObj)
+      } catch (err) {
+        console.error('Failed to load button mapping:', err)
+      }
+    }
+  }, [])
 
   // Auto-load sounds from SoundBoard directory on first run
   useEffect(() => {
@@ -57,25 +76,37 @@ export default function Home() {
 
   // Play sound when controller buttons are pressed
   useEffect(() => {
-    buttonStates.forEach((isPressed, buttonIndex) => {
-      const wasPressed = prevButtonStates.get(buttonIndex) || false
+    buttonStates.forEach((isPressed, gamepadButtonIndex) => {
+      const wasPressed = prevButtonStates.get(gamepadButtonIndex) || false
 
       // Edge detection - only trigger on button down (not release)
       if (isPressed && !wasPressed) {
-        const soundFile = soundMappings.get(buttonIndex)
+        // Find which visual button this gamepad button corresponds to
+        let visualButtonId = gamepadButtonIndex
+        if (buttonMapping.size > 0) {
+          // Find the visual button ID that maps to this gamepad button
+          for (const [vId, gId] of buttonMapping.entries()) {
+            if (gId === gamepadButtonIndex) {
+              visualButtonId = vId
+              break
+            }
+          }
+        }
+
+        const soundFile = soundMappings.get(visualButtonId)
         if (soundFile) {
           const cleanUrl = soundFile.split('#')[0]
-          console.log(`Controller button ${buttonIndex} pressed, playing:`, cleanUrl)
+          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, playing:`, cleanUrl)
           playSound(cleanUrl, { restart: true })
         } else {
-          console.log(`Button ${buttonIndex} pressed but no sound mapped`)
+          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, no sound mapped`)
         }
       }
     })
 
     // Update previous states
     setPrevButtonStates(new Map(buttonStates))
-  }, [buttonStates, soundMappings, playSound, prevButtonStates])
+  }, [buttonStates, soundMappings, playSound, prevButtonStates, buttonMapping])
 
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
@@ -130,6 +161,7 @@ export default function Home() {
             soundMappings={soundMappings}
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
+            buttonMapping={buttonMapping}
           />
 
           {/* Controls */}
@@ -150,6 +182,18 @@ export default function Home() {
               className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
             >
               RELOAD SOUNDS
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
+                  localStorage.removeItem('haute42-button-mapping')
+                  // Force full page reload to reset state
+                  window.location.replace('/onboarding')
+                }
+              }}
+              className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
+            >
+              🔄 REMAP BUTTONS
             </button>
           </div>
 

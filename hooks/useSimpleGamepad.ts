@@ -19,6 +19,23 @@ export function useSimpleGamepad() {
           const button = gamepad.buttons[btnIndex]
           newStates.set(btnIndex, button.pressed || button.value > 0.5)
         }
+
+        // Get all axis states (treat as virtual buttons)
+        // Axes use indices starting at 100 to avoid collision with regular buttons
+        // 100 = axis0+, 101 = axis0-, 102 = axis1+, 103 = axis1-, etc.
+        for (let axisIndex = 0; axisIndex < gamepad.axes.length; axisIndex++) {
+          const axisValue = gamepad.axes[axisIndex]
+          const threshold = 0.5
+
+          // Positive direction (pushing right/down)
+          const posButtonId = 100 + (axisIndex * 2)
+          newStates.set(posButtonId, axisValue > threshold)
+
+          // Negative direction (pushing left/up)
+          const negButtonId = 100 + (axisIndex * 2) + 1
+          newStates.set(negButtonId, axisValue < -threshold)
+        }
+
         break // Use first connected gamepad
       }
     }
