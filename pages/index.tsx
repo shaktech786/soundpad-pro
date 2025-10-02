@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
+import { useRouter } from 'next/router'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { Haute42Layout } from '../components/Haute42Layout'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 
 export default function Home() {
+  const router = useRouter()
   const { buttonStates, connected } = useSimpleGamepad()
   const { playSound, stopAll, loadSound } = useAudioEngine()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
@@ -32,11 +34,11 @@ export default function Home() {
     } else {
       // First time user - redirect to onboarding
       const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
-      if (!hasSeenOnboarding && typeof window !== 'undefined') {
-        window.location.href = '/onboarding'
+      if (!hasSeenOnboarding) {
+        router.push('/onboarding')
       }
     }
-  }, [])
+  }, [router])
 
   // Auto-load sounds from SoundBoard directory on first run
   useEffect(() => {
@@ -192,8 +194,7 @@ export default function Home() {
               onClick={() => {
                 if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
                   localStorage.removeItem('haute42-button-mapping')
-                  // Force full page reload to reset state
-                  window.location.replace('/onboarding')
+                  router.push('/onboarding')
                 }
               }}
               className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
