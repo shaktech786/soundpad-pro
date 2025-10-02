@@ -16,6 +16,9 @@ export default function Home() {
   )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
+  const [stopButton, setStopButton] = useState<number | null>(null)
+  const [assigningStopButton, setAssigningStopButton] = useState(false)
+  const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
 
   // Helper to navigate properly in Electron and browser
   const navigateTo = async (route: string) => {
@@ -48,6 +51,22 @@ export default function Home() {
       if (!hasSeenOnboarding) {
         navigateTo('/onboarding')
       }
+    }
+
+    // Load stop button
+    const savedStopButton = localStorage.getItem('haute42-stop-button')
+    if (savedStopButton) {
+      try {
+        setStopButton(Number(savedStopButton))
+      } catch (err) {
+        console.error('Failed to load stop button:', err)
+      }
+    }
+
+    // Load global hotkeys setting
+    const savedGlobalHotkeys = localStorage.getItem('global-hotkeys-enabled')
+    if (savedGlobalHotkeys) {
+      setGlobalHotkeysEnabled(savedGlobalHotkeys === 'true')
     }
   }, [router])
 
@@ -89,16 +108,124 @@ export default function Home() {
     autoLoadSounds()
   }, [soundMappings.size, autoLoadComplete, setSoundMappings, loadSound])
 
+  // Register/unregister global hotkeys
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).electronAPI?.registerHotkey) return
+
+    const registerHotkeys = async () => {
+      if (globalHotkeysEnabled) {
+        // Register hotkeys for pads 0-15 using Numpad keys
+        const numpadKeys = [
+          'num0', 'num1', 'num2', 'num3',
+          'num4', 'num5', 'num6', 'num7',
+          'num8', 'num9', 'numdec', 'numadd',
+          'numsub', 'nummult', 'numdiv', 'numenter'
+        ]
+
+        for (let i = 0; i < 16; i++) {
+          const key = `CommandOrControl+${numpadKeys[i]}`
+          try {
+            await (window as any).electronAPI.registerHotkey(key, i)
+            console.log(`Registered global hotkey ${key} for pad ${i}`)
+          } catch (err) {
+            console.error(`Failed to register hotkey ${key}:`, err)
+          }
+        }
+
+        // Register global stop hotkey if stop button is assigned
+        if (stopButton !== null) {
+          try {
+            await (window as any).electronAPI.registerHotkey('CommandOrControl+Escape', 999)
+            console.log('Registered global stop hotkey')
+          } catch (err) {
+            console.error('Failed to register stop hotkey:', err)
+          }
+        }
+      }
+    }
+
+    registerHotkeys()
+
+    // Toggle global hotkeys in main process
+    if ((window as any).electronAPI?.toggleGlobalHotkeys) {
+      (window as any).electronAPI.toggleGlobalHotkeys(globalHotkeysEnabled)
+    }
+  }, [globalHotkeysEnabled, stopButton])
+
+  // Listen for global hotkey events
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).electronAPI?.onHotkeyTriggered) return
+
+    const handleHotkey = (buttonIndex: number) => {
+      console.log('Global hotkey triggered:', buttonIndex)
+
+      // Check if this is the stop hotkey
+      if (buttonIndex === 999) {
+        stopAll()
+        return
+      }
+
+      // Play sound for this pad
+      const soundFile = soundMappings.get(buttonIndex)
+      if (soundFile) {
+        const cleanUrl = soundFile.split('#')[0]
+        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl)
+        playSound(cleanUrl, { restart: true })
+      }
+    }
+
+    (window as any).electronAPI.onHotkeyTriggered(handleHotkey)
+
+    // Also listen for global stop audio event
+    if ((window as any).electronAPI?.onGlobalStopAudio) {
+      (window as any).electronAPI.onGlobalStopAudio(() => {
+        console.log('Global stop audio triggered')
+        stopAll()
+      })
+    }
+
+    return () => {
+      if ((window as any).electronAPI?.removeAllListeners) {
+        (window as any).electronAPI.removeAllListeners()
+      }
+    }
+  }, [soundMappings, playSound, stopAll])
+
   // Track previous button states for edge detection
   const [prevButtonStates, setPrevButtonStates] = useState<Map<number, boolean>>(new Map())
 
+  // Handle assigning stop button
+  useEffect(() => {
+    if (!assigningStopButton) return
+
+    buttonStates.forEach((isPressed, gamepadButtonIndex) => {
+      const wasPressed = prevButtonStates.get(gamepadButtonIndex) || false
+
+      if (isPressed && !wasPressed) {
+        setStopButton(gamepadButtonIndex)
+        localStorage.setItem('haute42-stop-button', String(gamepadButtonIndex))
+        setAssigningStopButton(false)
+        console.log('Stop button assigned to:', gamepadButtonIndex)
+      }
+    })
+  }, [buttonStates, prevButtonStates, assigningStopButton])
+
   // Play sound when controller buttons are pressed
   useEffect(() => {
+    if (assigningStopButton) return // Don't play sounds while assigning stop button
+
     buttonStates.forEach((isPressed, gamepadButtonIndex) => {
       const wasPressed = prevButtonStates.get(gamepadButtonIndex) || false
 
       // Edge detection - only trigger on button down (not release)
       if (isPressed && !wasPressed) {
+        // Check if this is the stop button
+        if (stopButton !== null && gamepadButtonIndex === stopButton) {
+          console.log('Stop button pressed, stopping all sounds')
+          stopAll()
+          return
+        }
+
         // Find which visual button this gamepad button corresponds to
         let visualButtonId = gamepadButtonIndex
         if (buttonMapping.size > 0) {
@@ -124,7 +251,7 @@ export default function Home() {
 
     // Update previous states
     setPrevButtonStates(new Map(buttonStates))
-  }, [buttonStates, soundMappings, playSound, prevButtonStates, buttonMapping])
+  }, [buttonStates, soundMappings, playSound, prevButtonStates, buttonMapping, stopButton, stopAll, assigningStopButton])
 
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
@@ -183,35 +310,95 @@ export default function Home() {
           />
 
           {/* Controls */}
-          <div className="mt-8 flex justify-center gap-4">
-            <button
-              onClick={stopAll}
-              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
-            >
-              STOP ALL SOUNDS
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Clear all pad mappings?')) {
-                  setSoundMappings(new Map())
-                  setAutoLoadComplete(false)
-                }
-              }}
-              className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
-            >
-              RELOAD SOUNDS
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
-                  localStorage.removeItem('haute42-button-mapping')
-                  navigateTo('/onboarding')
-                }
-              }}
-              className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
-            >
-              🔄 REMAP BUTTONS
-            </button>
+          <div className="mt-8 flex flex-col gap-4">
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={stopAll}
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+              >
+                STOP ALL SOUNDS
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm('Clear all pad mappings?')) {
+                    setSoundMappings(new Map())
+                    setAutoLoadComplete(false)
+                  }
+                }}
+                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
+              >
+                RELOAD SOUNDS
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
+                    localStorage.removeItem('haute42-button-mapping')
+                    navigateTo('/onboarding')
+                  }
+                }}
+                className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
+              >
+                🔄 REMAP BUTTONS
+              </button>
+            </div>
+
+            {/* Stop Button Assignment */}
+            <div className="flex justify-center items-center gap-4">
+              <button
+                onClick={() => setAssigningStopButton(true)}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors ${
+                  assigningStopButton
+                    ? 'bg-yellow-500 hover:bg-yellow-600 animate-pulse'
+                    : 'bg-purple-600 hover:bg-purple-700'
+                } text-white`}
+              >
+                {assigningStopButton ? '⏳ Press a button...' : '🛑 ASSIGN STOP BUTTON'}
+              </button>
+              {stopButton !== null && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm">
+                    Stop Button: <span className="text-white font-bold">
+                      {stopButton < 100 ? `Button ${stopButton}` : `Axis ${Math.floor((stopButton - 100) / 2)}${(stopButton - 100) % 2 === 0 ? '+' : '-'}`}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      setStopButton(null)
+                      localStorage.removeItem('haute42-stop-button')
+                    }}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Global Hotkeys Toggle */}
+            <div className="flex justify-center items-center gap-4">
+              <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 rounded-lg">
+                <span className="text-white font-bold">⌨️ Global Hotkeys (Numpad):</span>
+                <button
+                  onClick={() => {
+                    const newValue = !globalHotkeysEnabled
+                    setGlobalHotkeysEnabled(newValue)
+                    localStorage.setItem('global-hotkeys-enabled', String(newValue))
+                  }}
+                  className={`px-4 py-2 font-bold rounded transition-colors ${
+                    globalHotkeysEnabled
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-gray-700 hover:bg-gray-600'
+                  } text-white`}
+                >
+                  {globalHotkeysEnabled ? 'ON' : 'OFF'}
+                </button>
+                {globalHotkeysEnabled && (
+                  <span className="text-gray-400 text-xs">
+                    Ctrl+Num0-9 for pads | Ctrl+Esc to stop
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Instructions */}
@@ -222,6 +409,8 @@ export default function Home() {
                 <li>Press buttons on your Haute42 to trigger sounds</li>
                 <li>Click <span className="text-gray-300">empty pads</span> to assign custom sounds</li>
                 <li>Click <span className="text-blue-400">mapped pads</span> to preview sounds</li>
+                <li>Assign a controller button to stop all sounds instantly</li>
+                <li>Enable global hotkeys to use numpad keys when app is not in focus</li>
                 <li>Use "Remap Buttons" if your controller layout doesn't match</li>
               </ul>
             </div>
