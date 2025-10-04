@@ -143,7 +143,7 @@ export default function OnboardingPage() {
 
               {/* Visual Layout */}
               <div className="bg-gray-900 rounded-xl p-8">
-                <div className="relative mx-auto" style={{ width: '800px', height: '400px' }}>
+                <div className="relative mx-auto" style={{ width: '1000px', height: '500px' }}>
                   {BUTTON_LAYOUT.map((btn, index) => {
                     const isCurrent = index === currentStep
                     const isCompleted = index < currentStep
@@ -154,13 +154,13 @@ export default function OnboardingPage() {
                         key={btn.id}
                         style={{
                           position: 'absolute',
-                          left: `${btn.x}px`,
-                          top: `${btn.y}px`
+                          left: `${btn.x * 1.25}px`,
+                          top: `${btn.y * 1.25}px`
                         }}
                         className={`
-                          w-14 h-14 rounded-full border-4
+                          w-20 h-20 rounded-full border-4
                           flex items-center justify-center
-                          font-bold text-white text-lg
+                          font-bold text-white text-xl
                           transition-all duration-300
                           ${isCurrent
                             ? 'bg-yellow-400 border-yellow-200 scale-125 shadow-2xl shadow-yellow-400/80 animate-pulse'
@@ -171,7 +171,7 @@ export default function OnboardingPage() {
                         `}
                       >
                         {isCompleted && mappedGamepadBtn !== undefined ? (
-                          <span className="text-xs">✓</span>
+                          <span className="text-sm">✓</span>
                         ) : null}
                       </div>
                     )

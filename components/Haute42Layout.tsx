@@ -73,7 +73,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           top: `${y}px`
         }}
         className={`
-          w-14 h-14
+          w-20 h-20
           rounded-full border-4
           flex flex-col items-center justify-center
           transition-all duration-100
@@ -86,11 +86,11 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         `}
       >
         {hasSound ? (
-          <div className="text-white text-[10px] px-1 text-center line-clamp-2 font-medium leading-tight">
+          <div className="text-white text-xs px-1 text-center line-clamp-2 font-medium leading-tight">
             {extractFilename(soundFile)}
           </div>
         ) : (
-          <div className="text-gray-500 text-xs">+</div>
+          <div className="text-gray-500 text-sm">+</div>
         )}
       </button>
     )
@@ -101,9 +101,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       <h2 className="text-2xl font-bold text-white mb-6 text-center">Haute42 Controller</h2>
 
       {/* Custom layout matching your physical Haute42 controller */}
-      <div className="relative mx-auto" style={{ width: '800px', height: '400px' }}>
+      <div className="relative mx-auto" style={{ width: '1000px', height: '500px' }}>
         {BUTTON_LAYOUT.map(btn => (
-          <PadButton key={btn.id} index={btn.id} x={btn.x} y={btn.y} />
+          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.25} y={btn.y * 1.25} />
         ))}
       </div>
     </div>
