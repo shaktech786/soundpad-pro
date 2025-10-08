@@ -91,7 +91,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           top: `${y}px`
         }}
         className={`
-          w-20 h-20
+          w-24 h-24
           rounded-full border-4
           flex flex-col items-center justify-center
           transition-all duration-100
@@ -106,15 +106,15 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         `}
       >
         {isStopButton ? (
-          <div className="text-white text-xs px-1 text-center font-bold">
+          <div className="text-white text-sm px-1 text-center font-bold">
             🛑 STOP
           </div>
         ) : hasSound ? (
-          <div className="text-white text-xs px-1 text-center line-clamp-2 font-medium leading-tight">
+          <div className="text-white text-sm px-1 text-center line-clamp-2 font-medium leading-tight">
             {extractFilename(soundFile)}
           </div>
         ) : (
-          <div className="text-gray-500 text-sm">+</div>
+          <div className="text-gray-500 text-lg">+</div>
         )}
       </button>
     )
