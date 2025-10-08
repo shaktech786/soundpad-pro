@@ -6,6 +6,7 @@ interface Haute42LayoutProps {
   onPlaySound: (url: string) => void
   onMapSound: (index: number) => void
   buttonMapping?: Map<number, number> // visualId -> gamepadButtonId
+  stopButton?: number | null // gamepad button assigned to stop
 }
 
 // Custom layout positions from drag-and-drop builder
@@ -33,7 +34,8 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   soundMappings,
   onPlaySound,
   onMapSound,
-  buttonMapping
+  buttonMapping,
+  stopButton
 }) => {
   // Create reverse mapping: gamepadButtonId -> visualId
   const reverseMapping = useMemo(() => {
@@ -57,16 +59,32 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     const isPressed = buttonStates.get(gamepadButton) === true
     const soundFile = soundMappings.get(index)
     const hasSound = !!soundFile
+    const isStopButton = stopButton !== null && gamepadButton === stopButton
+
+    const handleClick = (e: React.MouseEvent) => {
+      // Ctrl+Click always opens file picker
+      if (e.ctrlKey || e.metaKey) {
+        onMapSound(index)
+        return
+      }
+
+      // Left click behavior
+      if (hasSound) {
+        onPlaySound(soundFile!)
+      } else {
+        onMapSound(index)
+      }
+    }
+
+    const handleContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault()
+      onMapSound(index)
+    }
 
     return (
       <button
-        onClick={() => {
-          if (hasSound) {
-            onPlaySound(soundFile!)
-          } else {
-            onMapSound(index)
-          }
-        }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
         style={{
           position: 'absolute',
           left: `${x}px`,
@@ -79,13 +97,19 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           transition-all duration-100
           ${isPressed
             ? 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
-            : hasSound
-              ? 'bg-blue-600 border-blue-500 hover:bg-blue-500'
-              : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
+            : isStopButton
+              ? 'bg-red-600 border-red-500 hover:bg-red-500 shadow-lg shadow-red-500/30'
+              : hasSound
+                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500'
+                : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
           }
         `}
       >
-        {hasSound ? (
+        {isStopButton ? (
+          <div className="text-white text-xs px-1 text-center font-bold">
+            🛑 STOP
+          </div>
+        ) : hasSound ? (
           <div className="text-white text-xs px-1 text-center line-clamp-2 font-medium leading-tight">
             {extractFilename(soundFile)}
           </div>

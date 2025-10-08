@@ -307,6 +307,7 @@ export default function Home() {
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
             buttonMapping={buttonMapping}
+            stopButton={stopButton}
           />
 
           {/* Controls */}
@@ -409,6 +410,7 @@ export default function Home() {
                 <li>Press buttons on your Haute42 to trigger sounds</li>
                 <li>Click <span className="text-gray-300">empty pads</span> to assign custom sounds</li>
                 <li>Click <span className="text-blue-400">mapped pads</span> to preview sounds</li>
+                <li><span className="text-yellow-400">Right-click or Ctrl+Click</span> any pad to change/assign audio file</li>
                 <li>Assign a controller button to stop all sounds instantly</li>
                 <li>Enable global hotkeys to use numpad keys when app is not in focus</li>
                 <li>Use "Remap Buttons" if your controller layout doesn't match</li>
