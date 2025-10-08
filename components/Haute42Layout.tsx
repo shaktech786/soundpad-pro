@@ -29,11 +29,6 @@ const BUTTON_LAYOUT = [
   { id: 15, x: 460, y: 183 }
 ]
 
-// Calculate layout bounds for proper centering
-const SCALE = 1.2
-const OFFSET_X = 100
-const OFFSET_Y = 50
-
 export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonStates,
   soundMappings,
@@ -96,43 +91,43 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           top: `${y}px`
         }}
         className={`
-          w-24 h-24
-          rounded-full border-[5px]
+          w-20 h-20
+          rounded-full border-4
           flex flex-col items-center justify-center
           transition-all duration-100
           ${isPressed
-            ? 'bg-purple-500 border-purple-300 scale-110 shadow-2xl shadow-purple-500/60'
+            ? 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
             : isStopButton
-              ? 'bg-red-600 border-red-500 hover:bg-red-500 shadow-xl shadow-red-500/40'
+              ? 'bg-red-600 border-red-500 hover:bg-red-500 shadow-lg shadow-red-500/30'
               : hasSound
-                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 shadow-xl shadow-blue-500/30'
+                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500'
                 : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
           }
         `}
       >
         {isStopButton ? (
-          <div className="text-white text-sm px-2 text-center font-bold">
+          <div className="text-white text-xs px-1 text-center font-bold">
             🛑 STOP
           </div>
         ) : hasSound ? (
-          <div className="text-white text-sm px-2 text-center line-clamp-2 font-medium leading-tight">
+          <div className="text-white text-xs px-1 text-center line-clamp-2 font-medium leading-tight">
             {extractFilename(soundFile)}
           </div>
         ) : (
-          <div className="text-gray-500 text-2xl">+</div>
+          <div className="text-gray-500 text-sm">+</div>
         )}
       </button>
     )
   }
 
   return (
-    <div className="p-12 bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 rounded-2xl shadow-2xl border-4 border-gray-800">
-      <h2 className="text-3xl font-bold text-white mb-8 text-center tracking-wide">Haute42 Controller</h2>
+    <div className="p-8 bg-gray-900 rounded-xl">
+      <h2 className="text-2xl font-bold text-white mb-6 text-center">Haute42 Controller</h2>
 
       {/* Custom layout matching your physical Haute42 controller */}
-      <div className="relative mx-auto bg-gray-950/50 rounded-xl p-8 border-2 border-gray-800/50" style={{ width: '1000px', height: '550px' }}>
+      <div className="relative mx-auto" style={{ width: '1200px', height: '600px' }}>
         {BUTTON_LAYOUT.map(btn => (
-          <PadButton key={btn.id} index={btn.id} x={btn.x * SCALE + OFFSET_X} y={btn.y * SCALE + OFFSET_Y} />
+          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.5} y={btn.y * 1.5} />
         ))}
       </div>
     </div>
