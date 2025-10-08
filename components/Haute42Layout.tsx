@@ -29,6 +29,11 @@ const BUTTON_LAYOUT = [
   { id: 15, x: 460, y: 183 }
 ]
 
+// Calculate layout bounds for proper centering
+const SCALE = 1.2
+const OFFSET_X = 100
+const OFFSET_Y = 50
+
 export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonStates,
   soundMappings,
@@ -91,8 +96,8 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           top: `${y}px`
         }}
         className={`
-          w-28 h-28
-          rounded-full border-[6px]
+          w-24 h-24
+          rounded-full border-[5px]
           flex flex-col items-center justify-center
           transition-all duration-100
           ${isPressed
@@ -125,9 +130,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       <h2 className="text-3xl font-bold text-white mb-8 text-center tracking-wide">Haute42 Controller</h2>
 
       {/* Custom layout matching your physical Haute42 controller */}
-      <div className="relative mx-auto bg-gray-950/50 rounded-xl p-8 border-2 border-gray-800/50" style={{ width: '1400px', height: '700px' }}>
+      <div className="relative mx-auto bg-gray-950/50 rounded-xl p-8 border-2 border-gray-800/50" style={{ width: '1000px', height: '550px' }}>
         {BUTTON_LAYOUT.map(btn => (
-          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.8} y={btn.y * 1.8} />
+          <PadButton key={btn.id} index={btn.id} x={btn.x * SCALE + OFFSET_X} y={btn.y * SCALE + OFFSET_Y} />
         ))}
       </div>
     </div>
