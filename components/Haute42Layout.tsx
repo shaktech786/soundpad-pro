@@ -125,9 +125,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       <h2 className="text-2xl font-bold text-white mb-6 text-center">Haute42 Controller</h2>
 
       {/* Custom layout matching your physical Haute42 controller */}
-      <div className="relative mx-auto" style={{ width: '1000px', height: '500px' }}>
+      <div className="relative mx-auto" style={{ width: '1200px', height: '600px' }}>
         {BUTTON_LAYOUT.map(btn => (
-          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.25} y={btn.y * 1.25} />
+          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.5} y={btn.y * 1.5} />
         ))}
       </div>
     </div>
