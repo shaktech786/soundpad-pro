@@ -9,7 +9,7 @@ import { usePersistentStorage } from '../hooks/usePersistentStorage'
 export default function Home() {
   const router = useRouter()
   const { buttonStates, connected } = useSimpleGamepad()
-  const { playSound, stopAll, loadSound } = useAudioEngine()
+  const { playSound, stopAll, loadSound, audioDevices, selectedAudioDevice, selectAudioDevice } = useAudioEngine()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
@@ -396,6 +396,30 @@ export default function Home() {
                 {globalHotkeysEnabled && (
                   <span className="text-gray-400 text-xs">
                     Ctrl+Num0-9 for pads | Ctrl+Esc to stop
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Audio Output Device Selector */}
+            <div className="flex justify-center items-center gap-4">
+              <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 rounded-lg">
+                <span className="text-white font-bold">🔊 Audio Output:</span>
+                <select
+                  value={selectedAudioDevice}
+                  onChange={(e) => selectAudioDevice(e.target.value)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded transition-colors cursor-pointer"
+                >
+                  <option value="">Default Device</option>
+                  {audioDevices.map(device => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label}
+                    </option>
+                  ))}
+                </select>
+                {selectedAudioDevice && audioDevices.find(d => d.deviceId === selectedAudioDevice)?.label.toLowerCase().includes('voicemeeter') && (
+                  <span className="text-green-400 text-xs font-medium">
+                    ✓ Routing to VoiceMeeter
                   </span>
                 )}
               </div>

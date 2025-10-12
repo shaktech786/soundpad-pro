@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
 import { Howl, Howler } from 'howler'
 import logger from '../utils/logger'
+import { useAudioOutputDevice } from './useAudioOutputDevice'
 
 // Track blob URLs for cleanup
 const blobUrlRegistry = new Map<string, string>()
@@ -18,19 +19,27 @@ export function useAudioEngine() {
   const [isLoading, setIsLoading] = useState<Map<string, boolean>>(new Map())
   const [loadErrors, setLoadErrors] = useState<Map<string, string>>(new Map())
   const audioContextRef = useRef<AudioContext | null>(null)
-  
+
+  // Use audio output device hook
+  const { selectedDevice, applyToAudioElement, audioDevices, selectDevice } = useAudioOutputDevice()
+
   // Refs to avoid stale closures in callbacks
   const loadedSoundsRef = useRef<Map<string, Howl>>(new Map())
   const loadingRef = useRef<Map<string, boolean>>(new Map())
+  const selectedDeviceRef = useRef<string>(selectedDevice)
   
   // Update refs when state changes
   useEffect(() => {
     loadedSoundsRef.current = loadedSounds
   }, [loadedSounds])
-  
+
   useEffect(() => {
     loadingRef.current = isLoading
   }, [isLoading])
+
+  useEffect(() => {
+    selectedDeviceRef.current = selectedDevice
+  }, [selectedDevice])
 
   useEffect(() => {
     // Initialize Web Audio API for virtual audio routing
@@ -225,8 +234,21 @@ export function useAudioEngine() {
       sound.loop(options.loop)
     }
 
-    sound.play()
+    const soundId = sound.play()
     setIsPlaying(prev => new Map(prev).set(filePath, true))
+
+    // Apply audio output device routing to HTML5 audio element
+    if (selectedDeviceRef.current && soundId !== undefined) {
+      // Get the underlying HTML audio element from Howler
+      // @ts-ignore - Howler internal API
+      const audioNode = sound._sounds?.[0]?._node
+
+      if (audioNode && audioNode.setSinkId) {
+        applyToAudioElement(audioNode).catch(err => {
+          logger.error('Failed to set audio output device:', err)
+        })
+      }
+    }
   }
 
   const stopSound = useCallback((filePath: string) => {
@@ -293,6 +315,10 @@ export function useAudioEngine() {
     isPlaying,
     isLoading,
     loadErrors,
-    loadedSounds: Array.from(loadedSounds.keys())
+    loadedSounds: Array.from(loadedSounds.keys()),
+    // Audio device selection
+    audioDevices,
+    selectedAudioDevice: selectedDevice,
+    selectAudioDevice: selectDevice
   }
 }
