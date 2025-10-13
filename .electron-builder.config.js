@@ -47,20 +47,19 @@ module.exports = {
   },
 
   nsis: {
-    oneClick: true,
+    oneClick: false,
     perMachine: false,
-    allowToChangeInstallationDirectory: false,
+    allowToChangeInstallationDirectory: true,
     allowElevation: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
+    runAfterFinish: true,
     shortcutName: "SoundPad Pro",
     uninstallDisplayName: "SoundPad Pro",
     artifactName: "${productName}-Setup-${version}.${ext}",
-    warningsAsErrors: false,
-    packElevateHelper: false,
-    differentialPackage: false,
-    unicode: false,
-    deleteAppDataOnUninstall: false
+    installerIcon: "icon.ico",
+    uninstallerIcon: "icon.ico",
+    installerHeaderIcon: "icon.ico"
   },
 
   portable: {
