@@ -28,6 +28,16 @@ export function useAudioOutputDevice() {
         return
       }
 
+      // Request microphone permission to get device labels
+      // This is required for the browser to show friendly device names
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        // Immediately stop the stream - we only needed permission
+        stream.getTracks().forEach(track => track.stop())
+      } catch (permError) {
+        console.warn('Microphone permission denied, device labels may not be available:', permError)
+      }
+
       const devices = await navigator.mediaDevices.enumerateDevices()
       const audioOutputs = devices
         .filter(device => device.kind === 'audiooutput')
@@ -37,6 +47,7 @@ export function useAudioOutputDevice() {
           kind: device.kind
         }))
 
+      console.log('Found audio output devices:', audioOutputs)
       setAudioDevices(audioOutputs)
 
       // Auto-select VoiceMeeter Aux if available and no device selected
