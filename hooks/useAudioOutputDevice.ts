@@ -39,28 +39,58 @@ export function useAudioOutputDevice() {
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices()
+
+      // Log all devices for debugging
+      console.log('All enumerated devices:', devices)
+
       const audioOutputs = devices
         .filter(device => device.kind === 'audiooutput')
-        .map(device => ({
+        .map((device, index) => ({
           deviceId: device.deviceId,
           label: device.label || `Audio Output ${device.deviceId.substring(0, 8)}`,
-          kind: device.kind
+          kind: device.kind,
+          groupId: device.groupId
         }))
 
-      console.log('Found audio output devices:', audioOutputs)
-      setAudioDevices(audioOutputs)
+      // Deduplicate devices with same label - keep first occurrence
+      const uniqueDevices = audioOutputs.reduce((acc, device) => {
+        // For VoiceMeeter devices with identical names, keep only the first one
+        const existingDevice = acc.find(d => d.label === device.label)
+        if (!existingDevice) {
+          acc.push(device)
+        }
+        return acc
+      }, [] as typeof audioOutputs)
 
-      // Auto-select VoiceMeeter Aux if available and no device selected
-      if (!selectedDevice && audioOutputs.length > 0) {
-        const vmAux = audioOutputs.find(d =>
+      const deduplicatedDevices = uniqueDevices
+
+      console.log('Audio output devices (raw):', audioOutputs)
+      console.log('Audio output devices (deduplicated):', deduplicatedDevices)
+
+      setAudioDevices(deduplicatedDevices)
+
+      // Auto-select VoiceMeeter device if available and no device selected
+      if (!selectedDevice && deduplicatedDevices.length > 0) {
+        // Priority 1: Look for VoiceMeeter Aux (VAIO3) - ideal for SoundPad Pro
+        let vmDevice = deduplicatedDevices.find(d =>
           d.label.toLowerCase().includes('voicemeeter') &&
           d.label.toLowerCase().includes('aux')
         )
 
-        if (vmAux) {
-          console.log('Auto-selecting VoiceMeeter Aux Input:', vmAux.label)
-          setSelectedDevice(vmAux.deviceId)
-          localStorage.setItem('audio-output-device', vmAux.deviceId)
+        // Priority 2: Fall back to regular VoiceMeeter VAIO
+        if (!vmDevice) {
+          vmDevice = deduplicatedDevices.find(d =>
+            d.label.toLowerCase().includes('voicemeeter') &&
+            d.label.toLowerCase().includes('vaio')
+          )
+        }
+
+        if (vmDevice) {
+          console.log('Auto-selecting VoiceMeeter device:', vmDevice.label)
+          setSelectedDevice(vmDevice.deviceId)
+          localStorage.setItem('audio-output-device', vmDevice.deviceId)
+        } else {
+          console.warn('No VoiceMeeter device found. Available devices:', deduplicatedDevices.map(d => d.label))
         }
       }
 

@@ -422,6 +422,11 @@ export default function Home() {
                     ✓ Routing to VoiceMeeter
                   </span>
                 )}
+                {selectedAudioDevice && audioDevices.find(d => d.deviceId === selectedAudioDevice)?.label.toLowerCase().includes('cable') && (
+                  <span className="text-blue-400 text-xs font-medium">
+                    ✓ Routing to VB-Cable
+                  </span>
+                )}
               </div>
             </div>
           </div>
