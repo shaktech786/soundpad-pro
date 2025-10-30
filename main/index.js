@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
 
@@ -127,7 +128,7 @@ ipcMain.handle('dialog:openFile', async () => {
       { name: 'All Files', extensions: ['*'] }
     ]
   });
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     // Return the raw file path - it will be converted to URL in the renderer
@@ -137,6 +138,36 @@ ipcMain.handle('dialog:openFile', async () => {
     };
   }
   return null;
+});
+
+// Read audio file and return as buffer
+ipcMain.handle('read-audio-file', async (event, filePath) => {
+  try {
+    const buffer = await fs.readFile(filePath);
+    // Get file extension for MIME type
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.webm': 'audio/webm',
+      '.m4a': 'audio/mp4',
+      '.flac': 'audio/flac',
+      '.aac': 'audio/aac',
+      '.opus': 'audio/opus',
+      '.weba': 'audio/webm'
+    };
+    const mimeType = mimeTypes[ext] || 'audio/mpeg';
+
+    return {
+      buffer: buffer,
+      mimeType: mimeType,
+      fileName: path.basename(filePath)
+    };
+  } catch (error) {
+    console.error('Error reading audio file:', error);
+    return { error: error.message };
+  }
 });
 
 // Navigation handler for static export

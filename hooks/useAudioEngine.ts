@@ -3,6 +3,8 @@ import { Howl, Howler } from 'howler'
 import logger from '../utils/logger'
 import { useAudioOutputDevice } from './useAudioOutputDevice'
 
+// Audio engine for loading and playing sounds with Electron file system support
+
 // Track blob URLs for cleanup
 const blobUrlRegistry = new Map<string, string>()
 
@@ -60,86 +62,121 @@ export function useAudioEngine() {
   }, [])
 
   const loadSound = useCallback(async (filePath: string, forceReload: boolean = false): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      // Check if already loaded using refs to avoid stale closure
-      const sounds = loadedSoundsRef.current
-      const loading = loadingRef.current
-      
-      // If force reload, unload the existing sound first
-      if (forceReload && sounds.has(filePath)) {
-        const existingSound = sounds.get(filePath)
-        if (existingSound) {
-          logger.debug(`Force reloading sound: ${filePath}`)
-          existingSound.unload()
-          sounds.delete(filePath)
-          setLoadedSounds(prev => {
-            const newMap = new Map(prev)
-            newMap.delete(filePath)
-            loadedSoundsRef.current = newMap
-            return newMap
-          })
+    // Check if already loaded using refs to avoid stale closure
+    const sounds = loadedSoundsRef.current
+    const loading = loadingRef.current
+
+    // If force reload, unload the existing sound first
+    if (forceReload && sounds.has(filePath)) {
+      const existingSound = sounds.get(filePath)
+      if (existingSound) {
+        logger.debug(`Force reloading sound: ${filePath}`)
+        existingSound.unload()
+
+        // Clean up blob URL if exists
+        const blobUrl = blobUrlRegistry.get(filePath)
+        if (blobUrl) {
+          URL.revokeObjectURL(blobUrl)
+          blobUrlRegistry.delete(filePath)
         }
-      } else if (sounds.has(filePath)) {
-        // Already loaded and not force reloading
-        logger.debug(`Sound already loaded: ${filePath}`)
-        resolve()
-        return
+
+        sounds.delete(filePath)
+        setLoadedSounds(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(filePath)
+          loadedSoundsRef.current = newMap
+          return newMap
+        })
       }
-      
-      if (loading.has(filePath)) {
-        logger.debug(`Sound already loading: ${filePath}`)
-        resolve()
-        return
+    } else if (sounds.has(filePath)) {
+      // Already loaded and not force reloading
+      logger.debug(`Sound already loaded: ${filePath}`)
+      return
+    }
+
+    if (loading.has(filePath)) {
+      logger.debug(`Sound already loading: ${filePath}`)
+      return
+    }
+
+    setIsLoading(prev => {
+      const newMap = new Map(prev).set(filePath, true)
+      loadingRef.current = newMap
+      return newMap
+    })
+    setLoadErrors(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(filePath)
+      return newMap
+    })
+
+    try {
+      // Handle different path formats
+      let audioUrl = filePath
+
+      // Handle blob URLs (keep as-is)
+      if (filePath.startsWith('blob:')) {
+        audioUrl = filePath
       }
-      
-      setIsLoading(prev => {
-        const newMap = new Map(prev).set(filePath, true)
-        loadingRef.current = newMap
-        return newMap
-      })
-      setLoadErrors(prev => {
-        const newMap = new Map(prev)
-        newMap.delete(filePath)
-        return newMap
-      })
+      // In Electron, read local files as blobs to avoid security restrictions
+      else if (typeof window !== 'undefined' && (window as any).electronAPI?.readAudioFile) {
+        const isLocalFile = /^[A-Z]:[\\\/]/.test(filePath) || filePath.startsWith('\\\\') || filePath.includes('\\')
 
-      try {
-        // Handle different path formats
-        let audioUrl = filePath
+        if (isLocalFile) {
+          logger.debug('Reading local file via Electron API:', filePath)
 
-        // Handle blob URLs (keep as-is)
-        if (filePath.startsWith('blob:')) {
+          try {
+            const result = await (window as any).electronAPI.readAudioFile(filePath)
+
+            if (result.error) {
+              throw new Error(result.error)
+            }
+
+            // Convert buffer to Blob
+            const blob = new Blob([result.buffer], { type: result.mimeType })
+            audioUrl = URL.createObjectURL(blob)
+
+            // Store blob URL for cleanup
+            blobUrlRegistry.set(filePath, audioUrl)
+
+            logger.debug('Created blob URL from local file:', audioUrl)
+          } catch (err) {
+            logger.error('Failed to read file via Electron API:', err)
+            throw err
+          }
+        } else {
+          // Not a local file, use as-is
           audioUrl = filePath
         }
-        // Handle file:// protocol - ensure it's properly formatted
-        else if (filePath.startsWith('file://')) {
-          // Already a file URL, ensure proper formatting
-          audioUrl = filePath
-        }
-        // Handle Windows absolute paths (C:\path\to\file.mp3)
-        else if (/^[A-Z]:[\\\/]/.test(filePath)) {
-          // Windows absolute path - convert to file URL
-          // Replace backslashes and encode special characters
-          const normalizedPath = filePath.replace(/\\/g, '/')
-          audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
-        }
-        // Handle UNC paths (\\server\share\file.mp3)
-        else if (filePath.startsWith('\\\\')) {
-          // UNC path - convert to file URL
-          audioUrl = 'file:' + filePath.replace(/\\/g, '/')
-        }
-        // Handle any other Windows-style paths
-        else if (filePath.includes('\\')) {
-          // Convert to file URL
-          const normalizedPath = filePath.replace(/\\/g, '/')
-          audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
-        }
-        // Keep other URLs as-is (http, https, etc)
-        else {
-          audioUrl = filePath
-        }
+      }
+      // Fallback: Handle file:// protocol - ensure it's properly formatted
+      else if (filePath.startsWith('file://')) {
+        audioUrl = filePath
+      }
+      // Handle Windows absolute paths (C:\path\to\file.mp3)
+      else if (/^[A-Z]:[\\\/]/.test(filePath)) {
+        // Windows absolute path - convert to file URL
+        const normalizedPath = filePath.replace(/\\/g, '/')
+        audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
+      }
+      // Handle UNC paths (\\server\share\file.mp3)
+      else if (filePath.startsWith('\\\\')) {
+        audioUrl = 'file:' + filePath.replace(/\\/g, '/')
+      }
+      // Handle any other Windows-style paths
+      else if (filePath.includes('\\')) {
+        const normalizedPath = filePath.replace(/\\/g, '/')
+        audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
+      }
+      // Keep other URLs as-is (http, https, etc)
+      else {
+        audioUrl = filePath
+      }
 
-        logger.debug('Loading audio from:', audioUrl)
+      logger.debug('Loading audio from:', audioUrl)
+
+      // Create Howl and return a Promise for the load operation
+      return new Promise((resolve, reject) => {
         
         const sound = new Howl({
           src: [audioUrl],
@@ -181,17 +218,17 @@ export function useAudioEngine() {
             setIsPlaying(prev => new Map(prev).set(filePath, false))
           }
         })
-      } catch (error) {
-        logger.error(`Exception loading sound ${filePath}:`, error)
-        setLoadErrors(prev => new Map(prev).set(filePath, String(error)))
-        setIsLoading(prev => {
-          const newMap = new Map(prev)
-          newMap.delete(filePath)
-          return newMap
-        })
-        reject(error)
-      }
-    })
+      })
+    } catch (error) {
+      logger.error(`Exception loading sound ${filePath}:`, error)
+      setLoadErrors(prev => new Map(prev).set(filePath, String(error)))
+      setIsLoading(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        return newMap
+      })
+      throw error
+    }
   }, [])
 
   const playSound = useCallback((filePath: string, options?: {
@@ -264,7 +301,15 @@ export function useAudioEngine() {
     if (sound) {
       logger.debug(`Unloading sound: ${filePath}`)
       sound.unload()
-      
+
+      // Clean up blob URL if exists
+      const blobUrl = blobUrlRegistry.get(filePath)
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl)
+        blobUrlRegistry.delete(filePath)
+        logger.debug(`Revoked blob URL for: ${filePath}`)
+      }
+
       // Remove from loaded sounds
       setLoadedSounds(prev => {
         const newMap = new Map(prev)
@@ -272,14 +317,14 @@ export function useAudioEngine() {
         loadedSoundsRef.current = newMap
         return newMap
       })
-      
+
       // Clean up states
       setIsPlaying(prev => {
         const newMap = new Map(prev)
         newMap.delete(filePath)
         return newMap
       })
-      
+
       setLoadErrors(prev => {
         const newMap = new Map(prev)
         newMap.delete(filePath)

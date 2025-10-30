@@ -2,6 +2,7 @@ import '../styles/globals.css'
 import type { AppProps } from 'next/app'
 import { useEffect } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import { OBSProvider } from '../contexts/OBSContext'
 
 // Polyfill process for client-side
 if (typeof window !== 'undefined' && !window.process) {
@@ -45,7 +46,9 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   return (
     <ErrorBoundary>
-      <Component {...pageProps} />
+      <OBSProvider>
+        <Component {...pageProps} />
+      </OBSProvider>
     </ErrorBoundary>
   )
 }

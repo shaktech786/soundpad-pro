@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react'
+import { OBSAction } from '../contexts/OBSContext'
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
+  obsActions?: Map<number, OBSAction> // visualId -> OBS action
   onPlaySound: (url: string) => void
   onMapSound: (index: number) => void
+  onAssignOBSAction?: (index: number) => void
   buttonMapping?: Map<number, number> // visualId -> gamepadButtonId
   stopButton?: number | null // gamepad button assigned to stop
 }
@@ -32,8 +35,10 @@ const BUTTON_LAYOUT = [
 export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonStates,
   soundMappings,
+  obsActions,
   onPlaySound,
   onMapSound,
+  onAssignOBSAction,
   buttonMapping,
   stopButton
 }) => {
@@ -59,26 +64,46 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     const isPressed = buttonStates.get(gamepadButton) === true
     const soundFile = soundMappings.get(index)
     const hasSound = !!soundFile
+    const obsAction = obsActions?.get(index)
+    const hasOBSAction = !!obsAction
     const isStopButton = stopButton !== null && gamepadButton === stopButton
 
     const handleClick = (e: React.MouseEvent) => {
+      console.log(`🔵 Button ${index} clicked!`, { hasSound, soundFile, hasOBSAction, ctrlKey: e.ctrlKey })
+
       // Ctrl+Click always opens file picker
       if (e.ctrlKey || e.metaKey) {
+        console.log(`🔵 Opening file picker for pad ${index}`)
         onMapSound(index)
+        return
+      }
+
+      // Alt+Click opens OBS action assigner
+      if (e.altKey && onAssignOBSAction) {
+        console.log(`🔵 Opening OBS action assigner for pad ${index}`)
+        onAssignOBSAction(index)
         return
       }
 
       // Left click behavior
       if (hasSound) {
+        console.log(`🔵 Playing sound from pad ${index}:`, soundFile)
         onPlaySound(soundFile!)
       } else {
+        console.log(`🔵 Opening file picker for empty pad ${index}`)
         onMapSound(index)
       }
     }
 
     const handleContextMenu = (e: React.MouseEvent) => {
       e.preventDefault()
-      onMapSound(index)
+
+      // If OBS integration is enabled, show OBS action assigner on right-click
+      if (onAssignOBSAction) {
+        onAssignOBSAction(index)
+      } else {
+        onMapSound(index)
+      }
     }
 
     return (
@@ -95,6 +120,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           rounded-full border-4
           flex flex-col items-center justify-center
           transition-all duration-100
+          relative
           ${isPressed
             ? 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
             : isStopButton
@@ -105,6 +131,13 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           }
         `}
       >
+        {/* OBS Action Indicator Badge */}
+        {hasOBSAction && (
+          <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+            <span className="text-xs">🎬</span>
+          </div>
+        )}
+
         {isStopButton ? (
           <div className="text-white text-sm px-1 text-center font-bold">
             🛑 STOP

@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const result = await ipcRenderer.invoke('dialog:openFile');
     return result;
   },
+  readAudioFile: async (filePath) => {
+    const result = await ipcRenderer.invoke('read-audio-file', filePath);
+    return result;
+  },
 
   // Store management for persistent data
   storeGet: (key) => ipcRenderer.invoke('store:get', key),

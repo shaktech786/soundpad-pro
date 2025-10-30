@@ -1,17 +1,25 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { Haute42Layout } from '../components/Haute42Layout'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
+import { useOBS, OBSAction } from '../contexts/OBSContext'
+import { OBSSettings } from '../components/OBSSettings'
+import { OBSActionAssigner } from '../components/OBSActionAssigner'
 
 export default function Home() {
   const router = useRouter()
   const { buttonStates, connected } = useSimpleGamepad()
   const { playSound, stopAll, loadSound, audioDevices, selectedAudioDevice, selectAudioDevice } = useAudioEngine()
+  const { connected: obsConnected, executeAction, obsState } = useOBS()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
+    new Map()
+  )
+  const [obsActions, setOBSActions] = usePersistentStorage<Map<number, OBSAction>>(
+    'obs-action-mappings',
     new Map()
   )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
@@ -19,6 +27,8 @@ export default function Home() {
   const [stopButton, setStopButton] = useState<number | null>(null)
   const [assigningStopButton, setAssigningStopButton] = useState(false)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
+  const [showOBSSettings, setShowOBSSettings] = useState(false)
+  const [assigningOBSAction, setAssigningOBSAction] = useState<number | null>(null)
 
   // Helper to navigate properly in Electron and browser
   const navigateTo = async (route: string) => {
@@ -191,15 +201,15 @@ export default function Home() {
     }
   }, [soundMappings, playSound, stopAll])
 
-  // Track previous button states for edge detection
-  const [prevButtonStates, setPrevButtonStates] = useState<Map<number, boolean>>(new Map())
+  // Track previous button states for edge detection (using ref to avoid infinite re-renders)
+  const prevButtonStates = useRef<Map<number, boolean>>(new Map())
 
   // Handle assigning stop button
   useEffect(() => {
     if (!assigningStopButton) return
 
     buttonStates.forEach((isPressed, gamepadButtonIndex) => {
-      const wasPressed = prevButtonStates.get(gamepadButtonIndex) || false
+      const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
 
       if (isPressed && !wasPressed) {
         setStopButton(gamepadButtonIndex)
@@ -208,14 +218,17 @@ export default function Home() {
         console.log('Stop button assigned to:', gamepadButtonIndex)
       }
     })
-  }, [buttonStates, prevButtonStates, assigningStopButton])
+
+    // Update previous states
+    prevButtonStates.current = new Map(buttonStates)
+  }, [buttonStates, assigningStopButton])
 
   // Play sound when controller buttons are pressed
   useEffect(() => {
     if (assigningStopButton) return // Don't play sounds while assigning stop button
 
     buttonStates.forEach((isPressed, gamepadButtonIndex) => {
-      const wasPressed = prevButtonStates.get(gamepadButtonIndex) || false
+      const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
 
       // Edge detection - only trigger on button down (not release)
       if (isPressed && !wasPressed) {
@@ -246,17 +259,31 @@ export default function Home() {
         } else {
           console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, no sound mapped`)
         }
+
+        // Execute OBS action if assigned
+        const obsAction = obsActions.get(visualButtonId)
+        if (obsAction && obsConnected) {
+          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, executing OBS action:`, obsAction.type)
+          executeAction(obsAction)
+        }
       }
     })
 
-    // Update previous states
-    setPrevButtonStates(new Map(buttonStates))
-  }, [buttonStates, soundMappings, playSound, prevButtonStates, buttonMapping, stopButton, stopAll, assigningStopButton])
+    // Update previous states (using ref to avoid re-renders)
+    prevButtonStates.current = new Map(buttonStates)
+  }, [buttonStates, soundMappings, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, obsActions, obsConnected, executeAction])
 
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
-    console.log('Playing sound:', cleanUrl)
+    console.log('🔊 ====== AUDIO PLAYBACK DEBUG ======')
+    console.log('🔊 Original URL:', url)
+    console.log('🔊 Clean URL:', cleanUrl)
+    console.log('🔊 Is Electron?:', typeof window !== 'undefined' && !!(window as any).electronAPI)
+    console.log('🔊 Audio devices available:', audioDevices.length)
+    console.log('🔊 Selected device:', selectedAudioDevice)
     playSound(cleanUrl, { restart: true })
+    console.log('🔊 playSound() function called')
+    console.log('🔊 =====================================')
   }
 
   const handleMapSound = async (index: number) => {
@@ -300,12 +327,31 @@ export default function Home() {
             </div>
           </div>
 
+          {/* OBS Status Badge */}
+          {obsConnected && (
+            <div className="flex justify-center mb-4">
+              <div className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full font-bold flex items-center gap-3">
+                <span className="text-2xl">🎬</span>
+                <div className="text-white">
+                  <div className="font-bold">OBS Connected</div>
+                  <div className="text-xs opacity-90">
+                    {obsState.streaming && '🔴 LIVE'}
+                    {obsState.recording && ' ⏺️ REC'}
+                    {!obsState.streaming && !obsState.recording && 'Ready'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Haute42 Layout */}
           <Haute42Layout
             buttonStates={buttonStates}
             soundMappings={soundMappings}
+            obsActions={obsActions}
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
+            onAssignOBSAction={obsConnected ? (index) => setAssigningOBSAction(index) : undefined}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
           />
@@ -314,13 +360,17 @@ export default function Home() {
           <div className="mt-8 flex flex-col gap-4">
             <div className="flex justify-center gap-4">
               <button
-                onClick={stopAll}
+                onClick={() => {
+                  console.log('🔴 STOP ALL SOUNDS button clicked')
+                  stopAll()
+                }}
                 className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
               >
                 STOP ALL SOUNDS
               </button>
               <button
                 onClick={() => {
+                  console.log('🔄 RELOAD SOUNDS button clicked')
                   if (confirm('Clear all pad mappings?')) {
                     setSoundMappings(new Map())
                     setAutoLoadComplete(false)
@@ -332,6 +382,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => {
+                  console.log('🔄 REMAP BUTTONS button clicked')
                   if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
                     localStorage.removeItem('haute42-button-mapping')
                     navigateTo('/onboarding')
@@ -340,6 +391,17 @@ export default function Home() {
                 className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
               >
                 🔄 REMAP BUTTONS
+              </button>
+              <button
+                onClick={() => setShowOBSSettings(true)}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors flex items-center gap-2 ${
+                  obsConnected
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                }`}
+              >
+                <span className="text-xl">🎬</span>
+                {obsConnected ? 'OBS CONNECTED' : 'CONNECT TO OBS'}
               </button>
             </div>
 
@@ -440,6 +502,13 @@ export default function Home() {
                 <li>Click <span className="text-gray-300">empty pads</span> to assign custom sounds</li>
                 <li>Click <span className="text-blue-400">mapped pads</span> to preview sounds</li>
                 <li><span className="text-yellow-400">Right-click or Ctrl+Click</span> any pad to change/assign audio file</li>
+                {obsConnected && (
+                  <>
+                    <li><span className="text-purple-400">Right-click</span> any pad to assign OBS actions</li>
+                    <li><span className="text-purple-400">Alt+Click</span> any pad to assign OBS actions</li>
+                    <li>Pads with <span className="text-purple-400">🎬 badge</span> have OBS actions assigned</li>
+                  </>
+                )}
                 <li>Assign a controller button to stop all sounds instantly</li>
                 <li>Enable global hotkeys to use numpad keys when app is not in focus</li>
                 <li>Use "Remap Buttons" if your controller layout doesn't match</li>
@@ -448,6 +517,41 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* OBS Settings Modal */}
+      {showOBSSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="max-w-4xl w-full">
+            <OBSSettings onClose={() => setShowOBSSettings(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* OBS Action Assigner Modal */}
+      {assigningOBSAction !== null && (
+        <OBSActionAssigner
+          buttonIndex={assigningOBSAction}
+          currentAction={obsActions.get(assigningOBSAction) || null}
+          scenes={obsState.scenes}
+          sources={obsState.sources}
+          onAssign={(action) => {
+            if (action) {
+              setOBSActions(prev => {
+                const newMap = new Map(prev)
+                newMap.set(assigningOBSAction, action)
+                return newMap
+              })
+            } else {
+              setOBSActions(prev => {
+                const newMap = new Map(prev)
+                newMap.delete(assigningOBSAction)
+                return newMap
+              })
+            }
+          }}
+          onClose={() => setAssigningOBSAction(null)}
+        />
+      )}
     </>
   )
 }
