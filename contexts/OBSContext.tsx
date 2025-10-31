@@ -8,9 +8,10 @@ export interface OBSConnectionConfig {
 }
 
 export interface OBSAction {
-  type: 'start_stream' | 'stop_stream' | 'start_recording' | 'stop_recording' |
+  type: 'start_stream' | 'stop_stream' | 'toggle_streaming' |
+        'start_recording' | 'stop_recording' | 'toggle_recording' |
         'toggle_mute' | 'set_scene' | 'toggle_source_visibility' | 'trigger_hotkey' |
-        'start_replay_buffer' | 'stop_replay_buffer' | 'save_replay_buffer'
+        'start_replay_buffer' | 'stop_replay_buffer' | 'toggle_replay_buffer' | 'save_replay_buffer'
   params?: {
     sourceName?: string
     sceneName?: string
@@ -238,6 +239,14 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
           await obsRef.current.call('StopStream')
           break
 
+        case 'toggle_streaming':
+          if (obsState.streaming) {
+            await obsRef.current.call('StopStream')
+          } else {
+            await obsRef.current.call('StartStream')
+          }
+          break
+
         case 'start_recording':
           await obsRef.current.call('StartRecord')
           break
@@ -246,12 +255,28 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
           await obsRef.current.call('StopRecord')
           break
 
+        case 'toggle_recording':
+          if (obsState.recording) {
+            await obsRef.current.call('StopRecord')
+          } else {
+            await obsRef.current.call('StartRecord')
+          }
+          break
+
         case 'start_replay_buffer':
           await obsRef.current.call('StartReplayBuffer')
           break
 
         case 'stop_replay_buffer':
           await obsRef.current.call('StopReplayBuffer')
+          break
+
+        case 'toggle_replay_buffer':
+          if (obsState.replayBufferActive) {
+            await obsRef.current.call('StopReplayBuffer')
+          } else {
+            await obsRef.current.call('StartReplayBuffer')
+          }
           break
 
         case 'save_replay_buffer':

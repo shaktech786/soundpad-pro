@@ -11,16 +11,28 @@ interface OBSActionAssignerProps {
 }
 
 const ACTION_TYPES = [
-  { value: 'start_stream', label: '🔴 Start Stream', needsParams: false },
-  { value: 'stop_stream', label: '⚫ Stop Stream', needsParams: false },
-  { value: 'start_recording', label: '⏺️ Start Recording', needsParams: false },
-  { value: 'stop_recording', label: '⏹️ Stop Recording', needsParams: false },
-  { value: 'start_replay_buffer', label: '▶️ Start Replay Buffer', needsParams: false },
-  { value: 'stop_replay_buffer', label: '⏹️ Stop Replay Buffer', needsParams: false },
-  { value: 'save_replay_buffer', label: '💾 Save Replay', needsParams: false },
-  { value: 'set_scene', label: '🎬 Switch Scene', needsParams: true, param: 'sceneName' },
-  { value: 'toggle_mute', label: '🔇 Toggle Mute', needsParams: true, param: 'inputName' },
-  { value: 'trigger_hotkey', label: '⌨️ Trigger Hotkey', needsParams: true, param: 'hotkeyName' }
+  // Toggle Actions (Recommended)
+  { value: 'toggle_streaming', label: '🔴 Toggle Streaming', needsParams: false, category: 'Toggle' },
+  { value: 'toggle_recording', label: '⏺️ Toggle Recording', needsParams: false, category: 'Toggle' },
+  { value: 'toggle_replay_buffer', label: '▶️ Toggle Replay Buffer', needsParams: false, category: 'Toggle' },
+
+  // Streaming Actions
+  { value: 'start_stream', label: '🔴 Start Stream', needsParams: false, category: 'Streaming' },
+  { value: 'stop_stream', label: '⚫ Stop Stream', needsParams: false, category: 'Streaming' },
+
+  // Recording Actions
+  { value: 'start_recording', label: '⏺️ Start Recording', needsParams: false, category: 'Recording' },
+  { value: 'stop_recording', label: '⏹️ Stop Recording', needsParams: false, category: 'Recording' },
+
+  // Replay Buffer Actions
+  { value: 'start_replay_buffer', label: '▶️ Start Replay Buffer', needsParams: false, category: 'Replay' },
+  { value: 'stop_replay_buffer', label: '⏹️ Stop Replay Buffer', needsParams: false, category: 'Replay' },
+  { value: 'save_replay_buffer', label: '💾 Save Replay', needsParams: false, category: 'Replay' },
+
+  // Scene & Source Actions
+  { value: 'set_scene', label: '🎬 Switch Scene', needsParams: true, param: 'sceneName', category: 'Scene' },
+  { value: 'toggle_mute', label: '🔇 Toggle Mute', needsParams: true, param: 'inputName', category: 'Source' },
+  { value: 'trigger_hotkey', label: '⌨️ Trigger Hotkey', needsParams: true, param: 'hotkeyName', category: 'Advanced' }
 ]
 
 export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
