@@ -269,9 +269,13 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
           break
 
         case 'toggle_streaming':
-          if (obsState.streaming) {
+          // Query current status directly from OBS to avoid stale state
+          const streamStatus = await obsRef.current.call('GetStreamStatus')
+          if ((streamStatus as any).outputActive) {
+            console.log('Stream is active, stopping...')
             await obsRef.current.call('StopStream')
           } else {
+            console.log('Stream is inactive, starting...')
             await obsRef.current.call('StartStream')
           }
           break
@@ -285,9 +289,13 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
           break
 
         case 'toggle_recording':
-          if (obsState.recording) {
+          // Query current status directly from OBS to avoid stale state
+          const recordStatus = await obsRef.current.call('GetRecordStatus')
+          if ((recordStatus as any).outputActive) {
+            console.log('Recording is active, stopping...')
             await obsRef.current.call('StopRecord')
           } else {
+            console.log('Recording is inactive, starting...')
             await obsRef.current.call('StartRecord')
           }
           break
@@ -301,9 +309,13 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
           break
 
         case 'toggle_replay_buffer':
-          if (obsState.replayBufferActive) {
+          // Query current status directly from OBS to avoid stale state
+          const replayStatus = await obsRef.current.call('GetReplayBufferStatus')
+          if ((replayStatus as any).outputActive) {
+            console.log('Replay buffer is active, stopping...')
             await obsRef.current.call('StopReplayBuffer')
           } else {
+            console.log('Replay buffer is inactive, starting...')
             await obsRef.current.call('StartReplayBuffer')
           }
           break
