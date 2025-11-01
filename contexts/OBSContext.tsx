@@ -69,6 +69,7 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
 
   const obsRef = useRef<OBSWebSocket | null>(null)
   const isInitialized = useRef(false)
+  const autoConnectAttempted = useRef(false)
 
   // Initialize OBS WebSocket client ONCE
   useEffect(() => {
@@ -142,6 +143,57 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
     }
   }, [])
 
+  // Connect function (defined before auto-connect effect)
+  const connect = useCallback(async (config: OBSConnectionConfig) => {
+    if (!obsRef.current) {
+      console.error('OBS client not initialized')
+      return
+    }
+
+    setConnecting(true)
+    setError(null)
+
+    try {
+      const url = `ws://${config.address}:${config.port}`
+      console.log('🔌 Connecting to OBS at:', url)
+
+      await obsRef.current.connect(url, config.password)
+
+      // Save config to localStorage for auto-connect on next launch
+      localStorage.setItem('obs-connection-config', JSON.stringify(config))
+      console.log('💾 Saved OBS config for auto-connect')
+
+      // Connection success is handled by the 'Identified' event
+    } catch (err: any) {
+      console.error('Failed to connect to OBS:', err)
+      setError(err.message || 'Failed to connect')
+      setConnecting(false)
+      setConnected(false)
+    }
+  }, [])
+
+  // Auto-connect on mount if saved config exists
+  useEffect(() => {
+    if (autoConnectAttempted.current) return
+    autoConnectAttempted.current = true
+
+    const tryAutoConnect = async () => {
+      try {
+        const savedConfig = localStorage.getItem('obs-connection-config')
+        if (savedConfig) {
+          const config: OBSConnectionConfig = JSON.parse(savedConfig)
+          console.log('🔄 Auto-connecting to OBS with saved config...')
+          await connect(config)
+        }
+      } catch (err) {
+        console.log('No saved OBS config or auto-connect failed:', err)
+      }
+    }
+
+    // Wait a bit for OBS client to initialize
+    setTimeout(tryAutoConnect, 1000)
+  }, [connect])
+
   const refreshOBSStateInternal = async () => {
     if (!obsRef.current) return
 
@@ -183,29 +235,6 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
 
   const refreshOBSState = useCallback(async () => {
     await refreshOBSStateInternal()
-  }, [])
-
-  const connect = useCallback(async (config: OBSConnectionConfig) => {
-    if (!obsRef.current) {
-      console.error('OBS client not initialized')
-      return
-    }
-
-    setConnecting(true)
-    setError(null)
-
-    try {
-      const url = `ws://${config.address}:${config.port}`
-      console.log('🔌 Connecting to OBS at:', url)
-
-      await obsRef.current.connect(url, config.password)
-      // Connection success is handled by the 'Identified' event
-    } catch (err: any) {
-      console.error('Failed to connect to OBS:', err)
-      setError(err.message || 'Failed to connect')
-      setConnecting(false)
-      setConnected(false)
-    }
   }, [])
 
   const disconnect = useCallback(async () => {
