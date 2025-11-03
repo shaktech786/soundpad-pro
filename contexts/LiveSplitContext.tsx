@@ -120,8 +120,13 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
   }, [])
 
   const executeAction = useCallback(async (action: LiveSplitAction) => {
-    if (!socketRef.current || !connected) {
-      console.warn('Cannot execute LiveSplit action - not connected')
+    // Check if socket exists and is in OPEN state (readyState === 1)
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      console.warn('Cannot execute LiveSplit action - not connected', {
+        hasSocket: !!socketRef.current,
+        readyState: socketRef.current?.readyState,
+        connected: connected
+      })
       return
     }
 
@@ -164,13 +169,14 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
           return
       }
 
-      console.log('🏁 Executing LiveSplit action:', command)
+      console.log('🏁 Executing LiveSplit command:', command)
       socketRef.current.send(command + '\r\n')
+      console.log('✅ LiveSplit command sent successfully')
     } catch (err: any) {
-      console.error('Failed to execute LiveSplit action:', err)
+      console.error('❌ Failed to execute LiveSplit action:', err)
       setError(err.message || 'Failed to execute action')
     }
-  }, [connected])
+  }, [])
 
   // Cleanup on unmount
   useEffect(() => {
