@@ -268,13 +268,23 @@ export default function Home() {
 
         // Execute combined action (OBS or LiveSplit) if assigned
         const combinedAction = combinedActions.get(visualButtonId)
+        console.log(`🎮 Button ${visualButtonId} pressed - checking for actions`, {
+          hasCombinedAction: !!combinedAction,
+          service: combinedAction?.service,
+          actionType: combinedAction?.type,
+          obsConnected,
+          liveSplitConnected
+        })
+
         if (combinedAction) {
           if (combinedAction.service === 'obs' && obsConnected) {
-            console.log(`Executing OBS action:`, combinedAction.type)
+            console.log(`🎬 Executing OBS action:`, combinedAction.type)
             executeOBSAction(combinedAction as OBSAction)
           } else if (combinedAction.service === 'livesplit' && liveSplitConnected) {
-            console.log(`Executing LiveSplit action:`, combinedAction.type)
+            console.log(`🏁 Executing LiveSplit action:`, combinedAction)
             executeLiveSplitAction(combinedAction as LiveSplitAction)
+          } else {
+            console.warn(`⚠️ Action not executed - service: ${combinedAction.service}, obsConnected: ${obsConnected}, liveSplitConnected: ${liveSplitConnected}`)
           }
         }
       }
@@ -568,13 +578,20 @@ export default function Home() {
           obsConnected={obsConnected}
           liveSplitConnected={liveSplitConnected}
           onAssign={(action) => {
+            console.log(`🎯 Assigning action to button ${assigningAction}:`, action)
             if (action) {
               setCombinedActions(prev => {
                 const newMap = new Map(prev)
                 newMap.set(assigningAction, action)
+                console.log(`✅ Action saved to button ${assigningAction}`, {
+                  service: action.service,
+                  type: action.type,
+                  totalActions: newMap.size
+                })
                 return newMap
               })
             } else {
+              console.log(`❌ Clearing action from button ${assigningAction}`)
               setCombinedActions(prev => {
                 const newMap = new Map(prev)
                 newMap.delete(assigningAction)

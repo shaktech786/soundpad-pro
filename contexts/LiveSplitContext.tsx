@@ -170,8 +170,9 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
       }
 
       console.log('🏁 Executing LiveSplit command:', command)
-      socketRef.current.send(command + '\r\n')
-      console.log('✅ LiveSplit command sent successfully')
+      // Try sending without line ending first
+      socketRef.current.send(command)
+      console.log('✅ LiveSplit command sent successfully (no line ending)')
     } catch (err: any) {
       console.error('❌ Failed to execute LiveSplit action:', err)
       setError(err.message || 'Failed to execute action')
