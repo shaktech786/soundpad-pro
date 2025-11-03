@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app'
 import { useEffect } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { OBSProvider } from '../contexts/OBSContext'
+import { LiveSplitProvider } from '../contexts/LiveSplitContext'
 
 // Polyfill process for client-side
 if (typeof window !== 'undefined' && !window.process) {
@@ -47,7 +48,9 @@ function MyApp({ Component, pageProps }: AppProps) {
   return (
     <ErrorBoundary>
       <OBSProvider>
-        <Component {...pageProps} />
+        <LiveSplitProvider>
+          <Component {...pageProps} />
+        </LiveSplitProvider>
       </OBSProvider>
     </ErrorBoundary>
   )

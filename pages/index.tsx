@@ -6,20 +6,25 @@ import { Haute42Layout } from '../components/Haute42Layout'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
+import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
 import { OBSSettings } from '../components/OBSSettings'
+import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
+
+type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
 
 export default function Home() {
   const router = useRouter()
   const { buttonStates, connected } = useSimpleGamepad()
   const { playSound, stopAll, loadSound, audioDevices, selectedAudioDevice, selectAudioDevice } = useAudioEngine()
-  const { connected: obsConnected, executeAction, obsState } = useOBS()
+  const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
+  const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
   const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
-  const [obsActions, setOBSActions] = usePersistentStorage<Map<number, OBSAction>>(
-    'obs-action-mappings',
+  const [combinedActions, setCombinedActions] = usePersistentStorage<Map<number, CombinedAction>>(
+    'combined-action-mappings',
     new Map()
   )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
@@ -28,7 +33,8 @@ export default function Home() {
   const [assigningStopButton, setAssigningStopButton] = useState(false)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
   const [showOBSSettings, setShowOBSSettings] = useState(false)
-  const [assigningOBSAction, setAssigningOBSAction] = useState<number | null>(null)
+  const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
+  const [assigningAction, setAssigningAction] = useState<number | null>(null)
 
   // Helper to navigate properly in Electron and browser
   const navigateTo = async (route: string) => {
@@ -260,18 +266,23 @@ export default function Home() {
           console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, no sound mapped`)
         }
 
-        // Execute OBS action if assigned
-        const obsAction = obsActions.get(visualButtonId)
-        if (obsAction && obsConnected) {
-          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, executing OBS action:`, obsAction.type)
-          executeAction(obsAction)
+        // Execute combined action (OBS or LiveSplit) if assigned
+        const combinedAction = combinedActions.get(visualButtonId)
+        if (combinedAction) {
+          if (combinedAction.service === 'obs' && obsConnected) {
+            console.log(`Executing OBS action:`, combinedAction.type)
+            executeOBSAction(combinedAction as OBSAction)
+          } else if (combinedAction.service === 'livesplit' && liveSplitConnected) {
+            console.log(`Executing LiveSplit action:`, combinedAction.type)
+            executeLiveSplitAction(combinedAction as LiveSplitAction)
+          }
         }
       }
     })
 
     // Update previous states (using ref to avoid re-renders)
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, obsActions, obsConnected, executeAction])
+  }, [buttonStates, soundMappings, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
 
   const handlePlaySound = (url: string) => {
     const cleanUrl = url.split('#')[0]
@@ -348,10 +359,10 @@ export default function Home() {
           <Haute42Layout
             buttonStates={buttonStates}
             soundMappings={soundMappings}
-            obsActions={obsActions}
+            obsActions={combinedActions}
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
-            onAssignOBSAction={obsConnected ? (index) => setAssigningOBSAction(index) : undefined}
+            onAssignOBSAction={(obsConnected || liveSplitConnected) ? (index) => setAssigningAction(index) : undefined}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
           />
@@ -402,6 +413,17 @@ export default function Home() {
               >
                 <span className="text-xl">🎬</span>
                 {obsConnected ? 'OBS CONNECTED' : 'CONNECT TO OBS'}
+              </button>
+              <button
+                onClick={() => setShowLiveSplitSettings(true)}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors flex items-center gap-2 ${
+                  liveSplitConnected
+                    ? 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                }`}
+              >
+                <span className="text-xl">🏁</span>
+                {liveSplitConnected ? 'LIVESPLIT CONNECTED' : 'CONNECT TO LIVESPLIT'}
               </button>
             </div>
 
@@ -527,29 +549,40 @@ export default function Home() {
         </div>
       )}
 
-      {/* OBS Action Assigner Modal */}
-      {assigningOBSAction !== null && (
+      {/* LiveSplit Settings Modal */}
+      {showLiveSplitSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="max-w-4xl w-full">
+            <LiveSplitSettings onClose={() => setShowLiveSplitSettings(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Action Assigner Modal (OBS + LiveSplit) */}
+      {assigningAction !== null && (
         <OBSActionAssigner
-          buttonIndex={assigningOBSAction}
-          currentAction={obsActions.get(assigningOBSAction) || null}
+          buttonIndex={assigningAction}
+          currentAction={combinedActions.get(assigningAction) || null}
           scenes={obsState.scenes}
           sources={obsState.sources}
+          obsConnected={obsConnected}
+          liveSplitConnected={liveSplitConnected}
           onAssign={(action) => {
             if (action) {
-              setOBSActions(prev => {
+              setCombinedActions(prev => {
                 const newMap = new Map(prev)
-                newMap.set(assigningOBSAction, action)
+                newMap.set(assigningAction, action)
                 return newMap
               })
             } else {
-              setOBSActions(prev => {
+              setCombinedActions(prev => {
                 const newMap = new Map(prev)
-                newMap.delete(assigningOBSAction)
+                newMap.delete(assigningAction)
                 return newMap
               })
             }
           }}
-          onClose={() => setAssigningOBSAction(null)}
+          onClose={() => setAssigningAction(null)}
         />
       )}
     </>

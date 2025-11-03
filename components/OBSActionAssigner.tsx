@@ -1,38 +1,63 @@
 import React, { useState } from 'react'
 import { OBSAction } from '../contexts/OBSContext'
+import { LiveSplitAction } from '../contexts/LiveSplitContext'
+
+type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
 
 interface OBSActionAssignerProps {
   buttonIndex: number
-  currentAction: OBSAction | null
+  currentAction: CombinedAction | null
   scenes: string[]
   sources: string[]
-  onAssign: (action: OBSAction | null) => void
+  onAssign: (action: CombinedAction | null) => void
   onClose: () => void
+  obsConnected: boolean
+  liveSplitConnected: boolean
 }
 
-const ACTION_TYPES = [
+const OBS_ACTION_TYPES = [
   // Toggle Actions (Recommended)
-  { value: 'toggle_streaming', label: '🔴 Toggle Streaming', needsParams: false, category: 'Toggle' },
-  { value: 'toggle_recording', label: '⏺️ Toggle Recording', needsParams: false, category: 'Toggle' },
-  { value: 'toggle_replay_buffer', label: '▶️ Toggle Replay Buffer', needsParams: false, category: 'Toggle' },
+  { value: 'toggle_streaming', label: '🔴 Toggle Streaming', needsParams: false, category: 'Toggle', service: 'obs' },
+  { value: 'toggle_recording', label: '⏺️ Toggle Recording', needsParams: false, category: 'Toggle', service: 'obs' },
+  { value: 'toggle_replay_buffer', label: '▶️ Toggle Replay Buffer', needsParams: false, category: 'Toggle', service: 'obs' },
 
   // Streaming Actions
-  { value: 'start_stream', label: '🔴 Start Stream', needsParams: false, category: 'Streaming' },
-  { value: 'stop_stream', label: '⚫ Stop Stream', needsParams: false, category: 'Streaming' },
+  { value: 'start_stream', label: '🔴 Start Stream', needsParams: false, category: 'Streaming', service: 'obs' },
+  { value: 'stop_stream', label: '⚫ Stop Stream', needsParams: false, category: 'Streaming', service: 'obs' },
 
   // Recording Actions
-  { value: 'start_recording', label: '⏺️ Start Recording', needsParams: false, category: 'Recording' },
-  { value: 'stop_recording', label: '⏹️ Stop Recording', needsParams: false, category: 'Recording' },
+  { value: 'start_recording', label: '⏺️ Start Recording', needsParams: false, category: 'Recording', service: 'obs' },
+  { value: 'stop_recording', label: '⏹️ Stop Recording', needsParams: false, category: 'Recording', service: 'obs' },
 
   // Replay Buffer Actions
-  { value: 'start_replay_buffer', label: '▶️ Start Replay Buffer', needsParams: false, category: 'Replay' },
-  { value: 'stop_replay_buffer', label: '⏹️ Stop Replay Buffer', needsParams: false, category: 'Replay' },
-  { value: 'save_replay_buffer', label: '💾 Save Replay', needsParams: false, category: 'Replay' },
+  { value: 'start_replay_buffer', label: '▶️ Start Replay Buffer', needsParams: false, category: 'Replay', service: 'obs' },
+  { value: 'stop_replay_buffer', label: '⏹️ Stop Replay Buffer', needsParams: false, category: 'Replay', service: 'obs' },
+  { value: 'save_replay_buffer', label: '💾 Save Replay', needsParams: false, category: 'Replay', service: 'obs' },
 
   // Scene & Source Actions
-  { value: 'set_scene', label: '🎬 Switch Scene', needsParams: true, param: 'sceneName', category: 'Scene' },
-  { value: 'toggle_mute', label: '🔇 Toggle Mute', needsParams: true, param: 'inputName', category: 'Source' },
-  { value: 'trigger_hotkey', label: '⌨️ Trigger Hotkey', needsParams: true, param: 'hotkeyName', category: 'Advanced' }
+  { value: 'set_scene', label: '🎬 Switch Scene', needsParams: true, param: 'sceneName', category: 'Scene', service: 'obs' },
+  { value: 'toggle_mute', label: '🔇 Toggle Mute', needsParams: true, param: 'inputName', category: 'Source', service: 'obs' },
+  { value: 'trigger_hotkey', label: '⌨️ Trigger Hotkey', needsParams: true, param: 'hotkeyName', category: 'Advanced', service: 'obs' }
+]
+
+const LIVESPLIT_ACTION_TYPES = [
+  // Main Actions
+  { value: 'start_or_split', label: '🏁 Start/Split', needsParams: false, category: 'Main', service: 'livesplit' },
+  { value: 'start', label: '▶️ Start Timer', needsParams: false, category: 'Main', service: 'livesplit' },
+  { value: 'split', label: '⏭️ Split', needsParams: false, category: 'Main', service: 'livesplit' },
+  { value: 'reset', label: '🔄 Reset', needsParams: false, category: 'Main', service: 'livesplit' },
+
+  // Pause Actions
+  { value: 'toggle_pause', label: '⏯️ Toggle Pause', needsParams: false, category: 'Pause', service: 'livesplit' },
+  { value: 'pause', label: '⏸️ Pause', needsParams: false, category: 'Pause', service: 'livesplit' },
+  { value: 'resume', label: '▶️ Resume', needsParams: false, category: 'Pause', service: 'livesplit' },
+
+  // Split Management
+  { value: 'undo_split', label: '⏮️ Undo Split', needsParams: false, category: 'Splits', service: 'livesplit' },
+  { value: 'skip_split', label: '⏭️ Skip Split', needsParams: false, category: 'Splits', service: 'livesplit' },
+
+  // Advanced
+  { value: 'init_game_time', label: '🎮 Init Game Time', needsParams: false, category: 'Advanced', service: 'livesplit' }
 ]
 
 export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
@@ -41,24 +66,28 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   scenes,
   sources,
   onAssign,
-  onClose
+  onClose,
+  obsConnected,
+  liveSplitConnected
 }) => {
+  const [selectedService, setSelectedService] = useState<'obs' | 'livesplit'>(currentAction?.service || 'obs')
   const [selectedType, setSelectedType] = useState<string>(currentAction?.type || '')
   const [paramValue, setParamValue] = useState<string>('')
 
+  const ACTION_TYPES = selectedService === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
 
   const handleAssign = () => {
     if (!selectedType) return
 
-    const action: OBSAction = {
+    const action: any = {
       type: selectedType as any,
-      params: {}
+      service: selectedService
     }
 
-    if (selectedActionType?.needsParams && selectedActionType.param) {
+    if (selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && selectedActionType.param) {
       action.params = {
-        [selectedActionType.param]: paramValue
+        [selectedActionType.param as string]: paramValue
       }
     }
 
@@ -76,7 +105,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
       <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-white">
-            Assign OBS Action to Pad {buttonIndex}
+            Assign Action to Pad {buttonIndex}
           </h2>
           <button
             onClick={onClose}
@@ -86,11 +115,49 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           </button>
         </div>
 
+        {/* Service Selector Tabs */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => {
+              setSelectedService('obs')
+              setSelectedType('')
+              setParamValue('')
+            }}
+            disabled={!obsConnected}
+            className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+              selectedService === 'obs'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                : obsConnected
+                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            🎬 OBS {!obsConnected && '(Not Connected)'}
+          </button>
+          <button
+            onClick={() => {
+              setSelectedService('livesplit')
+              setSelectedType('')
+              setParamValue('')
+            }}
+            disabled={!liveSplitConnected}
+            className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+              selectedService === 'livesplit'
+                ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white'
+                : liveSplitConnected
+                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            🏁 LiveSplit {!liveSplitConnected && '(Not Connected)'}
+          </button>
+        </div>
+
         {/* Action Type Selection */}
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-3">
-              Select OBS Action
+              Select {selectedService === 'obs' ? 'OBS' : 'LiveSplit'} Action
             </label>
             <div className="grid grid-cols-2 gap-3">
               {ACTION_TYPES.map(action => (
@@ -116,7 +183,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           </div>
 
           {/* Parameter Input */}
-          {selectedActionType?.needsParams && (
+          {selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && (
             <div className="p-4 bg-gray-800 rounded-lg">
               <label className="block text-sm font-medium text-gray-400 mb-2">
                 {selectedActionType.param === 'sceneName' && 'Select Scene'}
@@ -192,7 +259,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           <div className="flex gap-3 pt-4">
             <button
               onClick={handleAssign}
-              disabled={!selectedType || (selectedActionType?.needsParams && !paramValue)}
+              disabled={!selectedType || (selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)}
               className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
             >
               Assign Action

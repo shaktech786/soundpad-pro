@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react'
 import { OBSAction } from '../contexts/OBSContext'
+import { LiveSplitAction } from '../contexts/LiveSplitContext'
+
+type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
-  obsActions?: Map<number, OBSAction> // visualId -> OBS action
+  obsActions?: Map<number, CombinedAction> // visualId -> OBS or LiveSplit action
   onPlaySound: (url: string) => void
   onMapSound: (index: number) => void
   onAssignOBSAction?: (index: number) => void
@@ -131,10 +134,14 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           }
         `}
       >
-        {/* OBS Action Indicator Badge */}
+        {/* OBS/LiveSplit Action Indicator Badge */}
         {hasOBSAction && (
-          <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
-            <span className="text-xs">🎬</span>
+          <div className={`absolute -top-1 -right-1 w-6 h-6 rounded-full border-2 border-gray-900 flex items-center justify-center ${
+            obsAction?.service === 'livesplit'
+              ? 'bg-gradient-to-br from-green-500 to-blue-500'
+              : 'bg-gradient-to-br from-purple-500 to-pink-500'
+          }`}>
+            <span className="text-xs">{obsAction?.service === 'livesplit' ? '🏁' : '🎬'}</span>
           </div>
         )}
 
