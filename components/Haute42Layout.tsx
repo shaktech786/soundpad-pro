@@ -109,6 +109,12 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       }
     }
 
+    const buttonLabel = isStopButton
+      ? 'Stop all sounds'
+      : hasSound
+        ? `Play sound: ${extractFilename(soundFile!)}`
+        : 'Assign sound to pad'
+
     return (
       <button
         onClick={handleClick}
@@ -124,15 +130,20 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           flex flex-col items-center justify-center
           transition-all duration-100
           relative
+          focus:outline-none focus:ring-4 focus:ring-purple-500/50
           ${isPressed
             ? 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
             : isStopButton
-              ? 'bg-red-600 border-red-500 hover:bg-red-500 shadow-lg shadow-red-500/30'
+              ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:scale-105 shadow-lg shadow-red-500/30'
               : hasSound
-                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500'
-                : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
+                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
+                : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
           }
         `}
+        aria-label={buttonLabel}
+        aria-pressed={isPressed}
+        role="button"
+        tabIndex={0}
       >
         {/* OBS/LiveSplit Action Indicator Badge */}
         {hasOBSAction && (

@@ -77,6 +77,28 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const ACTION_TYPES = selectedService === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
 
+  // Keyboard support: Escape to close, Enter to submit
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      } else if (e.key === 'Enter' && selectedType && !(selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)) {
+        handleAssign()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedType, paramValue, selectedService, selectedActionType])
+
+  // Prevent background scroll
+  React.useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [])
+
   const handleAssign = () => {
     if (!selectedType) return
 
@@ -101,15 +123,24 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl animate-scale-in">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">
+          <h2 id="modal-title" className="text-2xl font-bold text-white">
             Assign Action to Pad {buttonIndex}
           </h2>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
+            aria-label="Close dialog"
           >
             ✕
           </button>

@@ -25,6 +25,26 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
     }
   }, [])
 
+  // Keyboard support: Escape to close
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  // Prevent background scroll
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [])
+
   const handleConnect = async () => {
     await connect(config)
   }
@@ -34,15 +54,16 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
   }
 
   return (
-    <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full">
+    <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full shadow-2xl animate-scale-in" role="dialog" aria-modal="true" aria-labelledby="livesplit-title">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-          <span className="text-3xl">🏁</span>
+        <h2 id="livesplit-title" className="text-2xl font-bold text-white flex items-center gap-3">
+          <span className="text-3xl" role="img" aria-label="Racing flag">🏁</span>
           LiveSplit Server Settings
         </h2>
         <button
           onClick={onClose}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500"
+          aria-label="Close LiveSplit settings"
         >
           ✕
         </button>
