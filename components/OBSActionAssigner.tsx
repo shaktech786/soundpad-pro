@@ -1,15 +1,19 @@
 import React, { useState } from 'react'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
+import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
 
 type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
 
 interface OBSActionAssignerProps {
   buttonIndex: number
   currentAction: CombinedAction | null
+  currentSound?: string | null
   scenes: string[]
   sources: string[]
   onAssign: (action: CombinedAction | null) => void
+  onAssignSound?: (url: string, name?: string) => void
+  onClearSound?: () => void
   onClose: () => void
   obsConnected: boolean
   liveSplitConnected: boolean
@@ -66,18 +70,28 @@ const LIVESPLIT_ACTION_TYPES = [
 export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   buttonIndex,
   currentAction,
+  currentSound,
   scenes,
   sources,
   onAssign,
+  onAssignSound,
+  onClearSound,
   onClose,
   obsConnected,
   liveSplitConnected
 }) => {
-  const [selectedService, setSelectedService] = useState<'obs' | 'livesplit'>(currentAction?.service || 'obs')
+  const [selectedTab, setSelectedTab] = useState<'sound' | 'obs' | 'livesplit'>(
+    currentSound ? 'sound' : currentAction?.service || 'sound'
+  )
   const [selectedType, setSelectedType] = useState<string>(currentAction?.type || '')
   const [paramValue, setParamValue] = useState<string>('')
 
-  const ACTION_TYPES = selectedService === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
+  // Sound assignment state
+  const [url, setUrl] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const ACTION_TYPES = selectedTab === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
 
   // Keyboard support: Escape to close, Enter to submit
@@ -85,14 +99,18 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose()
-      } else if (e.key === 'Enter' && selectedType && !(selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)) {
-        handleAssign()
+      } else if (e.key === 'Enter') {
+        if (selectedTab === 'sound' && url && !loading) {
+          handleAssignSound()
+        } else if (selectedTab !== 'sound' && selectedType && !(selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)) {
+          handleAssign()
+        }
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedType, paramValue, selectedService, selectedActionType])
+  }, [selectedType, paramValue, selectedTab, selectedActionType, url, loading])
 
   // Prevent background scroll
   React.useEffect(() => {
@@ -107,10 +125,10 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
     const action: any = {
       type: selectedType as any,
-      service: selectedService
+      service: selectedTab as 'obs' | 'livesplit'
     }
 
-    if (selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && selectedActionType.param) {
+    if (selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && selectedActionType.param) {
       action.params = {
         [selectedActionType.param as string]: paramValue
       }
@@ -123,6 +141,51 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const handleClear = () => {
     onAssign(null)
     onClose()
+  }
+
+  const handleAssignSound = async () => {
+    if (!url.trim() || !onAssignSound) return
+
+    if (!isValidUrl(url)) {
+      setError('Please enter a valid URL')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const extracted = await extractAudioUrl(url)
+      onAssignSound(extracted.url, extracted.name)
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to extract audio URL')
+      setLoading(false)
+    }
+  }
+
+  const handleFilePickerClick = async () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
+      try {
+        const filePath = await (window as any).electronAPI.selectAudioFile()
+        if (filePath && onAssignSound) {
+          onAssignSound(filePath)
+          onClose()
+        }
+      } catch (err) {
+        console.error('File picker error:', err)
+        setError('Failed to open file picker')
+      }
+    } else {
+      setError('File picker only available in desktop app')
+    }
+  }
+
+  const handleClearSound = () => {
+    if (onClearSound) {
+      onClearSound()
+      onClose()
+    }
   }
 
   return (
@@ -153,71 +216,185 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => {
-              setSelectedService('obs')
+              setSelectedTab('sound')
               setSelectedType('')
               setParamValue('')
+              setError(null)
+            }}
+            className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+              selectedTab === 'sound'
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
+                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            🔊 Sound
+          </button>
+          <button
+            onClick={() => {
+              setSelectedTab('obs')
+              setSelectedType('')
+              setParamValue('')
+              setError(null)
             }}
             disabled={!obsConnected}
             className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
-              selectedService === 'obs'
+              selectedTab === 'obs'
                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
                 : obsConnected
                 ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'
             }`}
           >
-            🎬 OBS {!obsConnected && '(Not Connected)'}
+            🎬 OBS {!obsConnected && '(Disconnected)'}
           </button>
           <button
             onClick={() => {
-              setSelectedService('livesplit')
+              setSelectedTab('livesplit')
               setSelectedType('')
               setParamValue('')
+              setError(null)
             }}
             disabled={!liveSplitConnected}
             className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
-              selectedService === 'livesplit'
+              selectedTab === 'livesplit'
                 ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white'
                 : liveSplitConnected
                 ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'
             }`}
           >
-            🏁 LiveSplit {!liveSplitConnected && '(Not Connected)'}
+            🏁 LiveSplit {!liveSplitConnected && '(Disconnected)'}
           </button>
         </div>
 
-        {/* Action Type Selection */}
+        {/* Tab Content */}
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-3">
-              Select {selectedService === 'obs' ? 'OBS' : 'LiveSplit'} Action
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {ACTION_TYPES.map(action => (
+          {/* Sound Assignment Tab */}
+          {selectedTab === 'sound' && (
+            <>
+              <div className="space-y-4">
+                {/* Current Sound Display */}
+                {currentSound && (
+                  <div className="p-4 bg-gray-800 rounded-lg">
+                    <div className="text-sm text-gray-400 mb-2">Current Sound:</div>
+                    <div className="text-white font-medium break-all">{currentSound}</div>
+                  </div>
+                )}
+
+                {/* File Picker Button */}
                 <button
-                  key={action.value}
-                  onClick={() => {
-                    setSelectedType(action.value)
-                    setParamValue('')
-                  }}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
-                    selectedType === action.value
-                      ? 'bg-purple-600 border-purple-400 text-white'
-                      : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
-                  }`}
+                  onClick={handleFilePickerClick}
+                  className="w-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-3"
                 >
-                  <div className="font-bold">{action.label}</div>
-                  {action.needsParams && (
-                    <div className="text-xs mt-1 opacity-75">Requires input</div>
-                  )}
+                  <span className="text-2xl">📁</span>
+                  <span>Choose Local Audio File</span>
                 </button>
-              ))}
-            </div>
-          </div>
+
+                {/* Divider */}
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 border-t border-gray-700"></div>
+                  <span className="text-gray-500 text-sm">OR</span>
+                  <div className="flex-1 border-t border-gray-700"></div>
+                </div>
+
+                {/* URL Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Enter Sound URL
+                  </label>
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => {
+                      setUrl(e.target.value)
+                      setError(null)
+                    }}
+                    placeholder="https://www.myinstants.com/... or direct audio URL"
+                    className="w-full px-4 py-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    disabled={loading}
+                    autoFocus={!currentSound}
+                  />
+                </div>
+
+                {/* Supported Sources Info */}
+                <div className="p-3 bg-gray-800 rounded-lg">
+                  <div className="text-xs font-medium text-gray-400 mb-2">Supported Sources:</div>
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <div>🎵 MyInstants.com - Sound button pages</div>
+                    <div>🔗 Direct audio URLs (.mp3, .wav, .ogg, etc.)</div>
+                  </div>
+                </div>
+
+                {/* Error Message */}
+                {error && (
+                  <div className="p-3 bg-red-900/30 border border-red-700 rounded-lg">
+                    <div className="text-red-400 text-sm">{error}</div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={handleAssignSound}
+                    disabled={!url || loading}
+                    className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                  >
+                    {loading ? 'Processing...' : 'Assign Sound'}
+                  </button>
+
+                  {currentSound && onClearSound && (
+                    <button
+                      onClick={handleClearSound}
+                      className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+
+                  <button
+                    onClick={onClose}
+                    disabled={loading}
+                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* OBS/LiveSplit Action Type Selection */}
+          {(selectedTab === 'obs' || selectedTab === 'livesplit') && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-3">
+                  Select {selectedTab === 'obs' ? 'OBS' : 'LiveSplit'} Action
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {ACTION_TYPES.map(action => (
+                    <button
+                      key={action.value}
+                      onClick={() => {
+                        setSelectedType(action.value)
+                        setParamValue('')
+                      }}
+                      className={`p-4 rounded-lg border-2 transition-all text-left ${
+                        selectedType === action.value
+                          ? 'bg-purple-600 border-purple-400 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className="font-bold">{action.label}</div>
+                      {action.needsParams && (
+                        <div className="text-xs mt-1 opacity-75">Requires input</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
           {/* Parameter Input */}
-          {selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && (
+          {selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && (
             <div className="p-4 bg-gray-800 rounded-lg">
               <label className="block text-sm font-medium text-gray-400 mb-2">
                 {selectedActionType.param === 'sceneName' && 'Select Scene'}
@@ -293,7 +470,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           <div className="flex gap-3 pt-4">
             <button
               onClick={handleAssign}
-              disabled={!selectedType || (selectedService === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)}
+              disabled={!selectedType || (selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)}
               className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
             >
               Assign Action
@@ -315,6 +492,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               Cancel
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

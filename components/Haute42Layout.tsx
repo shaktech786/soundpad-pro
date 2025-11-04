@@ -110,11 +110,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     const handleContextMenu = (e: React.MouseEvent) => {
       e.preventDefault()
 
-      // If OBS integration is enabled, show OBS action assigner on right-click
+      // Right-click always opens the unified assignment modal
       if (onAssignOBSAction) {
         onAssignOBSAction(index)
-      } else {
-        onMapSound(index)
       }
     }
 

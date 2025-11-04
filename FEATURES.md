@@ -18,8 +18,7 @@ Assign sounds from web URLs to your controller buttons!
 - **Click**: Play sound or assign (if empty)
 - **Ctrl+Click**: Open file picker for local audio files
 - **Shift+Click**: Open URL input for web sounds
-- **Alt+Click**: Assign OBS/LiveSplit actions
-- **Right-Click**: Assign OBS/LiveSplit actions (alternative)
+- **Right-Click**: Universal assignment modal (Sound, OBS, LiveSplit)
 
 ### Examples:
 - MyInstants sound effects: `https://www.myinstants.com/en/instant/...`

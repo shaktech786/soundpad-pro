@@ -439,7 +439,7 @@ export default function Home() {
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
             onMapSoundFromUrl={handleMapSoundFromUrl}
-            onAssignOBSAction={(obsConnected || liveSplitConnected) ? (index) => setAssigningAction(index) : undefined}
+            onAssignOBSAction={(index) => setAssigningAction(index)}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
           />
@@ -635,11 +635,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* Action Assigner Modal (OBS + LiveSplit) */}
+      {/* Unified Assignment Modal (Sound + OBS + LiveSplit) */}
       {assigningAction !== null && (
         <OBSActionAssigner
           buttonIndex={assigningAction}
           currentAction={combinedActions.get(assigningAction) || null}
+          currentSound={soundMappings.get(assigningAction) || null}
           scenes={obsState.scenes}
           sources={obsState.sources}
           obsConnected={obsConnected}
@@ -665,6 +666,22 @@ export default function Home() {
                 return newMap
               })
             }
+          }}
+          onAssignSound={(url, name) => {
+            console.log(`🔊 Assigning sound to button ${assigningAction}:`, url, name)
+            setSoundMappings(prev => {
+              const newMap = new Map(prev)
+              newMap.set(assigningAction, url)
+              return newMap
+            })
+          }}
+          onClearSound={() => {
+            console.log(`❌ Clearing sound from button ${assigningAction}`)
+            setSoundMappings(prev => {
+              const newMap = new Map(prev)
+              newMap.delete(assigningAction)
+              return newMap
+            })
           }}
           onClose={() => setAssigningAction(null)}
         />
