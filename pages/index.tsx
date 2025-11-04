@@ -210,6 +210,9 @@ export default function Home() {
   // Track previous button states for edge detection (using ref to avoid infinite re-renders)
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())
 
+  // Track button press start times for long press detection
+  const buttonPressStart = useRef<Map<number, number>>(new Map())
+
   // Handle assigning stop button
   useEffect(() => {
     if (!assigningStopButton) return
@@ -236,8 +239,11 @@ export default function Home() {
     buttonStates.forEach((isPressed, gamepadButtonIndex) => {
       const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
 
-      // Edge detection - only trigger on button down (not release)
+      // Button pressed down - record timestamp and execute immediate actions
       if (isPressed && !wasPressed) {
+        // Record button press start time for long press detection
+        buttonPressStart.current.set(gamepadButtonIndex, Date.now())
+
         // Check if this is the stop button
         if (stopButton !== null && gamepadButtonIndex === stopButton) {
           console.log('Stop button pressed, stopping all sounds')
@@ -281,10 +287,46 @@ export default function Home() {
             console.log(`🎬 Executing OBS action:`, combinedAction.type)
             executeOBSAction(combinedAction as OBSAction)
           } else if (combinedAction.service === 'livesplit' && liveSplitConnected) {
-            console.log(`🏁 Executing LiveSplit action:`, combinedAction)
-            executeLiveSplitAction(combinedAction as LiveSplitAction)
+            // Don't execute LiveSplit action on press down - wait for release to determine if long press
+            console.log(`🏁 LiveSplit action detected, waiting for button release to determine press duration`)
           } else {
             console.warn(`⚠️ Action not executed - service: ${combinedAction.service}, obsConnected: ${obsConnected}, liveSplitConnected: ${liveSplitConnected}`)
+          }
+        }
+      }
+
+      // Button released - check for long press and execute LiveSplit actions
+      if (!isPressed && wasPressed) {
+        // Find which visual button this gamepad button corresponds to
+        let visualButtonId = gamepadButtonIndex
+        if (buttonMapping.size > 0) {
+          for (const [vId, gId] of buttonMapping.entries()) {
+            if (gId === gamepadButtonIndex) {
+              visualButtonId = vId
+              break
+            }
+          }
+        }
+
+        const combinedAction = combinedActions.get(visualButtonId)
+
+        // Handle LiveSplit actions with long press detection
+        if (combinedAction?.service === 'livesplit' && liveSplitConnected) {
+          const pressStartTime = buttonPressStart.current.get(gamepadButtonIndex)
+          if (pressStartTime) {
+            const pressDuration = Date.now() - pressStartTime
+            const isLongPress = pressDuration >= 2000 // 2 second threshold
+
+            console.log(`🏁 Executing LiveSplit action:`, {
+              action: combinedAction.type,
+              pressDuration,
+              isLongPress
+            })
+
+            executeLiveSplitAction(combinedAction as LiveSplitAction, isLongPress)
+
+            // Clean up the press start time
+            buttonPressStart.current.delete(gamepadButtonIndex)
           }
         }
       }

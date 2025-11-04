@@ -8,16 +8,21 @@ export interface LiveSplitConnectionConfig {
 export interface LiveSplitAction {
   type: 'start' | 'split' | 'reset' | 'pause' | 'resume' |
         'skip_split' | 'undo_split' | 'start_or_split' |
-        'toggle_pause' | 'init_game_time'
+        'toggle_pause' | 'init_game_time' | 'smart_toggle'
+}
+
+export interface LiveSplitState {
+  currentTimerState: 'NotRunning' | 'Running' | 'Ended' | 'Paused'
 }
 
 interface LiveSplitContextType {
   connected: boolean
   connecting: boolean
   error: string | null
+  liveSplitState: LiveSplitState
   connect: (config: LiveSplitConnectionConfig) => Promise<void>
   disconnect: () => void
-  executeAction: (action: LiveSplitAction) => Promise<void>
+  executeAction: (action: LiveSplitAction, isLongPress?: boolean) => Promise<void>
 }
 
 const LiveSplitContext = createContext<LiveSplitContextType | undefined>(undefined)
@@ -38,10 +43,14 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [liveSplitState, setLiveSplitState] = useState<LiveSplitState>({
+    currentTimerState: 'NotRunning'
+  })
 
   const socketRef = useRef<WebSocket | null>(null)
   const isInitialized = useRef(false)
   const autoConnectAttempted = useRef(false)
+  const stateQueryInterval = useRef<NodeJS.Timeout | null>(null)
 
   // Connect function
   const connect = useCallback(async (config: LiveSplitConnectionConfig) => {
@@ -119,7 +128,7 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
     }
   }, [])
 
-  const executeAction = useCallback(async (action: LiveSplitAction) => {
+  const executeAction = useCallback(async (action: LiveSplitAction, isLongPress?: boolean) => {
     // Check if socket exists and is in OPEN state (readyState === 1)
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       console.warn('Cannot execute LiveSplit action - not connected', {
@@ -133,46 +142,56 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
     try {
       let command = ''
 
-      switch (action.type) {
-        case 'start':
-          command = 'starttimer'
-          break
-        case 'split':
-          command = 'split'
-          break
-        case 'reset':
+      // Handle smart_toggle with long press support
+      if (action.type === 'smart_toggle') {
+        if (isLongPress) {
           command = 'reset'
-          break
-        case 'pause':
-          command = 'pause'
-          break
-        case 'resume':
-          command = 'resume'
-          break
-        case 'skip_split':
-          command = 'skipsplit'
-          break
-        case 'undo_split':
-          command = 'unsplit'
-          break
-        case 'start_or_split':
+          console.log('🏁 Long press detected - resetting timer')
+        } else {
           command = 'startorsplit'
-          break
-        case 'toggle_pause':
-          command = 'togglepause'
-          break
-        case 'init_game_time':
-          command = 'initgametime'
-          break
-        default:
-          console.warn('Unknown LiveSplit action type:', action.type)
-          return
+          console.log('🏁 Quick press - start or split')
+        }
+      } else {
+        switch (action.type) {
+          case 'start':
+            command = 'starttimer'
+            break
+          case 'split':
+            command = 'split'
+            break
+          case 'reset':
+            command = 'reset'
+            break
+          case 'pause':
+            command = 'pause'
+            break
+          case 'resume':
+            command = 'resume'
+            break
+          case 'skip_split':
+            command = 'skipsplit'
+            break
+          case 'undo_split':
+            command = 'unsplit'
+            break
+          case 'start_or_split':
+            command = 'startorsplit'
+            break
+          case 'toggle_pause':
+            command = 'togglepause'
+            break
+          case 'init_game_time':
+            command = 'initgametime'
+            break
+          default:
+            console.warn('Unknown LiveSplit action type:', action.type)
+            return
+        }
       }
 
       console.log('🏁 Executing LiveSplit command:', command)
-      // Try sending without line ending first
       socketRef.current.send(command)
-      console.log('✅ LiveSplit command sent successfully (no line ending)')
+      console.log('✅ LiveSplit command sent successfully')
     } catch (err: any) {
       console.error('❌ Failed to execute LiveSplit action:', err)
       setError(err.message || 'Failed to execute action')
@@ -193,6 +212,7 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
     connected,
     connecting,
     error,
+    liveSplitState,
     connect,
     disconnect,
     executeAction

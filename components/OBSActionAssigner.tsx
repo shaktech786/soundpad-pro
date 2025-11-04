@@ -41,6 +41,9 @@ const OBS_ACTION_TYPES = [
 ]
 
 const LIVESPLIT_ACTION_TYPES = [
+  // Recommended Smart Control
+  { value: 'smart_toggle', label: '⚡ Smart Toggle (Recommended)', needsParams: false, category: 'Smart', service: 'livesplit', description: 'Quick press: Start/Split | Hold 2s: Reset' },
+
   // Main Actions
   { value: 'start_or_split', label: '🏁 Start/Split', needsParams: false, category: 'Main', service: 'livesplit' },
   { value: 'start', label: '▶️ Start Timer', needsParams: false, category: 'Main', service: 'livesplit' },
