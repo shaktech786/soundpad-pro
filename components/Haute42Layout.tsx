@@ -58,6 +58,11 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   }, [buttonMapping])
 
   const extractFilename = (path: string) => {
+    // Handle non-string inputs defensively
+    if (!path || typeof path !== 'string') {
+      console.warn('extractFilename received non-string:', path)
+      return 'Unknown'
+    }
     const parts = path.split(/[/\\#]/)
     const filename = parts[parts.length - 1] || parts[parts.length - 2] || 'Unknown'
     return filename.replace(/\.[^/.]+$/, '')

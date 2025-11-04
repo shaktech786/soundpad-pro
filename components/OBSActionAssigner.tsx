@@ -167,9 +167,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const handleFilePickerClick = async () => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
       try {
-        const filePath = await (window as any).electronAPI.selectAudioFile()
-        if (filePath && onAssignSound) {
-          onAssignSound(filePath)
+        const result = await (window as any).electronAPI.selectAudioFile()
+        if (result && onAssignSound) {
+          // Electron returns { filePath, fileName } - extract the path
+          const filePath = typeof result === 'string' ? result : result.filePath
+          const fileName = typeof result === 'string' ? undefined : result.fileName
+          onAssignSound(filePath, fileName)
           onClose()
         }
       } catch (err) {
