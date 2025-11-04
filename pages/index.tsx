@@ -10,6 +10,7 @@ import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
 import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
+import { URLInputModal } from '../components/URLInputModal'
 
 type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
 
@@ -35,6 +36,7 @@ export default function Home() {
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
+  const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
 
   // Helper to navigate properly in Electron and browser
   const navigateTo = async (route: string) => {
@@ -364,6 +366,28 @@ export default function Home() {
       } catch (error) {
         console.error('Error selecting file:', error)
       }
+    } else {
+      // In browser mode, fall back to URL input
+      console.log(`Electron API not available, opening URL input for pad ${index}`)
+      handleMapSoundFromUrl(index)
+    }
+  }
+
+  const handleMapSoundFromUrl = (index: number) => {
+    console.log(`Opening URL input for pad ${index}`)
+    setAssigningUrlSound(index)
+  }
+
+  const handleConfirmUrlSound = (url: string, name?: string) => {
+    if (assigningUrlSound !== null) {
+      console.log(`Mapping pad ${assigningUrlSound} to URL:`, url, name)
+      setSoundMappings(prev => {
+        const newMap = new Map(prev)
+        // Store the URL directly - the audio engine already supports remote URLs
+        newMap.set(assigningUrlSound, url)
+        return newMap
+      })
+      setAssigningUrlSound(null)
     }
   }
 
@@ -414,6 +438,7 @@ export default function Home() {
             obsActions={combinedActions}
             onPlaySound={handlePlaySound}
             onMapSound={handleMapSound}
+            onMapSoundFromUrl={handleMapSoundFromUrl}
             onAssignOBSAction={(obsConnected || liveSplitConnected) ? (index) => setAssigningAction(index) : undefined}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
@@ -642,6 +667,16 @@ export default function Home() {
             }
           }}
           onClose={() => setAssigningAction(null)}
+        />
+      )}
+
+      {/* URL Input Modal */}
+      {assigningUrlSound !== null && (
+        <URLInputModal
+          isOpen={assigningUrlSound !== null}
+          buttonIndex={assigningUrlSound}
+          onConfirm={handleConfirmUrlSound}
+          onClose={() => setAssigningUrlSound(null)}
         />
       )}
     </>

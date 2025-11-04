@@ -10,6 +10,7 @@ interface Haute42LayoutProps {
   obsActions?: Map<number, CombinedAction> // visualId -> OBS or LiveSplit action
   onPlaySound: (url: string) => void
   onMapSound: (index: number) => void
+  onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
   buttonMapping?: Map<number, number> // visualId -> gamepadButtonId
   stopButton?: number | null // gamepad button assigned to stop
@@ -41,6 +42,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   obsActions,
   onPlaySound,
   onMapSound,
+  onMapSoundFromUrl,
   onAssignOBSAction,
   buttonMapping,
   stopButton
@@ -72,12 +74,19 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     const isStopButton = stopButton !== null && gamepadButton === stopButton
 
     const handleClick = (e: React.MouseEvent) => {
-      console.log(`🔵 Button ${index} clicked!`, { hasSound, soundFile, hasOBSAction, ctrlKey: e.ctrlKey })
+      console.log(`🔵 Button ${index} clicked!`, { hasSound, soundFile, hasOBSAction, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey })
 
       // Ctrl+Click always opens file picker
       if (e.ctrlKey || e.metaKey) {
         console.log(`🔵 Opening file picker for pad ${index}`)
         onMapSound(index)
+        return
+      }
+
+      // Shift+Click opens URL input modal
+      if (e.shiftKey && onMapSoundFromUrl) {
+        console.log(`🔵 Opening URL input for pad ${index}`)
+        onMapSoundFromUrl(index)
         return
       }
 
