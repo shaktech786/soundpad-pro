@@ -28,6 +28,10 @@ export default function Home() {
     'combined-action-mappings',
     new Map()
   )
+  const [buttonVolumes, setButtonVolumes] = usePersistentStorage<Map<number, number>>(
+    'button-volumes',
+    new Map()
+  )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
   const [stopButton, setStopButton] = useState<number | null>(null)
@@ -187,8 +191,9 @@ export default function Home() {
       const soundFile = soundMappings.get(buttonIndex)
       if (soundFile) {
         const cleanUrl = soundFile.split('#')[0]
-        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl)
-        playSound(cleanUrl, { restart: true })
+        const volume = (buttonVolumes.get(buttonIndex) ?? 100) / 100
+        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`)
+        playSound(cleanUrl, { restart: true, volume })
       }
     }
 
@@ -207,7 +212,7 @@ export default function Home() {
         (window as any).electronAPI.removeAllListeners()
       }
     }
-  }, [soundMappings, playSound, stopAll])
+  }, [soundMappings, buttonVolumes, playSound, stopAll])
 
   // Track previous button states for edge detection (using ref to avoid infinite re-renders)
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())
@@ -268,8 +273,9 @@ export default function Home() {
         const soundFile = soundMappings.get(visualButtonId)
         if (soundFile) {
           const cleanUrl = soundFile.split('#')[0]
-          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, playing:`, cleanUrl)
-          playSound(cleanUrl, { restart: true })
+          const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
+          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`)
+          playSound(cleanUrl, { restart: true, volume })
         } else {
           console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, no sound mapped`)
         }
@@ -336,17 +342,21 @@ export default function Home() {
 
     // Update previous states (using ref to avoid re-renders)
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
+  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
 
-  const handlePlaySound = (url: string) => {
+  const handlePlaySound = (url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
+    // Get volume for this button (default to 1.0 = 100% if not set)
+    const volume = buttonIndex !== undefined ? (buttonVolumes.get(buttonIndex) ?? 100) / 100 : 1.0
     console.log('🔊 ====== AUDIO PLAYBACK DEBUG ======')
     console.log('🔊 Original URL:', url)
     console.log('🔊 Clean URL:', cleanUrl)
+    console.log('🔊 Button Index:', buttonIndex)
+    console.log('🔊 Volume:', `${Math.round(volume * 100)}%`)
     console.log('🔊 Is Electron?:', typeof window !== 'undefined' && !!(window as any).electronAPI)
     console.log('🔊 Audio devices available:', audioDevices.length)
     console.log('🔊 Selected device:', selectedAudioDevice)
-    playSound(cleanUrl, { restart: true })
+    playSound(cleanUrl, { restart: true, volume })
     console.log('🔊 playSound() function called')
     console.log('🔊 =====================================')
   }
@@ -641,6 +651,7 @@ export default function Home() {
           buttonIndex={assigningAction}
           currentAction={combinedActions.get(assigningAction) || null}
           currentSound={soundMappings.get(assigningAction) || null}
+          currentVolume={buttonVolumes.get(assigningAction) ?? 100}
           scenes={obsState.scenes}
           sources={obsState.sources}
           obsConnected={obsConnected}
@@ -680,6 +691,14 @@ export default function Home() {
             setSoundMappings(prev => {
               const newMap = new Map(prev)
               newMap.delete(assigningAction)
+              return newMap
+            })
+          }}
+          onSetVolume={(volume) => {
+            console.log(`🔊 Setting volume for button ${assigningAction}:`, volume)
+            setButtonVolumes(prev => {
+              const newMap = new Map(prev)
+              newMap.set(assigningAction, volume)
               return newMap
             })
           }}

@@ -8,7 +8,7 @@ interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
   obsActions?: Map<number, CombinedAction> // visualId -> OBS or LiveSplit action
-  onPlaySound: (url: string) => void
+  onPlaySound: (url: string, buttonIndex?: number) => void
   onMapSound: (index: number) => void
   onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
@@ -105,7 +105,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       // Left click behavior
       if (hasSound) {
         console.log(`🔵 Playing sound from pad ${index}:`, soundFile)
-        onPlaySound(soundFile!)
+        onPlaySound(soundFile!, index)
       } else {
         console.log(`🔵 Opening file picker for empty pad ${index}`)
         onMapSound(index)

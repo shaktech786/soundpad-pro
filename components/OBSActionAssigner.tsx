@@ -9,11 +9,13 @@ interface OBSActionAssignerProps {
   buttonIndex: number
   currentAction: CombinedAction | null
   currentSound?: string | null
+  currentVolume?: number
   scenes: string[]
   sources: string[]
   onAssign: (action: CombinedAction | null) => void
   onAssignSound?: (url: string, name?: string) => void
   onClearSound?: () => void
+  onSetVolume?: (volume: number) => void
   onClose: () => void
   obsConnected: boolean
   liveSplitConnected: boolean
@@ -71,11 +73,13 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   buttonIndex,
   currentAction,
   currentSound,
+  currentVolume = 100,
   scenes,
   sources,
   onAssign,
   onAssignSound,
   onClearSound,
+  onSetVolume,
   onClose,
   obsConnected,
   liveSplitConnected
@@ -90,6 +94,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [volume, setVolume] = useState(currentVolume)
 
   const ACTION_TYPES = selectedTab === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
@@ -325,6 +330,37 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   <div className="text-xs text-gray-500 space-y-1">
                     <div>🎵 MyInstants.com - Sound button pages</div>
                     <div>🔗 Direct audio URLs (.mp3, .wav, .ogg, etc.)</div>
+                  </div>
+                </div>
+
+                {/* Volume Control */}
+                <div className="p-4 bg-gray-800 rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-gray-400">
+                      Volume
+                    </label>
+                    <span className="text-white font-bold text-lg">{volume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={volume}
+                    onChange={(e) => {
+                      const newVolume = Number(e.target.value)
+                      setVolume(newVolume)
+                      onSetVolume?.(newVolume)
+                    }}
+                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    style={{
+                      background: `linear-gradient(to right, rgb(37, 99, 235) 0%, rgb(37, 99, 235) ${volume}%, rgb(55, 65, 81) ${volume}%, rgb(55, 65, 81) 100%)`
+                    }}
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-2">
+                    <span>0%</span>
+                    <span>50%</span>
+                    <span>100%</span>
                   </div>
                 </div>
 
