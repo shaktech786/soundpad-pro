@@ -178,20 +178,29 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
     autoConnectAttempted.current = true
 
     const tryAutoConnect = async () => {
+      // Wait for OBS client to be initialized
+      if (!obsRef.current) {
+        console.log('⏳ Waiting for OBS client to initialize...')
+        setTimeout(tryAutoConnect, 500)
+        return
+      }
+
       try {
         const savedConfig = localStorage.getItem('obs-connection-config')
         if (savedConfig) {
           const config: OBSConnectionConfig = JSON.parse(savedConfig)
-          console.log('🔄 Auto-connecting to OBS with saved config...')
+          console.log('🔄 Auto-connecting to OBS with saved config:', config.address + ':' + config.port)
           await connect(config)
+        } else {
+          console.log('ℹ️ No saved OBS config found, skipping auto-connect')
         }
       } catch (err) {
-        console.log('No saved OBS config or auto-connect failed:', err)
+        console.log('❌ Auto-connect failed:', err)
       }
     }
 
-    // Wait a bit for OBS client to initialize
-    setTimeout(tryAutoConnect, 1000)
+    // Small delay to ensure DOM is ready
+    setTimeout(tryAutoConnect, 100)
   }, [connect])
 
   const refreshOBSStateInternal = async () => {
