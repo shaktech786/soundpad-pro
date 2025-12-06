@@ -253,7 +253,6 @@ export default function Home() {
 
         // Check if this is the stop button
         if (stopButton !== null && gamepadButtonIndex === stopButton) {
-          console.log('Stop button pressed, stopping all sounds')
           stopAll()
           return
         }
@@ -274,32 +273,16 @@ export default function Home() {
         if (soundFile) {
           const cleanUrl = soundFile.split('#')[0]
           const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
-          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`)
           playSound(cleanUrl, { restart: true, volume })
-        } else {
-          console.log(`Gamepad button ${gamepadButtonIndex} -> Visual ${visualButtonId}, no sound mapped`)
         }
 
         // Execute combined action (OBS or LiveSplit) if assigned
         const combinedAction = combinedActions.get(visualButtonId)
-        console.log(`🎮 Button ${visualButtonId} pressed - checking for actions`, {
-          hasCombinedAction: !!combinedAction,
-          service: combinedAction?.service,
-          actionType: combinedAction?.type,
-          obsConnected,
-          liveSplitConnected
-        })
-
         if (combinedAction) {
           if (combinedAction.service === 'obs' && obsConnected) {
-            console.log(`🎬 Executing OBS action:`, combinedAction.type)
             executeOBSAction(combinedAction as OBSAction)
-          } else if (combinedAction.service === 'livesplit' && liveSplitConnected) {
-            // Don't execute LiveSplit action on press down - wait for release to determine if long press
-            console.log(`🏁 LiveSplit action detected, waiting for button release to determine press duration`)
-          } else {
-            console.warn(`⚠️ Action not executed - service: ${combinedAction.service}, obsConnected: ${obsConnected}, liveSplitConnected: ${liveSplitConnected}`)
           }
+          // LiveSplit actions handled on button release for long press detection
         }
       }
 
@@ -324,16 +307,7 @@ export default function Home() {
           if (pressStartTime) {
             const pressDuration = Date.now() - pressStartTime
             const isLongPress = pressDuration >= 2000 // 2 second threshold
-
-            console.log(`🏁 Executing LiveSplit action:`, {
-              action: combinedAction.type,
-              pressDuration,
-              isLongPress
-            })
-
             executeLiveSplitAction(combinedAction as LiveSplitAction, isLongPress)
-
-            // Clean up the press start time
             buttonPressStart.current.delete(gamepadButtonIndex)
           }
         }
@@ -346,19 +320,8 @@ export default function Home() {
 
   const handlePlaySound = (url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
-    // Get volume for this button (default to 1.0 = 100% if not set)
     const volume = buttonIndex !== undefined ? (buttonVolumes.get(buttonIndex) ?? 100) / 100 : 1.0
-    console.log('🔊 ====== AUDIO PLAYBACK DEBUG ======')
-    console.log('🔊 Original URL:', url)
-    console.log('🔊 Clean URL:', cleanUrl)
-    console.log('🔊 Button Index:', buttonIndex)
-    console.log('🔊 Volume:', `${Math.round(volume * 100)}%`)
-    console.log('🔊 Is Electron?:', typeof window !== 'undefined' && !!(window as any).electronAPI)
-    console.log('🔊 Audio devices available:', audioDevices.length)
-    console.log('🔊 Selected device:', selectedAudioDevice)
     playSound(cleanUrl, { restart: true, volume })
-    console.log('🔊 playSound() function called')
-    console.log('🔊 =====================================')
   }
 
   const handleMapSound = async (index: number) => {
@@ -366,7 +329,6 @@ export default function Home() {
       try {
         const result = await (window as any).electronAPI.selectAudioFile()
         if (result && result.filePath) {
-          console.log(`Mapping pad ${index} to:`, result.filePath)
           setSoundMappings(prev => {
             const newMap = new Map(prev)
             newMap.set(index, result.filePath)
@@ -377,20 +339,16 @@ export default function Home() {
         console.error('Error selecting file:', error)
       }
     } else {
-      // In browser mode, fall back to URL input
-      console.log(`Electron API not available, opening URL input for pad ${index}`)
       handleMapSoundFromUrl(index)
     }
   }
 
   const handleMapSoundFromUrl = (index: number) => {
-    console.log(`Opening URL input for pad ${index}`)
     setAssigningUrlSound(index)
   }
 
   const handleConfirmUrlSound = (url: string, name?: string) => {
     if (assigningUrlSound !== null) {
-      console.log(`Mapping pad ${assigningUrlSound} to URL:`, url, name)
       setSoundMappings(prev => {
         const newMap = new Map(prev)
         // Store the URL directly - the audio engine already supports remote URLs

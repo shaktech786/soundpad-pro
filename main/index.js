@@ -16,12 +16,10 @@ const store = new Store({
   }
 });
 
-// Disable GPU acceleration to fix rendering issues
-app.disableHardwareAcceleration();
-
 let mainWindow;
 let globalHotkeysEnabled = true;
 let registeredHotkeys = new Map();
+let saveWindowBoundsTimeout = null;
 
 function createWindow() {
   // Get saved window bounds or use defaults
@@ -40,37 +38,36 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-      hardwareAcceleration: false // Fix GPU errors
+      preload: path.join(__dirname, 'preload.js')
     },
     backgroundColor: '#1a1a1a'
   });
   
-  // Save window position and size when it changes
-  mainWindow.on('resize', () => saveWindowBounds());
-  mainWindow.on('move', () => saveWindowBounds());
-  
+  // Debounced window bounds save - only saves 500ms after last resize/move
   function saveWindowBounds() {
-    if (!mainWindow.isMaximized() && !mainWindow.isMinimized()) {
-      const bounds = mainWindow.getBounds();
-      store.set('windowBounds', bounds);
+    if (saveWindowBoundsTimeout) {
+      clearTimeout(saveWindowBoundsTimeout);
     }
+    saveWindowBoundsTimeout = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMaximized() && !mainWindow.isMinimized()) {
+        store.set('windowBounds', mainWindow.getBounds());
+      }
+    }, 500);
   }
 
-  mainWindow.setTitle('SoundPad Pro'); // Ensure title is set
+  mainWindow.on('resize', saveWindowBounds);
+  mainWindow.on('move', saveWindowBounds);
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3005');
   } else {
-    // In production, serve the static files properly
     mainWindow.loadFile(path.join(__dirname, '../out/index.html'));
-  }
-  
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {
+    if (saveWindowBoundsTimeout) {
+      clearTimeout(saveWindowBoundsTimeout);
+    }
     mainWindow = null;
   });
 }
