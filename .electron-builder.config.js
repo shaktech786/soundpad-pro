@@ -52,7 +52,7 @@ module.exports = {
     runAfterFinish: true,
     shortcutName: "SoundPad Pro",
     uninstallDisplayName: "SoundPad Pro",
-    artifactName: "${productName}-Setup-${version}.${ext}",
+    artifactName: "SoundPad-Pro-Setup.${ext}",
     installerIcon: "icon.ico",
     uninstallerIcon: "icon.ico",
     installerHeaderIcon: "icon.ico"
