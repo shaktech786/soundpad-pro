@@ -14,21 +14,37 @@ export const OBSSettings: React.FC<OBSSettingsProps> = ({ onClose }) => {
     password: ''
   })
 
-  // Load saved config from localStorage
+  // Load saved config from electron-store or localStorage
   useEffect(() => {
-    const savedConfig = localStorage.getItem('obs-connection-config')
-    if (savedConfig) {
+    const loadConfig = async () => {
       try {
-        setConfig(JSON.parse(savedConfig))
+        let savedConfig = null
+
+        // Try electron-store first
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
+          savedConfig = await (window as any).electronAPI.storeGet('obs-connection-config')
+        }
+
+        // Fallback to localStorage
+        if (!savedConfig) {
+          const localConfig = localStorage.getItem('obs-connection-config')
+          if (localConfig) {
+            savedConfig = JSON.parse(localConfig)
+          }
+        }
+
+        if (savedConfig) {
+          setConfig(savedConfig)
+        }
       } catch (err) {
         console.error('Failed to load OBS config:', err)
       }
     }
+    loadConfig()
   }, [])
 
   const handleConnect = async () => {
-    // Save config
-    localStorage.setItem('obs-connection-config', JSON.stringify(config))
+    // Config is saved in OBSContext.connect()
     await connect(config)
   }
 

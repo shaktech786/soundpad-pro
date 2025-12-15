@@ -159,8 +159,12 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
 
       await obsRef.current.connect(url, config.password)
 
-      // Save config to localStorage for auto-connect on next launch
-      localStorage.setItem('obs-connection-config', JSON.stringify(config))
+      // Save config to electron-store for auto-connect on next launch
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
+        await (window as any).electronAPI.storeSet('obs-connection-config', config)
+      } else {
+        localStorage.setItem('obs-connection-config', JSON.stringify(config))
+      }
       console.log('💾 Saved OBS config for auto-connect')
 
       // Connection success is handled by the 'Identified' event
@@ -186,9 +190,22 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       }
 
       try {
-        const savedConfig = localStorage.getItem('obs-connection-config')
-        if (savedConfig) {
-          const config: OBSConnectionConfig = JSON.parse(savedConfig)
+        let config: OBSConnectionConfig | null = null
+
+        // Try electron-store first
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
+          config = await (window as any).electronAPI.storeGet('obs-connection-config')
+        }
+
+        // Fallback to localStorage
+        if (!config) {
+          const savedConfig = localStorage.getItem('obs-connection-config')
+          if (savedConfig) {
+            config = JSON.parse(savedConfig)
+          }
+        }
+
+        if (config) {
           console.log('🔄 Auto-connecting to OBS with saved config:', config.address + ':' + config.port)
           await connect(config)
         } else {
