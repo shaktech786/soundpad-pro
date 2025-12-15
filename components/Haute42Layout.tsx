@@ -12,6 +12,7 @@ interface Haute42LayoutProps {
   onMapSound: (index: number) => void
   onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
+  onTriggerAction?: (action: CombinedAction) => void
   buttonMapping?: Map<number, number> // visualId -> gamepadButtonId
   stopButton?: number | null // gamepad button assigned to stop
 }
@@ -44,6 +45,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   onMapSound,
   onMapSoundFromUrl,
   onAssignOBSAction,
+  onTriggerAction,
   buttonMapping,
   stopButton
 }) => {
@@ -88,6 +90,8 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
       }
       if (hasSound) {
         onPlaySound(soundFile!, index)
+      } else if (hasOBSAction && onTriggerAction) {
+        onTriggerAction(obsAction!)
       } else {
         onMapSound(index)
       }

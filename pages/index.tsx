@@ -408,6 +408,13 @@ export default function Home() {
             onMapSound={handleMapSound}
             onMapSoundFromUrl={handleMapSoundFromUrl}
             onAssignOBSAction={(index) => setAssigningAction(index)}
+            onTriggerAction={(action) => {
+              if (action.service === 'obs' && obsConnected) {
+                executeOBSAction(action as OBSAction)
+              } else if (action.service === 'livesplit' && liveSplitConnected) {
+                executeLiveSplitAction(action as LiveSplitAction, false)
+              }
+            }}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
           />

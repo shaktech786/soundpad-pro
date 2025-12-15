@@ -15,7 +15,7 @@ export function useSimpleGamepad() {
       if (gamepad && gamepad.connected) {
         hasGamepad = true
 
-        // Collect only pressed buttons
+        // Collect pressed buttons
         for (let btnIndex = 0; btnIndex < gamepad.buttons.length; btnIndex++) {
           const button = gamepad.buttons[btnIndex]
           if (button.pressed || button.value > 0.5) {
