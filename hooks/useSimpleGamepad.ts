@@ -1,56 +1,52 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 export function useSimpleGamepad() {
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const [connected, setConnected] = useState(false)
-  const lastStateRef = useRef<string>('')
 
   const scanGamepads = useCallback(() => {
     const gamepads = navigator.getGamepads()
+    const newStates = new Map<number, boolean>()
     let hasGamepad = false
-    const pressedButtons: number[] = []
 
+    // Check ALL connected gamepads and merge their button states
     for (let i = 0; i < gamepads.length; i++) {
       const gamepad = gamepads[i]
       if (gamepad && gamepad.connected) {
         hasGamepad = true
 
-        // Collect pressed buttons
+        // Get all button states (merge with existing - if ANY gamepad has button pressed, it's pressed)
         for (let btnIndex = 0; btnIndex < gamepad.buttons.length; btnIndex++) {
           const button = gamepad.buttons[btnIndex]
-          if (button.pressed || button.value > 0.5) {
-            pressedButtons.push(btnIndex)
-          }
+          const isPressed = button.pressed || button.value > 0.5
+          const currentState = newStates.get(btnIndex) || false
+          newStates.set(btnIndex, currentState || isPressed)
         }
 
-        // Collect only active axis states
+        // Get all axis states (treat as virtual buttons)
+        // Axes use indices starting at 100 to avoid collision with regular buttons
+        // 100 = axis0+, 101 = axis0-, 102 = axis1+, 103 = axis1-, etc.
         for (let axisIndex = 0; axisIndex < gamepad.axes.length; axisIndex++) {
           const axisValue = gamepad.axes[axisIndex]
           const threshold = 0.5
 
-          if (axisValue > threshold) {
-            pressedButtons.push(100 + (axisIndex * 2))
-          }
-          if (axisValue < -threshold) {
-            pressedButtons.push(100 + (axisIndex * 2) + 1)
-          }
+          // Positive direction (pushing right/down)
+          const posButtonId = 100 + (axisIndex * 2)
+          const currentPos = newStates.get(posButtonId) || false
+          newStates.set(posButtonId, currentPos || axisValue > threshold)
+
+          // Negative direction (pushing left/up)
+          const negButtonId = 100 + (axisIndex * 2) + 1
+          const currentNeg = newStates.get(negButtonId) || false
+          newStates.set(negButtonId, currentNeg || axisValue < -threshold)
         }
 
-        break // Use first connected gamepad
+        // DON'T break - check ALL gamepads and merge their button states
       }
     }
 
-    // Only update state if something changed
-    const stateString = pressedButtons.sort((a, b) => a - b).join(',') + '|' + hasGamepad
-    if (stateString !== lastStateRef.current) {
-      lastStateRef.current = stateString
-
-      const newStates = new Map<number, boolean>()
-      pressedButtons.forEach(btn => newStates.set(btn, true))
-
-      setConnected(hasGamepad)
-      setButtonStates(newStates)
-    }
+    setConnected(hasGamepad)
+    setButtonStates(newStates)
   }, [])
 
   useEffect(() => {

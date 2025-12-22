@@ -66,12 +66,25 @@ export default function Home() {
         setButtonMapping(map)
       } catch (err) {
         console.error('Failed to load button mapping:', err)
+        // Create default 1:1 mapping as fallback
+        const defaultMap = new Map<number, number>()
+        for (let i = 0; i < 16; i++) {
+          defaultMap.set(i, i)
+        }
+        setButtonMapping(defaultMap)
       }
     } else {
-      // First time user - redirect to onboarding
+      // No mapping saved - check if onboarding was completed
       const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
       if (!hasSeenOnboarding) {
         navigateTo('/onboarding')
+      } else {
+        // Onboarding done but no mapping - create default 1:1 mapping
+        const defaultMap = new Map<number, number>()
+        for (let i = 0; i < 16; i++) {
+          defaultMap.set(i, i)
+        }
+        setButtonMapping(defaultMap)
       }
     }
 
@@ -448,7 +461,8 @@ export default function Home() {
                   console.log('🔄 REMAP BUTTONS button clicked')
                   if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
                     localStorage.removeItem('haute42-button-mapping')
-                    navigateTo('/onboarding')
+                    localStorage.removeItem('onboarding-complete')
+                    window.location.href = '/onboarding'
                   }
                 }}
                 className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
