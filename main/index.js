@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
+// HID gamepad disabled - Windows DirectInput exclusively claims gamepad data, blocking raw HID access
+// const { HIDGamepad } = require('./hid-gamepad');
 
 // Initialize electron-store for persistent storage
 const store = new Store({
@@ -20,6 +22,7 @@ let mainWindow;
 let globalHotkeysEnabled = true;
 let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
+let hidGamepad = null;
 
 function createWindow() {
   // Get saved window bounds or use defaults
@@ -38,7 +41,8 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false  // Keep gamepad polling active when unfocused
     },
     backgroundColor: '#1a1a1a'
   });
@@ -74,13 +78,27 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  
+
+  // HID gamepad disabled - Windows DirectInput blocks raw HID access
+  // To re-enable, uncomment the HIDGamepad import and the code below:
+  // hidGamepad = new HIDGamepad((buttonStates) => {
+  //   if (mainWindow && !mainWindow.isDestroyed()) {
+  //     mainWindow.webContents.send('hid-gamepad-state', buttonStates);
+  //   }
+  // });
+  // hidGamepad.connect();
+
   // No default global stop hotkey - user can configure in settings
 });
 
 app.on('window-all-closed', () => {
   // Unregister all shortcuts when app is closing
   globalShortcut.unregisterAll();
+  // HID gamepad cleanup (currently disabled)
+  // if (hidGamepad) {
+  //   hidGamepad.destroy();
+  //   hidGamepad = null;
+  // }
   if (process.platform !== 'darwin') {
     app.quit();
   }

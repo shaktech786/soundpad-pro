@@ -3,24 +3,37 @@ import Head from 'next/head'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { useRouter } from 'next/router'
 
-const BUTTON_LAYOUT = [
-  { id: 0, x: 191, y: 125 },
-  { id: 1, x: 550, y: 111 },
-  { id: 2, x: 388, y: 249 },
-  { id: 3, x: 202, y: 44 },
-  { id: 4, x: 261, y: 152 },
-  { id: 5, x: 340, y: 119 },
-  { id: 6, x: 479, y: 110 },
-  { id: 7, x: 532, y: 187 },
-  { id: 8, x: 117, y: 121 },
-  { id: 9, x: 345, y: 41 },
-  { id: 10, x: 293, y: 289 },
-  { id: 11, x: 217, y: 273 },
-  { id: 12, x: 413, y: 113 },
-  { id: 13, x: 323, y: 197 },
-  { id: 14, x: 390, y: 183 },
-  { id: 15, x: 460, y: 183 }
-]
+// Button positions on the visual layout
+const BUTTON_POSITIONS = {
+  0: { x: 191, y: 125 },
+  1: { x: 550, y: 111 },
+  2: { x: 388, y: 249 },
+  3: { x: 202, y: 44 },
+  4: { x: 261, y: 152 },
+  5: { x: 340, y: 119 },
+  6: { x: 479, y: 110 },
+  7: { x: 532, y: 187 },
+  8: { x: 117, y: 121 },
+  9: { x: 345, y: 41 },
+  10: { x: 293, y: 289 },
+  11: { x: 217, y: 273 },
+  12: { x: 413, y: 113 },
+  13: { x: 323, y: 197 },
+  14: { x: 390, y: 183 },
+  15: { x: 460, y: 183 }
+}
+
+// Order for onboarding: top-to-bottom, left-to-right
+// Row 1 (top): 3, 9
+// Row 2: 8, 0, 5, 12, 6, 1
+// Row 3: 4, 13, 14, 15, 7
+// Row 4 (bottom): 11, 10, 2
+const MAPPING_ORDER = [3, 9, 8, 0, 5, 12, 6, 1, 4, 13, 14, 15, 7, 11, 10, 2]
+
+const BUTTON_LAYOUT = MAPPING_ORDER.map(id => ({
+  id,
+  ...BUTTON_POSITIONS[id as keyof typeof BUTTON_POSITIONS]
+}))
 
 export default function OnboardingPage() {
   const { buttonStates, connected } = useSimpleGamepad()
@@ -82,16 +95,18 @@ export default function OnboardingPage() {
     setPrevButtonStates(new Map(buttonStates))
   }, [buttonStates, prevButtonStates, currentStep, currentButton, isComplete, totalButtons, isReady])
 
-  const saveAndContinue = () => {
-    // Save mapping to localStorage
-    const mappingObj: { [key: number]: number } = {}
-    mapping.forEach((gamepadBtn, visualId) => {
-      mappingObj[visualId] = gamepadBtn
-    })
+  const saveAndContinue = async () => {
+    // Convert Map to array for storage (electron-store serialization)
+    const mappingArray = Array.from(mapping.entries())
 
-    localStorage.setItem('haute42-button-mapping', JSON.stringify(mappingObj))
+    // Save to electron-store (persistent)
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
+      await (window as any).electronAPI.storeSet('haute42-button-mapping', mappingArray)
+      console.log('Saved mapping to electron-store:', mappingArray)
+    }
+
+    // Also save to localStorage as backup/marker
     localStorage.setItem('onboarding-complete', 'true')
-    console.log('Saved mapping:', mappingObj)
 
     // Redirect to main page
     router.push('/')

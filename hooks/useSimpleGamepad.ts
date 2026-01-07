@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 export function useSimpleGamepad() {
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const [connected, setConnected] = useState(false)
+
+  // Store HID states separately so they can be merged with Web Gamepad states
+  const hidStates = useRef<Map<number, boolean>>(new Map())
 
   const scanGamepads = useCallback(() => {
     const gamepads = navigator.getGamepads()
@@ -45,8 +48,37 @@ export function useSimpleGamepad() {
       }
     }
 
+    // Merge HID gamepad states (these work even when window is unfocused)
+    for (const [btnIndex, isPressed] of hidStates.current) {
+      if (isPressed) {
+        newStates.set(btnIndex, true)
+        hasGamepad = true
+      }
+    }
+
     setConnected(hasGamepad)
     setButtonStates(newStates)
+  }, [])
+
+  // Listen for HID gamepad events from main process (works when window unfocused)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const electronAPI = (window as any).electronAPI
+    if (!electronAPI?.onHIDGamepadState) return
+
+    electronAPI.onHIDGamepadState((states: Record<string, boolean>) => {
+      // Convert object to Map for consistency
+      const newHidStates = new Map<number, boolean>()
+      for (const [key, value] of Object.entries(states)) {
+        newHidStates.set(Number(key), value)
+      }
+      hidStates.current = newHidStates
+    })
+
+    return () => {
+      // Cleanup is handled by removeAllListeners
+    }
   }, [])
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
@@ -28,6 +28,7 @@
     "electron-store": "^8.2.0",
     "howler": "^2.2.4",
     "next": "^14.0.0",
+    "node-hid": "^3.2.0",
     "obs-websocket-js": "^5.0.6",
     "process": "^0.11.10",
     "react": "^18.2.0",

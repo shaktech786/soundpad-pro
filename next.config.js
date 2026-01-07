@@ -6,9 +6,9 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   // Important for Electron
-  output: 'export',
+  ...(isDev ? {} : { output: 'export' }),
   distDir: 'out',
-  assetPrefix: './',
+  assetPrefix: isDev ? '' : './',
   images: {
     unoptimized: true,
   },

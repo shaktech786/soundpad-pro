@@ -94,5 +94,5 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
     saveData()
   }, [key, value, isLoading])
 
-  return [value, setValue] as const
+  return [value, setValue, isLoading] as const
 }

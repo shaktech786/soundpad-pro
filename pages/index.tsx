@@ -20,7 +20,7 @@ export default function Home() {
   const { playSound, stopAll, loadSound, audioDevices, selectedAudioDevice, selectAudioDevice } = useAudioEngine()
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
-  const [soundMappings, setSoundMappings] = usePersistentStorage<Map<number, string>>(
+  const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
   )
@@ -33,8 +33,14 @@ export default function Home() {
     new Map()
   )
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
-  const [buttonMapping, setButtonMapping] = useState<Map<number, number>>(new Map())
-  const [stopButton, setStopButton] = useState<number | null>(null)
+  const [buttonMapping, setButtonMapping, buttonMappingLoading] = usePersistentStorage<Map<number, number>>(
+    'haute42-button-mapping',
+    new Map()
+  )
+  const [stopButton, setStopButton, stopButtonLoading] = usePersistentStorage<number | null>(
+    'haute42-stop-button',
+    null
+  )
   const [assigningStopButton, setAssigningStopButton] = useState(false)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
   const [showOBSSettings, setShowOBSSettings] = useState(false)
@@ -53,28 +59,15 @@ export default function Home() {
     }
   }
 
-  // Load button mapping from localStorage and redirect to onboarding if needed
+  // Check if onboarding needed (wait for button mapping to load first)
   useEffect(() => {
-    const savedMapping = localStorage.getItem('haute42-button-mapping')
-    if (savedMapping) {
-      try {
-        const mappingObj = JSON.parse(savedMapping)
-        const map = new Map<number, number>()
-        Object.entries(mappingObj).forEach(([visualId, gamepadBtn]) => {
-          map.set(Number(visualId), Number(gamepadBtn))
-        })
-        setButtonMapping(map)
-      } catch (err) {
-        console.error('Failed to load button mapping:', err)
-        // Create default 1:1 mapping as fallback
-        const defaultMap = new Map<number, number>()
-        for (let i = 0; i < 16; i++) {
-          defaultMap.set(i, i)
-        }
-        setButtonMapping(defaultMap)
-      }
-    } else {
-      // No mapping saved - check if onboarding was completed
+    console.log(`[Init] buttonMappingLoading: ${buttonMappingLoading}, buttonMapping.size: ${buttonMapping.size}`)
+    if (buttonMappingLoading) return
+
+    console.log(`[Init] Button mapping loaded with ${buttonMapping.size} entries:`, Array.from(buttonMapping.entries()))
+
+    // If no button mapping exists, check if onboarding needed
+    if (buttonMapping.size === 0) {
       const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
       if (!hasSeenOnboarding) {
         navigateTo('/onboarding')
@@ -87,28 +80,27 @@ export default function Home() {
         setButtonMapping(defaultMap)
       }
     }
+  }, [buttonMappingLoading, buttonMapping.size])
 
-    // Load stop button
-    const savedStopButton = localStorage.getItem('haute42-stop-button')
-    if (savedStopButton) {
-      try {
-        setStopButton(Number(savedStopButton))
-      } catch (err) {
-        console.error('Failed to load stop button:', err)
-      }
-    }
-
-    // Load global hotkeys setting
+  // Load global hotkeys setting from localStorage (less critical, keep in localStorage)
+  useEffect(() => {
     const savedGlobalHotkeys = localStorage.getItem('global-hotkeys-enabled')
     if (savedGlobalHotkeys) {
       setGlobalHotkeysEnabled(savedGlobalHotkeys === 'true')
     }
-  }, [router])
+  }, [])
 
-  // Auto-load sounds from SoundBoard directory on first run
+  // Auto-load sounds from SoundBoard directory on first run (only if store is empty)
   useEffect(() => {
     const autoLoadSounds = async () => {
-      // Only auto-load if we have no mappings yet
+      console.log(`[Init] soundMappingsLoading: ${soundMappingsLoading}, soundMappings.size: ${soundMappings.size}`)
+      // Wait for persistent storage to finish loading before deciding to auto-load
+      if (soundMappingsLoading) {
+        return
+      }
+      console.log(`[Init] Sound mappings loaded:`, Array.from(soundMappings.entries()))
+
+      // Only auto-load if we have no mappings yet and haven't already tried
       if (soundMappings.size === 0 && !autoLoadComplete) {
         const soundFiles = [
           'C:\\Users\\shake\\Documents\\SoundBoard\\go_to_jail.wav',
@@ -137,11 +129,24 @@ export default function Home() {
             console.error('Failed to preload:', filepath, err)
           }
         }
+      } else if (soundMappings.size > 0) {
+        // Mappings loaded from store - mark as complete and pre-load
+        setAutoLoadComplete(true)
+        console.log('Loaded', soundMappings.size, 'mappings from store')
+
+        // Pre-load all stored sounds
+        for (const [_, filepath] of soundMappings) {
+          try {
+            await loadSound(filepath)
+          } catch (err) {
+            console.error('Failed to preload:', filepath, err)
+          }
+        }
       }
     }
 
     autoLoadSounds()
-  }, [soundMappings.size, autoLoadComplete, setSoundMappings, loadSound])
+  }, [soundMappings.size, soundMappingsLoading, autoLoadComplete, setSoundMappings, loadSound])
 
   // Register/unregister global hotkeys
   useEffect(() => {
@@ -227,11 +232,71 @@ export default function Home() {
     }
   }, [soundMappings, buttonVolumes, playSound, stopAll])
 
+  // Poll for triggers from OBS dock (dock cannot play audio directly)
+  useEffect(() => {
+    console.log('[Trigger] Starting trigger polling...')
+    const pollTriggers = async () => {
+      try {
+        const response = await fetch('/api/trigger')
+        if (!response.ok) {
+          console.log('[Trigger] Response not ok:', response.status)
+          return
+        }
+        const data = await response.json()
+        if (data.triggers && data.triggers.length > 0) {
+          console.log('[Trigger] Received triggers:', data.triggers)
+          const now = Date.now()
+          for (const trigger of data.triggers) {
+            if (trigger.type === 'play' && typeof trigger.index === 'number') {
+              // Debounce: skip if same button was played within 150ms
+              const lastPlay = lastPlayTime.current.get(trigger.index) || 0
+              if (now - lastPlay < 150) {
+                console.log('[Trigger] Debounced button', trigger.index)
+                continue
+              }
+              lastPlayTime.current.set(trigger.index, now)
+
+              // Use filepath from trigger if provided (from dock), otherwise use local mapping
+              const soundFile = trigger.filePath || soundMappings.get(trigger.index)
+              const volume = trigger.volume !== undefined ? trigger.volume / 100 : (buttonVolumes.get(trigger.index) ?? 100) / 100
+              console.log('[Trigger] Button', trigger.index, 'soundFile:', soundFile, 'volume:', volume)
+              if (soundFile) {
+                const cleanUrl = soundFile.split('#')[0]
+                console.log('[Trigger] Playing:', cleanUrl)
+                playSound(cleanUrl, { restart: true, volume })
+              }
+            } else if (trigger.type === 'action' && typeof trigger.index === 'number') {
+              // Execute OBS/LiveSplit action from dock
+              const action = combinedActions.get(trigger.index)
+              console.log('[Trigger] Action for button', trigger.index, 'action:', action)
+              if (action) {
+                if (action.service === 'obs' && obsConnected) {
+                  executeOBSAction(action as OBSAction)
+                } else if (action.service === 'livesplit' && liveSplitConnected) {
+                  executeLiveSplitAction(action as LiveSplitAction, false)
+                }
+              }
+            } else if (trigger.type === 'stop') {
+              stopAll()
+            }
+          }
+        }
+      } catch (err) {
+        // Ignore - API not available in production
+      }
+    }
+    const interval = setInterval(pollTriggers, 100)
+    return () => clearInterval(interval)
+  }, [soundMappings, buttonVolumes, playSound, stopAll])
+
   // Track previous button states for edge detection (using ref to avoid infinite re-renders)
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())
 
   // Track button press start times for long press detection
   const buttonPressStart = useRef<Map<number, number>>(new Map())
+
+  // Track last play time per button to prevent double-plays (from dock trigger + gamepad)
+  const lastPlayTime = useRef<Map<number, number>>(new Map())
 
   // Handle assigning stop button
   useEffect(() => {
@@ -242,7 +307,6 @@ export default function Home() {
 
       if (isPressed && !wasPressed) {
         setStopButton(gamepadButtonIndex)
-        localStorage.setItem('haute42-stop-button', String(gamepadButtonIndex))
         setAssigningStopButton(false)
         console.log('Stop button assigned to:', gamepadButtonIndex)
       }
@@ -255,17 +319,22 @@ export default function Home() {
   // Play sound when controller buttons are pressed
   useEffect(() => {
     if (assigningStopButton) return // Don't play sounds while assigning stop button
+    // Wait for mappings to load
+    if (buttonMappingLoading || soundMappingsLoading) return
 
     buttonStates.forEach((isPressed, gamepadButtonIndex) => {
       const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
 
       // Button pressed down - record timestamp and execute immediate actions
       if (isPressed && !wasPressed) {
+        console.log(`[Gamepad] Button ${gamepadButtonIndex} pressed, mapping size: ${buttonMapping.size}, sounds: ${soundMappings.size}`)
+
         // Record button press start time for long press detection
         buttonPressStart.current.set(gamepadButtonIndex, Date.now())
 
         // Check if this is the stop button
         if (stopButton !== null && gamepadButtonIndex === stopButton) {
+          console.log(`[Gamepad] Stop button triggered`)
           stopAll()
           return
         }
@@ -281,12 +350,23 @@ export default function Home() {
             }
           }
         }
+        console.log(`[Gamepad] Gamepad btn ${gamepadButtonIndex} -> visual btn ${visualButtonId}`)
 
         const soundFile = soundMappings.get(visualButtonId)
+        console.log(`[Gamepad] Visual btn ${visualButtonId} -> sound: ${soundFile || 'none'}`)
         if (soundFile) {
-          const cleanUrl = soundFile.split('#')[0]
-          const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
-          playSound(cleanUrl, { restart: true, volume })
+          // Debounce: skip if same button was played within 150ms (prevents double-play with dock triggers)
+          const now = Date.now()
+          const lastPlay = lastPlayTime.current.get(visualButtonId) || 0
+          if (now - lastPlay >= 150) {
+            lastPlayTime.current.set(visualButtonId, now)
+            const cleanUrl = soundFile.split('#')[0]
+            const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
+            console.log(`[Gamepad] Playing: ${cleanUrl} at ${Math.round(volume * 100)}%`)
+            playSound(cleanUrl, { restart: true, volume })
+          } else {
+            console.log(`[Gamepad] Debounced - too soon`)
+          }
         }
 
         // Execute combined action (OBS or LiveSplit) if assigned
@@ -329,7 +409,7 @@ export default function Home() {
 
     // Update previous states (using ref to avoid re-renders)
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
+  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
 
   const handlePlaySound = (url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
@@ -457,9 +537,15 @@ export default function Home() {
                 RELOAD SOUNDS
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   console.log('🔄 REMAP BUTTONS button clicked')
                   if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
+                    // Clear from electron-store
+                    setButtonMapping(new Map())
+                    if (window.electronAPI?.storeDelete) {
+                      await window.electronAPI.storeDelete('haute42-button-mapping')
+                    }
+                    // Also clear localStorage for legacy cleanup
                     localStorage.removeItem('haute42-button-mapping')
                     localStorage.removeItem('onboarding-complete')
                     window.location.href = '/onboarding'
@@ -513,10 +599,7 @@ export default function Home() {
                     </span>
                   </span>
                   <button
-                    onClick={() => {
-                      setStopButton(null)
-                      localStorage.removeItem('haute42-stop-button')
-                    }}
+                    onClick={() => setStopButton(null)}
                     className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
                   >
                     Clear

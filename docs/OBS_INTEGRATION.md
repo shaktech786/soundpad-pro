@@ -196,3 +196,71 @@ For issues or feature requests:
 ---
 
 **Happy Streaming!** 🎬🎮🔊
+
+## OBS Dock Mode
+
+SoundPad Pro includes a compact dock mode designed specifically for OBS browser docks. This lets you control your soundpad directly from within OBS!
+
+### Setting Up the OBS Dock
+
+1. **Ensure SoundPad Pro is running** (or set it to auto-start - see below)
+
+2. **Add Custom Browser Dock in OBS:**
+   - Go to **View** > **Docks** > **Custom Browser Docks**
+   - Add a new dock:
+     - **Dock Name**: `SoundPad Pro`
+     - **URL**: `http://localhost:3005/dock`
+   - Click **Apply**
+
+3. **Position the dock** wherever you like in OBS
+
+OBS will remember this dock and load it automatically on future launches.
+
+### Auto-Start SoundPad Pro with Windows
+
+For the dock to work, SoundPad Pro must be running before OBS tries to load it.
+
+**Option 1: Run the Auto-Start Setup Script**
+\`\`\`powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-auto-start.ps1
+\`\`\`
+
+**Option 2: Manual Setup**
+1. Press Win+R, type shell:startup, press Enter
+2. Create a shortcut to SoundPad Pro.exe in this folder
+
+### Start Both Apps Together
+
+Use the included batch script to launch both apps in the correct order:
+
+\`\`\`batch
+scripts\start-streaming.bat
+\`\`\`
+
+This script:
+1. Launches SoundPad Pro
+2. Waits 4 seconds for it to initialize
+3. Launches OBS Studio
+
+**Tip:** Create a desktop shortcut to this batch file for one-click streaming setup.
+
+### Dock Mode Features
+
+The dock mode provides a compact interface with:
+- All 16 sound pads in a smaller layout
+- Visual feedback for button presses
+- OBS/LiveSplit action indicators
+- Stop All button
+- Connection status indicators
+- Full sound playback support
+- Full OBS/LiveSplit action support
+
+### Dock Mode Limitations
+
+The OBS browser dock has some limitations compared to the full app:
+- No file picker (cannot assign new sounds - use main app)
+- No settings dialogs (configure in main app first)
+- No gamepad API (controller buttons work via main app)
+- Limited keyboard shortcuts
+
+**Recommendation:** Keep the main SoundPad Pro window open (can be minimized) and use the OBS dock for quick access during streams.

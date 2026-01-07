@@ -37,10 +37,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onGlobalStopAudio: (callback) => {
     ipcRenderer.on('global-stop-audio', () => callback());
   },
-  
+
+  // Listen for HID gamepad button states (works when window unfocused)
+  onHIDGamepadState: (callback) => {
+    ipcRenderer.on('hid-gamepad-state', (event, buttonStates) => callback(buttonStates));
+  },
+
   // Cleanup listeners
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('hotkey-triggered');
     ipcRenderer.removeAllListeners('global-stop-audio');
+    ipcRenderer.removeAllListeners('hid-gamepad-state');
   }
 });
