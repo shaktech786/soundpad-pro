@@ -41,7 +41,15 @@ export default function Home() {
     'haute42-stop-button',
     null
   )
+  // Linked buttons: Map<secondaryButton, primaryButton> - when both are pressed, secondary is ignored
+  const [linkedButtons, setLinkedButtons] = usePersistentStorage<Map<number, number>>(
+    'haute42-linked-buttons',
+    new Map()
+  )
   const [assigningStopButton, setAssigningStopButton] = useState(false)
+  const [configuringLinkedButtons, setConfiguringLinkedButtons] = useState(false)
+  const [linkingStep, setLinkingStep] = useState<'primary' | 'secondary' | null>(null)
+  const [pendingPrimaryButton, setPendingPrimaryButton] = useState<number | null>(null)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
@@ -316,9 +324,44 @@ export default function Home() {
     prevButtonStates.current = new Map(buttonStates)
   }, [buttonStates, assigningStopButton])
 
+  // Handle configuring linked buttons
+  useEffect(() => {
+    if (!configuringLinkedButtons || !linkingStep) return
+
+    buttonStates.forEach((isPressed, gamepadButtonIndex) => {
+      const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
+
+      if (isPressed && !wasPressed) {
+        if (linkingStep === 'primary') {
+          // First step: capture the primary button (the one you WANT to trigger)
+          setPendingPrimaryButton(gamepadButtonIndex)
+          setLinkingStep('secondary')
+          console.log('Primary button captured:', gamepadButtonIndex)
+        } else if (linkingStep === 'secondary' && pendingPrimaryButton !== null) {
+          // Second step: capture the secondary button (the ghost that should be ignored)
+          if (gamepadButtonIndex !== pendingPrimaryButton) {
+            setLinkedButtons(prev => {
+              const newMap = new Map(prev)
+              newMap.set(gamepadButtonIndex, pendingPrimaryButton)
+              return newMap
+            })
+            console.log(`Linked button ${gamepadButtonIndex} to primary ${pendingPrimaryButton}`)
+          }
+          // Reset linking state
+          setConfiguringLinkedButtons(false)
+          setLinkingStep(null)
+          setPendingPrimaryButton(null)
+        }
+      }
+    })
+
+    // Update previous states
+    prevButtonStates.current = new Map(buttonStates)
+  }, [buttonStates, configuringLinkedButtons, linkingStep, pendingPrimaryButton])
+
   // Play sound when controller buttons are pressed
   useEffect(() => {
-    if (assigningStopButton) return // Don't play sounds while assigning stop button
+    if (assigningStopButton || configuringLinkedButtons) return // Don't play sounds while assigning
     // Wait for mappings to load
     if (buttonMappingLoading || soundMappingsLoading) return
 
@@ -327,6 +370,13 @@ export default function Home() {
 
       // Button pressed down - record timestamp and execute immediate actions
       if (isPressed && !wasPressed) {
+        // Check if this is a secondary linked button and its primary is also pressed
+        const linkedPrimary = linkedButtons.get(gamepadButtonIndex)
+        if (linkedPrimary !== undefined && buttonStates.get(linkedPrimary)) {
+          console.log(`[Gamepad] Button ${gamepadButtonIndex} is linked to ${linkedPrimary} which is also pressed - ignoring`)
+          return // Skip this button, let the primary handle it
+        }
+
         console.log(`[Gamepad] Button ${gamepadButtonIndex} pressed, mapping size: ${buttonMapping.size}, sounds: ${soundMappings.size}`)
 
         // Record button press start time for long press detection
@@ -409,7 +459,7 @@ export default function Home() {
 
     // Update previous states (using ref to avoid re-renders)
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
+  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
 
   const handlePlaySound = (url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
@@ -608,6 +658,71 @@ export default function Home() {
               )}
             </div>
 
+            {/* Linked Buttons (for hardware that sends multiple button presses) */}
+            <div className="flex justify-center items-center gap-4">
+              <button
+                onClick={() => {
+                  setConfiguringLinkedButtons(true)
+                  setLinkingStep('primary')
+                  setPendingPrimaryButton(null)
+                }}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors ${
+                  configuringLinkedButtons
+                    ? 'bg-yellow-500 hover:bg-yellow-600 animate-pulse'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                } text-white`}
+              >
+                {configuringLinkedButtons
+                  ? linkingStep === 'primary'
+                    ? '1️⃣ Press PRIMARY button...'
+                    : '2️⃣ Press GHOST button...'
+                  : '🔗 LINK DUAL-PRESS BUTTONS'
+                }
+              </button>
+              {configuringLinkedButtons && (
+                <button
+                  onClick={() => {
+                    setConfiguringLinkedButtons(false)
+                    setLinkingStep(null)
+                    setPendingPrimaryButton(null)
+                  }}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+              {linkedButtons.size > 0 && !configuringLinkedButtons && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-gray-400 text-sm">Linked:</span>
+                  {Array.from(linkedButtons.entries()).map(([secondary, primary]) => (
+                    <div key={secondary} className="flex items-center gap-1 px-2 py-1 bg-gray-800 rounded text-xs">
+                      <span className="text-white">{secondary}</span>
+                      <span className="text-gray-500">→</span>
+                      <span className="text-indigo-400">{primary}</span>
+                      <button
+                        onClick={() => {
+                          setLinkedButtons(prev => {
+                            const newMap = new Map(prev)
+                            newMap.delete(secondary)
+                            return newMap
+                          })
+                        }}
+                        className="ml-1 text-red-400 hover:text-red-300"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setLinkedButtons(new Map())}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Global Hotkeys Toggle */}
             <div className="flex justify-center items-center gap-4">
               <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 rounded-lg">
@@ -683,6 +798,7 @@ export default function Home() {
                 <li>Assign a controller button to stop all sounds instantly</li>
                 <li>Enable global hotkeys to use numpad keys when app is not in focus</li>
                 <li>Use "Remap Buttons" if your controller layout doesn't match</li>
+                <li>Use <span className="text-indigo-400">"Link Dual-Press Buttons"</span> if one physical button triggers two - link the ghost to the real one</li>
               </ul>
             </div>
           </div>

@@ -176,48 +176,85 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
     }
   }, [])
 
-  // Auto-connect on mount if saved config exists
+  // Auto-connect on mount if saved config exists (with retries)
   useEffect(() => {
     if (autoConnectAttempted.current) return
     autoConnectAttempted.current = true
 
+    let retryCount = 0
+    const maxRetries = 5
+    const retryDelays = [2000, 5000, 10000, 15000, 30000] // Increasing delays
+    let retryTimeoutId: NodeJS.Timeout | null = null
+    let cancelled = false
+
     const tryAutoConnect = async () => {
+      if (cancelled) return
+
       // Wait for OBS client to be initialized
       if (!obsRef.current) {
         console.log('⏳ Waiting for OBS client to initialize...')
-        setTimeout(tryAutoConnect, 500)
+        retryTimeoutId = setTimeout(tryAutoConnect, 500)
         return
       }
 
-      try {
-        let config: OBSConnectionConfig | null = null
+      let config: OBSConnectionConfig | null = null
 
-        // Try electron-store first
-        if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
-          config = await (window as any).electronAPI.storeGet('obs-connection-config')
-        }
+      // Try electron-store first
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
+        config = await (window as any).electronAPI.storeGet('obs-connection-config')
+      }
 
-        // Fallback to localStorage
-        if (!config) {
-          const savedConfig = localStorage.getItem('obs-connection-config')
-          if (savedConfig) {
+      // Fallback to localStorage
+      if (!config) {
+        const savedConfig = localStorage.getItem('obs-connection-config')
+        if (savedConfig) {
+          try {
             config = JSON.parse(savedConfig)
+          } catch (e) {
+            console.error('Failed to parse OBS config from localStorage')
           }
         }
-
-        if (config) {
-          console.log('🔄 Auto-connecting to OBS with saved config:', config.address + ':' + config.port)
-          await connect(config)
-        } else {
-          console.log('ℹ️ No saved OBS config found, skipping auto-connect')
-        }
-      } catch (err) {
-        console.log('❌ Auto-connect failed:', err)
       }
+
+      if (!config) {
+        console.log('ℹ️ No saved OBS config found, skipping auto-connect')
+        return
+      }
+
+      console.log(`🔄 Auto-connecting to OBS (attempt ${retryCount + 1}/${maxRetries}):`, config.address + ':' + config.port)
+      await connect(config)
+
+      // Wait a bit then check if connection succeeded
+      setTimeout(() => {
+        if (cancelled) return
+
+        // Check connection state via the ref's socket state
+        const isConnected = obsRef.current?.socket?.readyState === 1 // WebSocket.OPEN
+
+        if (!isConnected) {
+          retryCount++
+          if (retryCount < maxRetries) {
+            const delay = retryDelays[retryCount - 1] || 30000
+            console.log(`⏳ OBS not connected, retrying in ${delay / 1000}s... (attempt ${retryCount + 1}/${maxRetries})`)
+            retryTimeoutId = setTimeout(tryAutoConnect, delay)
+          } else {
+            console.log('❌ OBS auto-connect failed after max retries. Connect manually via settings.')
+          }
+        } else {
+          console.log('✅ OBS auto-connect successful')
+        }
+      }, 2000) // Wait 2s for connection to establish
     }
 
-    // Small delay to ensure DOM is ready
-    setTimeout(tryAutoConnect, 100)
+    // Start auto-connect after a short delay
+    retryTimeoutId = setTimeout(tryAutoConnect, 500)
+
+    return () => {
+      cancelled = true
+      if (retryTimeoutId) {
+        clearTimeout(retryTimeoutId)
+      }
+    }
   }, [connect])
 
   const refreshOBSStateInternal = async () => {
