@@ -91,6 +91,10 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       setConnected(true)
       setConnecting(false)
       setError(null)
+      // Set global flag for auto-connect check
+      if (typeof window !== 'undefined') {
+        (window as any).__obsConnected = true
+      }
 
       // Fetch initial state
       try {
@@ -104,6 +108,10 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       console.log('🔴 OBS WebSocket connection closed')
       setConnected(false)
       setConnecting(false)
+      // Reset global flag
+      if (typeof window !== 'undefined') {
+        (window as any).__obsConnected = false
+      }
     })
 
     obs.on('ConnectionError', (err) => {
@@ -224,26 +232,28 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       console.log(`🔄 Auto-connecting to OBS (attempt ${retryCount + 1}/${maxRetries}):`, config.address + ':' + config.port)
       await connect(config)
 
-      // Wait a bit then check if connection succeeded
-      setTimeout(() => {
+      // Wait a bit then check if connection succeeded by checking state
+      // We use a closure to capture the connected state check
+      const checkConnection = () => {
         if (cancelled) return
 
-        // Check connection state via the ref's socket state
-        const isConnected = obsRef.current?.socket?.readyState === 1 // WebSocket.OPEN
-
-        if (!isConnected) {
-          retryCount++
-          if (retryCount < maxRetries) {
-            const delay = retryDelays[retryCount - 1] || 30000
-            console.log(`⏳ OBS not connected, retrying in ${delay / 1000}s... (attempt ${retryCount + 1}/${maxRetries})`)
-            retryTimeoutId = setTimeout(tryAutoConnect, delay)
-          } else {
-            console.log('❌ OBS auto-connect failed after max retries. Connect manually via settings.')
-          }
-        } else {
+        // Check if we're now connected (set by the 'Identified' event handler)
+        // We need to check via a fresh call since this is async
+        if (typeof window !== 'undefined' && (window as any).__obsConnected) {
           console.log('✅ OBS auto-connect successful')
+          return
         }
-      }, 2000) // Wait 2s for connection to establish
+
+        retryCount++
+        if (retryCount < maxRetries) {
+          const delay = retryDelays[retryCount - 1] || 30000
+          console.log(`⏳ OBS not connected, retrying in ${delay / 1000}s... (attempt ${retryCount + 1}/${maxRetries})`)
+          retryTimeoutId = setTimeout(tryAutoConnect, delay)
+        } else {
+          console.log('❌ OBS auto-connect failed after max retries. Connect manually via settings.')
+        }
+      }
+      setTimeout(checkConnection, 2000) // Wait 2s for connection to establish
     }
 
     // Start auto-connect after a short delay

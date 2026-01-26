@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "2.10.1",
+  "version": "2.11.0",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
