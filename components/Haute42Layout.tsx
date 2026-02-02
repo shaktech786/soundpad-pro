@@ -1,41 +1,24 @@
 import React, { useMemo } from 'react'
-import { OBSAction } from '../contexts/OBSContext'
-import { LiveSplitAction } from '../contexts/LiveSplitContext'
-
-type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
+import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
+import { HAUTE42_LAYOUT } from '../config/constants'
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
-  obsActions?: Map<number, CombinedAction> // visualId -> OBS or LiveSplit action
+  obsActions?: Map<number, CombinedAction>
   onPlaySound: (url: string, buttonIndex?: number) => void
   onMapSound: (index: number) => void
   onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
   onTriggerAction?: (action: CombinedAction) => void
-  buttonMapping?: Map<number, number> // visualId -> gamepadButtonId
-  stopButton?: number | null // gamepad button assigned to stop
+  buttonMapping?: Map<number, number>
+  stopButton?: number | null
+  boardLayout?: ButtonPosition[]
+  buttonShape?: ButtonShape
 }
 
-// Custom layout positions from drag-and-drop builder
-const BUTTON_LAYOUT = [
-  { id: 0, x: 191, y: 125 },
-  { id: 1, x: 550, y: 111 },
-  { id: 2, x: 388, y: 249 },
-  { id: 3, x: 202, y: 44 },
-  { id: 4, x: 261, y: 152 },
-  { id: 5, x: 340, y: 119 },
-  { id: 6, x: 479, y: 110 },
-  { id: 7, x: 532, y: 187 },
-  { id: 8, x: 117, y: 121 },
-  { id: 9, x: 345, y: 41 },
-  { id: 10, x: 293, y: 289 },
-  { id: 11, x: 217, y: 273 },
-  { id: 12, x: 413, y: 113 },
-  { id: 13, x: 323, y: 197 },
-  { id: 14, x: 390, y: 183 },
-  { id: 15, x: 460, y: 183 }
-]
+const BUTTON_RENDER_SIZE = 96 // w-24 = 96px
+const CONTAINER_PADDING = 64
 
 export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonStates,
@@ -47,9 +30,33 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   onAssignOBSAction,
   onTriggerAction,
   buttonMapping,
-  stopButton
+  stopButton,
+  boardLayout,
+  buttonShape = 'circle',
 }) => {
-  // Create reverse mapping: gamepadButtonId -> visualId
+  const layout = boardLayout && boardLayout.length > 0 ? boardLayout : HAUTE42_LAYOUT
+
+  // Compute dynamic container dimensions and scale
+  const { containerWidth, containerHeight, scale } = useMemo(() => {
+    if (layout.length === 0) {
+      return { containerWidth: 1200, containerHeight: 600, scale: 1.5 }
+    }
+    const maxX = Math.max(...layout.map(b => b.x))
+    const maxY = Math.max(...layout.map(b => b.y))
+
+    // Target width for the container
+    const targetWidth = 1200
+    const rawWidth = maxX + BUTTON_RENDER_SIZE + CONTAINER_PADDING
+    const rawHeight = maxY + BUTTON_RENDER_SIZE + CONTAINER_PADDING
+    const s = Math.min(targetWidth / rawWidth, 2)
+
+    return {
+      containerWidth: Math.max(600, rawWidth * s),
+      containerHeight: Math.max(300, rawHeight * s),
+      scale: s,
+    }
+  }, [layout])
+
   const reverseMapping = useMemo(() => {
     if (!buttonMapping) return null
     const reverse = new Map<number, number>()
@@ -66,7 +73,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     return filename.replace(/\.[^/.]+$/, '')
   }
 
-  const PadButton = ({ index, x, y }: { index: number, x: number, y: number }) => {
+  const shapeClass = buttonShape === 'circle' ? 'rounded-full' : 'rounded-xl'
+
+  const PadButton = ({ index, x, y }: { index: number; x: number; y: number }) => {
     const gamepadButton = buttonMapping?.get(index) ?? index
     const isPressed = buttonStates.get(gamepadButton) === true
     const soundFile = soundMappings.get(index)
@@ -99,8 +108,6 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
 
     const handleContextMenu = (e: React.MouseEvent) => {
       e.preventDefault()
-
-      // Right-click always opens the unified assignment modal
       if (onAssignOBSAction) {
         onAssignOBSAction(index)
       }
@@ -119,11 +126,11 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         style={{
           position: 'absolute',
           left: `${x}px`,
-          top: `${y}px`
+          top: `${y}px`,
         }}
         className={`
           w-24 h-24
-          rounded-full border-4
+          ${shapeClass} border-4
           flex flex-col items-center justify-center
           transition-all duration-100
           relative
@@ -142,7 +149,6 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         role="button"
         tabIndex={0}
       >
-        {/* OBS/LiveSplit Action Indicator Badge */}
         {hasOBSAction && (
           <div className={`absolute -top-1 -right-1 w-6 h-6 rounded-full border-2 border-gray-900 flex items-center justify-center ${
             obsAction?.service === 'livesplit'
@@ -155,7 +161,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
 
         {isStopButton ? (
           <div className="text-white text-sm px-1 text-center font-bold">
-            🛑 STOP
+            STOP
           </div>
         ) : hasSound ? (
           <div className="text-white text-sm px-1 text-center line-clamp-2 font-medium leading-tight">
@@ -170,12 +176,11 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
 
   return (
     <div className="p-8 bg-gray-900 rounded-xl">
-      <h2 className="text-2xl font-bold text-white mb-6 text-center">Haute42 Controller</h2>
+      <h2 className="text-2xl font-bold text-white mb-6 text-center">Controller</h2>
 
-      {/* Custom layout matching your physical Haute42 controller */}
-      <div className="relative mx-auto" style={{ width: '1200px', height: '600px' }}>
-        {BUTTON_LAYOUT.map(btn => (
-          <PadButton key={btn.id} index={btn.id} x={btn.x * 1.5} y={btn.y * 1.5} />
+      <div className="relative mx-auto" style={{ width: `${containerWidth}px`, height: `${containerHeight}px` }}>
+        {layout.map(btn => (
+          <PadButton key={btn.id} index={btn.id} x={btn.x * scale} y={btn.y * scale} />
         ))}
       </div>
     </div>

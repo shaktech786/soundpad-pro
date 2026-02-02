@@ -32,7 +32,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         'combined-action-mappings': [],
         'button-volumes': [],
         'haute42-button-mapping': null,
-        'haute42-stop-button': null
+        'haute42-stop-button': null,
+        'soundpad-board-layout': null,
+        'soundpad-button-shape': null,
       })
     }
 
@@ -45,7 +47,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       'combined-action-mappings': config['combined-action-mappings'] || [],
       'button-volumes': config['button-volumes'] || [],
       'haute42-button-mapping': config['haute42-button-mapping'] || null,
-      'haute42-stop-button': config['haute42-stop-button'] || null
+      'haute42-stop-button': config['haute42-stop-button'] || null,
+      'soundpad-board-layout': config['soundpad-board-layout'] || null,
+      'soundpad-button-shape': config['soundpad-button-shape'] || null,
     })
   } catch (error) {
     console.error('Error reading mappings:', error)

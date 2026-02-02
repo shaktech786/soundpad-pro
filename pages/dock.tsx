@@ -4,8 +4,7 @@ import { Howler } from 'howler'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
 import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
-
-type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
+import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 
 export default function DockMode() {
   const { playSound, stopAll, loadSound } = useAudioEngine()
@@ -16,6 +15,8 @@ export default function DockMode() {
   const [combinedActions, setCombinedActions] = useState<Map<number, CombinedAction>>(new Map())
   const [buttonVolumes, setButtonVolumes] = useState<Map<number, number>>(new Map())
   const [stopButton, setStopButton] = useState<number | null>(null)
+  const [boardLayout, setBoardLayout] = useState<ButtonPosition[] | null>(null)
+  const [buttonShape, setButtonShape] = useState<ButtonShape>('circle')
   const [isLoading, setIsLoading] = useState(true)
   const [activeButton, setActiveButton] = useState<number | null>(null)
 
@@ -51,6 +52,12 @@ export default function DockMode() {
       }
       if (data['haute42-stop-button'] !== null) {
         setStopButton(data['haute42-stop-button'])
+      }
+      if (data['soundpad-board-layout']) {
+        setBoardLayout(data['soundpad-board-layout'])
+      }
+      if (data['soundpad-button-shape']) {
+        setButtonShape(data['soundpad-button-shape'])
       }
     } catch (error) {
       console.error('Error fetching mappings:', error)
@@ -168,6 +175,14 @@ export default function DockMode() {
     }
   }
 
+  // Compute button indices from board layout or fallback to 16
+  const buttonIndices = boardLayout
+    ? boardLayout.map(b => b.id).sort((a, b) => a - b)
+    : Array.from({ length: 16 }, (_, i) => i)
+  const buttonCount = buttonIndices.length
+
+  const shapeClass = buttonShape === 'circle' ? 'rounded-full' : 'rounded-md'
+
   const DockPad = ({ index }: { index: number }) => {
     const soundFile = soundMappings.get(index)
     const hasSound = !!soundFile
@@ -191,7 +206,7 @@ export default function DockMode() {
       <button
         onClick={() => isStopButton ? handleStopAll() : handlePadClick(index)}
         className={`
-          aspect-square rounded-md border
+          aspect-square ${shapeClass} border
           flex flex-col items-center justify-center
           transition-all duration-75
           relative overflow-hidden
@@ -276,9 +291,13 @@ export default function DockMode() {
           </button>
         </div>
 
-        {/* 4x4 Grid - indices match main app */}
-        <div className="grid grid-cols-4 gap-0.5">
-          {Array.from({ length: 16 }, (_, i) => (
+        {/* Dynamic grid - indices match main app */}
+        <div className={`grid gap-0.5 ${
+          buttonCount <= 9 ? 'grid-cols-3' :
+          buttonCount <= 16 ? 'grid-cols-4' :
+          buttonCount <= 25 ? 'grid-cols-5' : 'grid-cols-6'
+        }`}>
+          {buttonIndices.map(i => (
             <DockPad key={i} index={i} />
           ))}
         </div>

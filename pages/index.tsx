@@ -11,8 +11,11 @@ import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
-
-type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
+import { ProfileSelector } from '../components/ProfileSelector'
+import { BoardBuilder } from '../components/BoardBuilder'
+import { useProfileManager } from '../hooks/useProfileManager'
+import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
+import { APP_CONFIG, HAUTE42_LAYOUT } from '../config/constants'
 
 export default function Home() {
   const router = useRouter()
@@ -46,6 +49,28 @@ export default function Home() {
     'haute42-linked-buttons',
     new Map()
   )
+  // Board layout and shape from active profile
+  const [boardLayout, setBoardLayout, boardLayoutLoading] = usePersistentStorage<ButtonPosition[]>(
+    APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT,
+    HAUTE42_LAYOUT
+  )
+  const [buttonShape, setButtonShape, buttonShapeLoading] = usePersistentStorage<ButtonShape>(
+    APP_CONFIG.PROFILES.STORAGE_KEYS.BUTTON_SHAPE,
+    'circle'
+  )
+
+  // Profile manager
+  const {
+    profiles,
+    activeProfileId,
+    isLoading: profilesLoading,
+    switchProfile,
+    renameProfile,
+    deleteProfile,
+    duplicateProfile,
+  } = useProfileManager()
+
+  const [showBoardEditor, setShowBoardEditor] = useState(false)
   const [assigningStopButton, setAssigningStopButton] = useState(false)
   const [configuringLinkedButtons, setConfiguringLinkedButtons] = useState(false)
   const [linkingStep, setLinkingStep] = useState<'primary' | 'secondary' | null>(null)
@@ -70,7 +95,7 @@ export default function Home() {
   // Check if onboarding needed (wait for button mapping to load first)
   useEffect(() => {
     console.log(`[Init] buttonMappingLoading: ${buttonMappingLoading}, buttonMapping.size: ${buttonMapping.size}`)
-    if (buttonMappingLoading) return
+    if (buttonMappingLoading || boardLayoutLoading) return
 
     console.log(`[Init] Button mapping loaded with ${buttonMapping.size} entries:`, Array.from(buttonMapping.entries()))
 
@@ -81,14 +106,15 @@ export default function Home() {
         navigateTo('/onboarding')
       } else {
         // Onboarding done but no mapping - create default 1:1 mapping
+        const buttonCount = boardLayout.length || 16
         const defaultMap = new Map<number, number>()
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < buttonCount; i++) {
           defaultMap.set(i, i)
         }
         setButtonMapping(defaultMap)
       }
     }
-  }, [buttonMappingLoading, buttonMapping.size])
+  }, [buttonMappingLoading, buttonMapping.size, boardLayoutLoading, boardLayout.length])
 
   // Load global hotkeys setting from localStorage (less critical, keep in localStorage)
   useEffect(() => {
@@ -514,9 +540,20 @@ export default function Home() {
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-white mb-4">SoundPad Pro</h1>
             <div className="flex items-center justify-center gap-4">
+              {profiles.length > 0 && (
+                <ProfileSelector
+                  profiles={profiles}
+                  activeProfileId={activeProfileId}
+                  onSwitch={switchProfile}
+                  onRename={renameProfile}
+                  onDelete={deleteProfile}
+                  onDuplicate={duplicateProfile}
+                  onNewProfile={() => navigateTo('/onboarding')}
+                />
+              )}
               <div className={`px-6 py-3 rounded-full font-bold ${connected ? 'bg-green-500' : 'bg-red-500'}`}>
                 <span className="text-white">
-                  {connected ? '✓ Haute42 Connected' : '✗ No Controller'}
+                  {connected ? 'Controller Connected' : 'No Controller'}
                 </span>
               </div>
               <div className="text-gray-400 text-sm">
@@ -542,7 +579,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* Haute42 Layout */}
+          {/* Controller Layout */}
           <Haute42Layout
             buttonStates={buttonStates}
             soundMappings={soundMappings}
@@ -560,6 +597,8 @@ export default function Home() {
             }}
             buttonMapping={buttonMapping}
             stopButton={stopButton}
+            boardLayout={boardLayout}
+            buttonShape={buttonShape}
           />
 
           {/* Controls */}
@@ -587,15 +626,18 @@ export default function Home() {
                 RELOAD SOUNDS
               </button>
               <button
+                onClick={() => setShowBoardEditor(true)}
+                className="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg transition-colors"
+              >
+                EDIT LAYOUT
+              </button>
+              <button
                 onClick={async () => {
-                  console.log('🔄 REMAP BUTTONS button clicked')
                   if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
-                    // Clear from electron-store
                     setButtonMapping(new Map())
                     if (window.electronAPI?.storeDelete) {
                       await window.electronAPI.storeDelete('haute42-button-mapping')
                     }
-                    // Also clear localStorage for legacy cleanup
                     localStorage.removeItem('haute42-button-mapping')
                     localStorage.removeItem('onboarding-complete')
                     window.location.href = '/onboarding'
@@ -603,7 +645,7 @@ export default function Home() {
                 }}
                 className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg transition-colors"
               >
-                🔄 REMAP BUTTONS
+                REMAP BUTTONS
               </button>
               <button
                 onClick={() => setShowOBSSettings(true)}
@@ -892,6 +934,32 @@ export default function Home() {
           onConfirm={handleConfirmUrlSound}
           onClose={() => setAssigningUrlSound(null)}
         />
+      )}
+
+      {/* Board Layout Editor Modal */}
+      {showBoardEditor && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="max-w-5xl w-full bg-gray-900 rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-4">Edit Board Layout</h2>
+            <BoardBuilder
+              initialLayout={boardLayout}
+              initialShape={buttonShape}
+              onSave={(layout, shape) => {
+                setBoardLayout(layout)
+                setButtonShape(shape)
+                // Write to persistent storage
+                const storeSet = (window as any).electronAPI?.storeSet
+                if (storeSet) {
+                  storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT, layout)
+                  storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BUTTON_SHAPE, shape)
+                }
+                setShowBoardEditor(false)
+              }}
+              onCancel={() => setShowBoardEditor(false)}
+              showPresets
+            />
+          </div>
+        </div>
       )}
     </>
   )

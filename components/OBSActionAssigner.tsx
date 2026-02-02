@@ -2,8 +2,7 @@ import React, { useState } from 'react'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
 import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
-
-type CombinedAction = (OBSAction & { service: 'obs' }) | (LiveSplitAction & { service: 'livesplit' })
+import { CombinedAction } from '../types/profile'
 
 interface OBSActionAssignerProps {
   buttonIndex: number
