@@ -90,10 +90,8 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [])
 
   const loadSound = useCallback(async (filePath: string, forceReload: boolean = false): Promise<void> => {
-    const mode = audioModeRef.current
-
     // --- ASIO path ---
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (!api?.asioLoadSound) return
 
@@ -295,18 +293,17 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       })
       throw error
     }
-  }, [])
+  }, [audioMode])
 
   const playSound = useCallback((filePath: string, options?: {
     volume?: number
     loop?: boolean
     restart?: boolean
   }) => {
-    const mode = audioModeRef.current
+    const api = (window as any).electronAPI
 
     // --- ASIO path ---
-    if (mode === 'asio') {
-      const api = (window as any).electronAPI
+    if (audioMode === 'asio') {
       if (!api?.asioPlaySound) return
 
       if (!asioLoadedFiles.has(filePath)) {
@@ -351,7 +348,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
 
     playLoadedSound(sound, filePath, options)
-  }, [loadSound])
+  }, [audioMode, loadSound])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
     if (options?.restart || !isPlaying.get(filePath)) {
@@ -371,9 +368,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }
 
   const stopSound = useCallback((filePath: string) => {
-    const mode = audioModeRef.current
-
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioStopSound) {
         api.asioStopSound(filePath)
@@ -387,12 +382,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       sound.stop()
       setIsPlaying(prev => new Map(prev).set(filePath, false))
     }
-  }, [])
+  }, [audioMode])
 
   const unloadSound = useCallback((filePath: string) => {
-    const mode = audioModeRef.current
-
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioUnloadSound) {
         api.asioUnloadSound(filePath)
@@ -448,12 +441,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
         return newMap
       })
     }
-  }, [])
+  }, [audioMode])
 
   const stopAll = useCallback(() => {
-    const mode = audioModeRef.current
-
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioStopAll) {
         api.asioStopAll()
@@ -464,12 +455,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
     Howler.stop()
     setIsPlaying(new Map())
-  }, [])
+  }, [audioMode])
 
   const setVolume = useCallback((filePath: string, volume: number) => {
-    const mode = audioModeRef.current
-
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetVolume) {
         api.asioSetVolume(filePath, Math.max(0, Math.min(1, volume)))
@@ -481,12 +470,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     if (sound) {
       sound.volume(Math.max(0, Math.min(1, volume)))
     }
-  }, [loadedSounds])
+  }, [audioMode, loadedSounds])
 
   const setMasterVolume = useCallback((volume: number) => {
-    const mode = audioModeRef.current
-
-    if (mode === 'asio') {
+    if (audioMode === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetMasterVolume) {
         api.asioSetMasterVolume(Math.max(0, Math.min(1, volume)))
@@ -495,7 +482,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
 
     Howler.volume(Math.max(0, Math.min(1, volume)))
-  }, [])
+  }, [audioMode])
 
   return {
     loadSound,

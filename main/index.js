@@ -311,8 +311,7 @@ ipcMain.handle('asio:initialize', async (event, deviceId) => {
     if (!asioEngine) {
       asioEngine = new AsioAudioEngine();
     }
-    const result = asioEngine.initialize(deviceId);
-    return result;
+    return asioEngine.initialize(deviceId);
   } catch (err) {
     return { success: false, error: err.message };
   }

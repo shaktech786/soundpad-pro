@@ -186,14 +186,26 @@ export default function Home() {
     autoLoadSounds()
   }, [soundMappings.size, soundMappingsLoading, autoLoadComplete, setSoundMappings, loadSound])
 
-  // Reload all sounds when audio mode changes
+  // Reload all sounds when audio mode changes or ASIO becomes ready
   const prevAudioMode = useRef(audioMode)
+  const hasReloadedForAsio = useRef(false)
   useEffect(() => {
-    if (prevAudioMode.current === audioMode) return
-    prevAudioMode.current = audioMode
+    const modeChanged = prevAudioMode.current !== audioMode
+    if (modeChanged) {
+      prevAudioMode.current = audioMode
+      hasReloadedForAsio.current = false
+    }
 
-    // Re-load all mapped sounds in the new engine
+    // For ASIO mode, wait until the engine is actually ready before reloading
+    if (audioMode === 'asio' && !asioReady) return
+    // Prevent duplicate reloads
+    if (audioMode === 'asio' && hasReloadedForAsio.current && !modeChanged) return
+    if (!modeChanged && audioMode === 'wdm') return
+
+    hasReloadedForAsio.current = true
+
     const reloadSounds = async () => {
+      console.log(`[AudioMode] Reloading ${soundMappings.size} sounds for ${audioMode} mode`)
       for (const [_, filepath] of soundMappings) {
         try {
           await loadSound(filepath, true)
@@ -201,12 +213,11 @@ export default function Home() {
           console.error('Failed to reload on mode switch:', filepath, err)
         }
       }
+      console.log(`[AudioMode] Reload complete`)
     }
 
-    // Small delay to let the engine initialize
-    const timer = setTimeout(reloadSounds, 500)
-    return () => clearTimeout(timer)
-  }, [audioMode, soundMappings, loadSound])
+    reloadSounds()
+  }, [audioMode, asioReady, soundMappings, loadSound])
 
   // Register/unregister global hotkeys
   useEffect(() => {
