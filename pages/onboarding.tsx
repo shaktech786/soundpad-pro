@@ -230,12 +230,23 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <button
-                onClick={() => setStep('board-builder')}
-                className="w-full px-8 py-4 bg-purple-600 hover:bg-purple-700 text-white font-bold text-lg rounded-lg transition-colors"
-              >
-                Next: Design Your Board Layout
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    localStorage.setItem('onboarding-complete', 'true')
+                    router.push('/')
+                  }}
+                  className="px-8 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setStep('board-builder')}
+                  className="flex-1 px-8 py-4 bg-purple-600 hover:bg-purple-700 text-white font-bold text-lg rounded-lg transition-colors"
+                >
+                  Next: Design Your Board Layout
+                </button>
+              </div>
             </div>
           )}
 
