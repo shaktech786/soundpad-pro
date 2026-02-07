@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { OBSProvider } from '../contexts/OBSContext'
 import { LiveSplitProvider } from '../contexts/LiveSplitContext'
+import { ThemeProvider } from '../contexts/ThemeContext'
 
 // Polyfill process for client-side
 if (typeof window !== 'undefined' && !window.process) {
@@ -47,11 +48,13 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   return (
     <ErrorBoundary>
-      <OBSProvider>
-        <LiveSplitProvider>
-          <Component {...pageProps} />
-        </LiveSplitProvider>
-      </OBSProvider>
+      <ThemeProvider>
+        <OBSProvider>
+          <LiveSplitProvider>
+            <Component {...pageProps} />
+          </LiveSplitProvider>
+        </OBSProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   )
 }

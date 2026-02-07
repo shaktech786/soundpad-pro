@@ -52,3 +52,9 @@ next-env.d.ts
 # OS
 Thumbs.db
 .DS_Store
+
+# MCP config (contains local machine paths)
+.mcp.json
+
+# Test scripts
+test-*.js

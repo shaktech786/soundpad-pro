@@ -43,6 +43,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('hid-gamepad-state', (event, buttonStates) => callback(buttonStates));
   },
 
+  // Audio diagnostics
+  writeAudioDiag: (data) => ipcRenderer.invoke('write-audio-diag', data),
+
+  // ASIO Audio Engine
+  asioGetDevices: () => ipcRenderer.invoke('asio:get-devices'),
+  asioInitialize: (deviceId) => ipcRenderer.invoke('asio:initialize', deviceId),
+  asioShutdown: () => ipcRenderer.invoke('asio:shutdown'),
+  asioLoadSound: (filePath) => ipcRenderer.invoke('asio:load-sound', filePath),
+  asioUnloadSound: (filePath) => ipcRenderer.invoke('asio:unload-sound', filePath),
+  asioPlaySound: (filePath, options) => ipcRenderer.invoke('asio:play-sound', filePath, options),
+  asioStopSound: (filePath) => ipcRenderer.invoke('asio:stop-sound', filePath),
+  asioStopAll: () => ipcRenderer.invoke('asio:stop-all'),
+  asioSetVolume: (filePath, volume) => ipcRenderer.invoke('asio:set-volume', filePath, volume),
+  asioSetMasterVolume: (volume) => ipcRenderer.invoke('asio:set-master-volume', volume),
+
   // Cleanup listeners
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('hotkey-triggered');

@@ -1,10 +1,15 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
 // HID gamepad disabled - Windows DirectInput exclusively claims gamepad data, blocking raw HID access
 // const { HIDGamepad } = require('./hid-gamepad');
+const { AsioAudioEngine } = require('./asio-audio-engine');
+
+// Enable Chromium audio output device selection (required for AudioContext.setSinkId)
+app.commandLine.appendSwitch('enable-features', 'AudioServiceOutOfProcess,WebRtcAllowInputVolumeAdjustment');
+app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
 
 // Initialize electron-store for persistent storage
 const store = new Store({
@@ -23,6 +28,7 @@ let globalHotkeysEnabled = true;
 let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
 let hidGamepad = null;
+let asioEngine = null;
 
 function createWindow() {
   // Get saved window bounds or use defaults
@@ -77,6 +83,17 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Grant permissions for setSinkId (audio output device selection) and media
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission === 'speaker-selection') return true;
+    if (permission === 'media') return true;
+    return true;
+  });
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(true);
+  });
+
   createWindow();
 
   // HID gamepad disabled - Windows DirectInput blocks raw HID access
@@ -99,6 +116,11 @@ app.on('window-all-closed', () => {
   //   hidGamepad.destroy();
   //   hidGamepad = null;
   // }
+  // ASIO engine cleanup
+  if (asioEngine) {
+    asioEngine.shutdown();
+    asioEngine = null;
+  }
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -262,4 +284,116 @@ ipcMain.handle('get-registered-hotkeys', async () => {
     key,
     buttonIndex
   }));
+});
+
+// Audio diagnostics - write to file for debugging
+ipcMain.handle('write-audio-diag', async (event, data) => {
+  const diagPath = path.join(app.getPath('userData'), 'audio-diag.log');
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${data}\n`;
+  await fs.appendFile(diagPath, line);
+  return diagPath;
+});
+
+// --- ASIO Audio Engine IPC Handlers ---
+
+ipcMain.handle('asio:get-devices', async () => {
+  try {
+    const engine = new AsioAudioEngine();
+    return { success: true, devices: engine.getAsioDevices() };
+  } catch (err) {
+    return { success: false, error: err.message, devices: [] };
+  }
+});
+
+ipcMain.handle('asio:initialize', async (event, deviceId) => {
+  try {
+    if (!asioEngine) {
+      asioEngine = new AsioAudioEngine();
+    }
+    const result = asioEngine.initialize(deviceId);
+    return result;
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:shutdown', async () => {
+  try {
+    if (asioEngine) {
+      const result = asioEngine.shutdown();
+      asioEngine = null;
+      return result;
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:load-sound', async (event, filePath) => {
+  try {
+    if (!asioEngine || !asioEngine.isInitialized()) {
+      return { success: false, error: 'ASIO engine not initialized' };
+    }
+    return await asioEngine.loadSound(filePath);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:unload-sound', async (event, filePath) => {
+  try {
+    if (!asioEngine) return { success: true };
+    return asioEngine.unloadSound(filePath);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:play-sound', async (event, filePath, options) => {
+  try {
+    if (!asioEngine || !asioEngine.isInitialized()) {
+      return { success: false, error: 'ASIO engine not initialized' };
+    }
+    return asioEngine.playSound(filePath, options);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:stop-sound', async (event, filePath) => {
+  try {
+    if (!asioEngine) return { success: true };
+    return asioEngine.stopSound(filePath);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:stop-all', async () => {
+  try {
+    if (!asioEngine) return { success: true };
+    return asioEngine.stopAll();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:set-volume', async (event, filePath, volume) => {
+  try {
+    if (!asioEngine) return { success: true };
+    return asioEngine.setVolume(filePath, volume);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:set-master-volume', async (event, volume) => {
+  try {
+    if (!asioEngine) return { success: true };
+    return asioEngine.setMasterVolume(volume);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });

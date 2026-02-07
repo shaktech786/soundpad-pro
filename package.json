@@ -13,7 +13,8 @@
     "build:deploy": "npm run build:win && powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1 -Force",
     "shortcut": "powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1",
     "start": "electron simple-main.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "postinstall": "electron-rebuild -f -w naudiodon"
   },
   "keywords": [
     "soundboard",
@@ -24,9 +25,11 @@
   "author": "SoundPad Pro",
   "license": "MIT",
   "dependencies": {
+    "audio-decode": "^2.2.3",
     "electron-is-dev": "^2.0.0",
     "electron-store": "^8.2.0",
     "howler": "^2.2.4",
+    "naudiodon": "^2.3.6",
     "next": "^14.0.0",
     "node-hid": "^3.2.0",
     "obs-websocket-js": "^5.0.6",
@@ -35,6 +38,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
     "@types/howler": "^2.2.8",
     "@types/node": "20.19.30",
     "@types/react": "18.3.27",

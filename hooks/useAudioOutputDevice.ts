@@ -19,11 +19,22 @@ export function useAudioOutputDevice() {
     }
   }, [])
 
+  // Write diagnostic info to file via Electron IPC
+  const writeDiag = useCallback(async (msg: string) => {
+    console.log('[AudioDiag]', msg)
+    try {
+      if ((window as any).electronAPI?.writeAudioDiag) {
+        await (window as any).electronAPI.writeAudioDiag(msg)
+      }
+    } catch {}
+  }, [])
+
   // Enumerate audio output devices
   const enumerateDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
         console.warn('enumerateDevices() not supported')
+        writeDiag('enumerateDevices() not supported')
         setLoading(false)
         return
       }
@@ -34,14 +45,18 @@ export function useAudioOutputDevice() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         // Immediately stop the stream - we only needed permission
         stream.getTracks().forEach(track => track.stop())
+        writeDiag('Microphone permission granted')
       } catch (permError) {
         console.warn('Microphone permission denied, device labels may not be available:', permError)
+        writeDiag(`Microphone permission DENIED: ${permError}`)
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices()
 
       // Log all devices for debugging
       console.log('All enumerated devices:', devices)
+      writeDiag(`Total devices found: ${devices.length}`)
+      devices.forEach(d => writeDiag(`  ${d.kind}: id=${d.deviceId.substring(0, 20)}... label="${d.label}"`))
 
       const audioOutputs = devices
         .filter(device => device.kind === 'audiooutput')
@@ -52,45 +67,40 @@ export function useAudioOutputDevice() {
           groupId: device.groupId
         }))
 
-      // Deduplicate devices with same label - keep first occurrence
-      const uniqueDevices = audioOutputs.reduce((acc, device) => {
-        // For VoiceMeeter devices with identical names, keep only the first one
-        const existingDevice = acc.find(d => d.label === device.label)
-        if (!existingDevice) {
-          acc.push(device)
-        }
-        return acc
-      }, [] as typeof audioOutputs)
+      // Count occurrences of each label
+      const labelTotals: Record<string, number> = {}
+      audioOutputs.forEach(device => {
+        labelTotals[device.label] = (labelTotals[device.label] || 0) + 1
+      })
 
-      const deduplicatedDevices = uniqueDevices
+      // For duplicate labels, append index to distinguish them
+      const labelCounters: Record<string, number> = {}
+      const deduplicatedDevices = audioOutputs.map(device => {
+        if (labelTotals[device.label] > 1) {
+          const idx = (labelCounters[device.label] || 0) + 1
+          labelCounters[device.label] = idx
+          return { ...device, label: `${device.label} #${idx}` }
+        }
+        return device
+      })
 
       console.log('Audio output devices (raw):', audioOutputs)
       console.log('Audio output devices (deduplicated):', deduplicatedDevices)
 
       setAudioDevices(deduplicatedDevices)
 
-      // Auto-select VoiceMeeter device if available and no device selected
+      // Auto-select CABLE Input for routing through VoiceMeeter
       if (!selectedDevice && deduplicatedDevices.length > 0) {
-        // Priority 1: Look for VoiceMeeter Aux (VAIO3) - ideal for SoundPad Pro
         let vmDevice = deduplicatedDevices.find(d =>
-          d.label.toLowerCase().includes('voicemeeter') &&
-          d.label.toLowerCase().includes('aux')
+          d.label.toLowerCase().includes('cable input')
         )
 
-        // Priority 2: Fall back to regular VoiceMeeter VAIO
-        if (!vmDevice) {
-          vmDevice = deduplicatedDevices.find(d =>
-            d.label.toLowerCase().includes('voicemeeter') &&
-            d.label.toLowerCase().includes('vaio')
-          )
-        }
-
         if (vmDevice) {
-          console.log('Auto-selecting VoiceMeeter device:', vmDevice.label)
+          console.log('Auto-selecting CABLE Input device:', vmDevice.label)
           setSelectedDevice(vmDevice.deviceId)
           localStorage.setItem('audio-output-device', vmDevice.deviceId)
         } else {
-          console.warn('No VoiceMeeter device found. Available devices:', deduplicatedDevices.map(d => d.label))
+          console.warn('No CABLE Input device found. Available devices:', deduplicatedDevices.map(d => d.label))
         }
       }
 

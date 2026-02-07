@@ -1,35 +1,35 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
 import { Howl, Howler } from 'howler'
 import logger from '../utils/logger'
-import { useAudioOutputDevice } from './useAudioOutputDevice'
 
 // Audio engine for loading and playing sounds with Electron file system support
+// Supports dual-mode: WDM (Howler.js in renderer) and ASIO (via main process)
 
-// Track blob URLs for cleanup
+export type AudioMode = 'wdm' | 'asio'
+
+// Track blob URLs for cleanup (WDM mode only)
 const blobUrlRegistry = new Map<string, string>()
 
-interface AudioFile {
-  id: string
-  path: string
-  name: string
-  howl: Howl | null
-}
+// Track ASIO-loaded files so we know what's loaded in main process
+const asioLoadedFiles = new Set<string>()
 
-export function useAudioEngine() {
+export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   const [loadedSounds, setLoadedSounds] = useState<Map<string, Howl>>(new Map())
   const [isPlaying, setIsPlaying] = useState<Map<string, boolean>>(new Map())
   const [isLoading, setIsLoading] = useState<Map<string, boolean>>(new Map())
   const [loadErrors, setLoadErrors] = useState<Map<string, string>>(new Map())
-  const audioContextRef = useRef<AudioContext | null>(null)
-
-  // Use audio output device hook
-  const { selectedDevice, applyToAudioElement, audioDevices, selectDevice } = useAudioOutputDevice()
+  const [asioReady, setAsioReady] = useState(false)
 
   // Refs to avoid stale closures in callbacks
   const loadedSoundsRef = useRef<Map<string, Howl>>(new Map())
   const loadingRef = useRef<Map<string, boolean>>(new Map())
-  const selectedDeviceRef = useRef<string>(selectedDevice)
-  
+  const audioModeRef = useRef<AudioMode>(audioMode)
+
+  // Keep audioMode ref in sync
+  useEffect(() => {
+    audioModeRef.current = audioMode
+  }, [audioMode])
+
   // Update refs when state changes
   useEffect(() => {
     loadedSoundsRef.current = loadedSounds
@@ -39,41 +39,122 @@ export function useAudioEngine() {
     loadingRef.current = isLoading
   }, [isLoading])
 
+  // Initialize/shutdown ASIO engine when mode changes
   useEffect(() => {
-    selectedDeviceRef.current = selectedDevice
-  }, [selectedDevice])
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : null
+    if (!api) return
 
-  useEffect(() => {
-    // Initialize Web Audio API for virtual audio routing
-    if (typeof window !== 'undefined' && !audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-      
-      // Set up Howler to use our audio context
-      Howler.ctx = audioContextRef.current
+    if (audioMode === 'asio') {
+      logger.debug('[AudioEngine] Initializing ASIO mode')
+      api.asioInitialize().then((result: any) => {
+        if (result.success) {
+          logger.debug(`[AudioEngine] ASIO initialized: ${result.device} @ ${result.sampleRate}Hz`)
+          setAsioReady(true)
+        } else {
+          logger.error(`[AudioEngine] ASIO init failed: ${result.error}`)
+          setAsioReady(false)
+          setLoadErrors(prev => new Map(prev).set('__asio__', result.error))
+        }
+      }).catch((err: any) => {
+        logger.error('[AudioEngine] ASIO init exception:', err)
+        setAsioReady(false)
+      })
+    } else {
+      // Switching away from ASIO - shut it down
+      if (asioReady) {
+        logger.debug('[AudioEngine] Shutting down ASIO mode')
+        api.asioShutdown().catch((err: any) => {
+          logger.error('[AudioEngine] ASIO shutdown error:', err)
+        })
+        asioLoadedFiles.clear()
+        setAsioReady(false)
+      }
     }
 
     return () => {
-      // Cleanup all sounds
+      // Cleanup ASIO on unmount if active
+      if (audioModeRef.current === 'asio' && api?.asioShutdown) {
+        api.asioShutdown().catch(() => {})
+        asioLoadedFiles.clear()
+      }
+    }
+  }, [audioMode])
+
+  // WDM cleanup on unmount
+  useEffect(() => {
+    return () => {
       loadedSounds.forEach(sound => sound.unload())
-      // Cleanup blob URLs
       blobUrlRegistry.forEach(url => URL.revokeObjectURL(url))
       blobUrlRegistry.clear()
     }
   }, [])
 
   const loadSound = useCallback(async (filePath: string, forceReload: boolean = false): Promise<void> => {
-    // Check if already loaded using refs to avoid stale closure
+    const mode = audioModeRef.current
+
+    // --- ASIO path ---
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (!api?.asioLoadSound) return
+
+      if (!forceReload && asioLoadedFiles.has(filePath)) {
+        return
+      }
+
+      setIsLoading(prev => {
+        const newMap = new Map(prev).set(filePath, true)
+        loadingRef.current = newMap
+        return newMap
+      })
+      setLoadErrors(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        return newMap
+      })
+
+      try {
+        if (forceReload) {
+          await api.asioUnloadSound(filePath)
+          asioLoadedFiles.delete(filePath)
+        }
+
+        const result = await api.asioLoadSound(filePath)
+        if (result.success) {
+          asioLoadedFiles.add(filePath)
+          // Track in loadedSounds keys for UI (using null placeholder since no Howl in ASIO mode)
+          setLoadedSounds(prev => {
+            const newMap = new Map(prev).set(filePath, null as any)
+            loadedSoundsRef.current = newMap
+            return newMap
+          })
+        } else {
+          throw new Error(result.error || 'ASIO load failed')
+        }
+      } catch (error: any) {
+        logger.error(`[ASIO] Failed to load ${filePath}:`, error)
+        setLoadErrors(prev => new Map(prev).set(filePath, String(error.message || error)))
+        throw error
+      } finally {
+        setIsLoading(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(filePath)
+          loadingRef.current = newMap
+          return newMap
+        })
+      }
+      return
+    }
+
+    // --- WDM path (unchanged) ---
     const sounds = loadedSoundsRef.current
     const loading = loadingRef.current
 
-    // If force reload, unload the existing sound first
     if (forceReload && sounds.has(filePath)) {
       const existingSound = sounds.get(filePath)
       if (existingSound) {
         logger.debug(`Force reloading sound: ${filePath}`)
         existingSound.unload()
 
-        // Clean up blob URL if exists
         const blobUrl = blobUrlRegistry.get(filePath)
         if (blobUrl) {
           URL.revokeObjectURL(blobUrl)
@@ -89,7 +170,6 @@ export function useAudioEngine() {
         })
       }
     } else if (sounds.has(filePath)) {
-      // Already loaded and not force reloading
       logger.debug(`Sound already loaded: ${filePath}`)
       return
     }
@@ -111,14 +191,11 @@ export function useAudioEngine() {
     })
 
     try {
-      // Handle different path formats
       let audioUrl = filePath
 
-      // Handle blob URLs (keep as-is)
       if (filePath.startsWith('blob:')) {
         audioUrl = filePath
       }
-      // In Electron, read local files as blobs to avoid security restrictions
       else if (typeof window !== 'undefined' && (window as any).electronAPI?.readAudioFile) {
         const isLocalFile = /^[A-Z]:[\\\/]/.test(filePath) || filePath.startsWith('\\\\') || filePath.includes('\\')
 
@@ -132,11 +209,8 @@ export function useAudioEngine() {
               throw new Error(result.error)
             }
 
-            // Convert buffer to Blob
             const blob = new Blob([result.buffer], { type: result.mimeType })
             audioUrl = URL.createObjectURL(blob)
-
-            // Store blob URL for cleanup
             blobUrlRegistry.set(filePath, audioUrl)
 
             logger.debug('Created blob URL from local file:', audioUrl)
@@ -145,42 +219,34 @@ export function useAudioEngine() {
             throw err
           }
         } else {
-          // Not a local file, use as-is
           audioUrl = filePath
         }
       }
-      // Fallback: Handle file:// protocol - ensure it's properly formatted
       else if (filePath.startsWith('file://')) {
         audioUrl = filePath
       }
-      // Handle Windows absolute paths (C:\path\to\file.mp3)
       else if (/^[A-Z]:[\\\/]/.test(filePath)) {
-        // Windows absolute path - convert to file URL
         const normalizedPath = filePath.replace(/\\/g, '/')
         audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
       }
-      // Handle UNC paths (\\server\share\file.mp3)
       else if (filePath.startsWith('\\\\')) {
         audioUrl = 'file:' + filePath.replace(/\\/g, '/')
       }
-      // Handle any other Windows-style paths
       else if (filePath.includes('\\')) {
         const normalizedPath = filePath.replace(/\\/g, '/')
         audioUrl = 'file:///' + encodeURI(normalizedPath).replace(/#/g, '%23')
       }
-      // Keep other URLs as-is (http, https, etc)
       else {
         audioUrl = filePath
       }
 
       logger.debug('Loading audio from:', audioUrl)
 
-      // Create Howl and return a Promise for the load operation
       return new Promise((resolve, reject) => {
-        
+
         const sound = new Howl({
           src: [audioUrl],
-          html5: true, // Use HTML5 Audio for better compatibility
+          html5: true,
           preload: true,
           volume: 1.0,
           format: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'aac', 'opus', 'weba'],
@@ -236,12 +302,42 @@ export function useAudioEngine() {
     loop?: boolean
     restart?: boolean
   }) => {
-    // Use ref to get current sound state
+    const mode = audioModeRef.current
+
+    // --- ASIO path ---
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (!api?.asioPlaySound) return
+
+      if (!asioLoadedFiles.has(filePath)) {
+        // Load then play
+        loadSound(filePath).then(() => {
+          api.asioPlaySound(filePath, {
+            volume: options?.volume ?? 1.0,
+            loop: options?.loop ?? false,
+            restart: options?.restart ?? false
+          })
+          setIsPlaying(prev => new Map(prev).set(filePath, true))
+        }).catch(err => {
+          logger.error(`[ASIO] Failed to load and play: ${filePath}`, err)
+        })
+        return
+      }
+
+      api.asioPlaySound(filePath, {
+        volume: options?.volume ?? 1.0,
+        loop: options?.loop ?? false,
+        restart: options?.restart ?? false
+      })
+      setIsPlaying(prev => new Map(prev).set(filePath, true))
+      return
+    }
+
+    // --- WDM path (unchanged) ---
     const sound = loadedSoundsRef.current.get(filePath)
-    
+
     if (!sound) {
       logger.debug(`Sound not loaded, loading: ${filePath}`)
-      // Try to load and play
       loadSound(filePath).then(() => {
         const newSound = loadedSoundsRef.current.get(filePath)
         if (newSound) {
@@ -258,7 +354,6 @@ export function useAudioEngine() {
   }, [loadSound])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
-    // If restart is true or sound is not playing, stop and restart
     if (options?.restart || !isPlaying.get(filePath)) {
       sound.stop()
     }
@@ -271,38 +366,62 @@ export function useAudioEngine() {
       sound.loop(options.loop)
     }
 
-    const soundId = sound.play()
+    sound.play()
     setIsPlaying(prev => new Map(prev).set(filePath, true))
-
-    // Apply audio output device routing to HTML5 audio element
-    if (selectedDeviceRef.current && soundId !== undefined) {
-      // Get the underlying HTML audio element from Howler
-      // @ts-ignore - Howler internal API
-      const audioNode = sound._sounds?.[0]?._node
-
-      if (audioNode && audioNode.setSinkId) {
-        applyToAudioElement(audioNode).catch(err => {
-          logger.error('Failed to set audio output device:', err)
-        })
-      }
-    }
   }
 
   const stopSound = useCallback((filePath: string) => {
+    const mode = audioModeRef.current
+
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (api?.asioStopSound) {
+        api.asioStopSound(filePath)
+      }
+      setIsPlaying(prev => new Map(prev).set(filePath, false))
+      return
+    }
+
     const sound = loadedSoundsRef.current.get(filePath)
     if (sound) {
       sound.stop()
       setIsPlaying(prev => new Map(prev).set(filePath, false))
     }
   }, [])
-  
+
   const unloadSound = useCallback((filePath: string) => {
+    const mode = audioModeRef.current
+
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (api?.asioUnloadSound) {
+        api.asioUnloadSound(filePath)
+      }
+      asioLoadedFiles.delete(filePath)
+      setLoadedSounds(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        loadedSoundsRef.current = newMap
+        return newMap
+      })
+      setIsPlaying(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        return newMap
+      })
+      setLoadErrors(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(filePath)
+        return newMap
+      })
+      return
+    }
+
     const sound = loadedSoundsRef.current.get(filePath)
     if (sound) {
       logger.debug(`Unloading sound: ${filePath}`)
       sound.unload()
 
-      // Clean up blob URL if exists
       const blobUrl = blobUrlRegistry.get(filePath)
       if (blobUrl) {
         URL.revokeObjectURL(blobUrl)
@@ -310,7 +429,6 @@ export function useAudioEngine() {
         logger.debug(`Revoked blob URL for: ${filePath}`)
       }
 
-      // Remove from loaded sounds
       setLoadedSounds(prev => {
         const newMap = new Map(prev)
         newMap.delete(filePath)
@@ -318,7 +436,6 @@ export function useAudioEngine() {
         return newMap
       })
 
-      // Clean up states
       setIsPlaying(prev => {
         const newMap = new Map(prev)
         newMap.delete(filePath)
@@ -334,11 +451,32 @@ export function useAudioEngine() {
   }, [])
 
   const stopAll = useCallback(() => {
+    const mode = audioModeRef.current
+
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (api?.asioStopAll) {
+        api.asioStopAll()
+      }
+      setIsPlaying(new Map())
+      return
+    }
+
     Howler.stop()
     setIsPlaying(new Map())
   }, [])
 
   const setVolume = useCallback((filePath: string, volume: number) => {
+    const mode = audioModeRef.current
+
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (api?.asioSetVolume) {
+        api.asioSetVolume(filePath, Math.max(0, Math.min(1, volume)))
+      }
+      return
+    }
+
     const sound = loadedSounds.get(filePath)
     if (sound) {
       sound.volume(Math.max(0, Math.min(1, volume)))
@@ -346,6 +484,16 @@ export function useAudioEngine() {
   }, [loadedSounds])
 
   const setMasterVolume = useCallback((volume: number) => {
+    const mode = audioModeRef.current
+
+    if (mode === 'asio') {
+      const api = (window as any).electronAPI
+      if (api?.asioSetMasterVolume) {
+        api.asioSetMasterVolume(Math.max(0, Math.min(1, volume)))
+      }
+      return
+    }
+
     Howler.volume(Math.max(0, Math.min(1, volume)))
   }, [])
 
@@ -361,9 +509,6 @@ export function useAudioEngine() {
     isLoading,
     loadErrors,
     loadedSounds: Array.from(loadedSounds.keys()),
-    // Audio device selection
-    audioDevices,
-    selectedAudioDevice: selectedDevice,
-    selectAudioDevice: selectDevice
+    asioReady,
   }
 }

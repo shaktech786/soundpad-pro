@@ -24,12 +24,13 @@ module.exports = {
     smartUnpack: true
   },
   asarUnpack: [
-    "node_modules/howler/**/*"
+    "node_modules/howler/**/*",
+    "node_modules/naudiodon/**/*"
   ],
   compression: "maximum",
-  npmRebuild: false,
+  npmRebuild: true,
   nodeGypRebuild: false,
-  buildDependenciesFromSource: false,
+  buildDependenciesFromSource: true,
   removePackageScripts: true,
 
   win: {

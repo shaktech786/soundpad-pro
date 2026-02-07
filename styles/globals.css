@@ -6,6 +6,28 @@
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 17, 24, 39;
   --background-end-rgb: 31, 41, 55;
+  --card-bg: 17, 24, 39;
+  --card-border: 55, 65, 81;
+  --text-primary: 255, 255, 255;
+  --text-secondary: 156, 163, 175;
+  --text-muted: 107, 114, 128;
+  --scrollbar-track: 31, 41, 55;
+  --scrollbar-thumb: 75, 85, 99;
+  --scrollbar-thumb-hover: 107, 114, 128;
+}
+
+.light {
+  --foreground-rgb: 17, 24, 39;
+  --background-start-rgb: 243, 244, 246;
+  --background-end-rgb: 229, 231, 235;
+  --card-bg: 255, 255, 255;
+  --card-border: 209, 213, 219;
+  --text-primary: 17, 24, 39;
+  --text-secondary: 75, 85, 99;
+  --text-muted: 107, 114, 128;
+  --scrollbar-track: 229, 231, 235;
+  --scrollbar-thumb: 156, 163, 175;
+  --scrollbar-thumb-hover: 107, 114, 128;
 }
 
 * {
@@ -44,16 +66,16 @@ a {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1f2937;
+  background: rgb(var(--scrollbar-track));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4b5563;
+  background: rgb(var(--scrollbar-thumb));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: rgb(var(--scrollbar-thumb-hover));
 }
 
 /* Custom scrollbar for mapping list */
@@ -62,7 +84,7 @@ a {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(31, 41, 55, 0.5);
+  background: rgba(var(--scrollbar-track), 0.5);
   border-radius: 3px;
 }
 

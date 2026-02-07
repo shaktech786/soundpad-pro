@@ -3,7 +3,7 @@ import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { Haute42Layout } from '../components/Haute42Layout'
-import { useAudioEngine } from '../hooks/useAudioEngine'
+import { useAudioEngine, AudioMode } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
 import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
@@ -16,11 +16,15 @@ import { BoardBuilder } from '../components/BoardBuilder'
 import { useProfileManager } from '../hooks/useProfileManager'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { APP_CONFIG, HAUTE42_LAYOUT } from '../config/constants'
+import { ThemeToggle } from '../components/ThemeToggle'
+import { useTheme } from '../contexts/ThemeContext'
 
 export default function Home() {
   const router = useRouter()
+  const { theme } = useTheme()
   const { buttonStates, connected } = useSimpleGamepad()
-  const { playSound, stopAll, loadSound, audioDevices, selectedAudioDevice, selectAudioDevice } = useAudioEngine()
+  const [audioMode, setAudioMode] = usePersistentStorage<AudioMode>('audio-output-mode', 'wdm')
+  const { playSound, stopAll, loadSound, asioReady, loadErrors } = useAudioEngine(audioMode)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
   const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
@@ -181,6 +185,28 @@ export default function Home() {
 
     autoLoadSounds()
   }, [soundMappings.size, soundMappingsLoading, autoLoadComplete, setSoundMappings, loadSound])
+
+  // Reload all sounds when audio mode changes
+  const prevAudioMode = useRef(audioMode)
+  useEffect(() => {
+    if (prevAudioMode.current === audioMode) return
+    prevAudioMode.current = audioMode
+
+    // Re-load all mapped sounds in the new engine
+    const reloadSounds = async () => {
+      for (const [_, filepath] of soundMappings) {
+        try {
+          await loadSound(filepath, true)
+        } catch (err) {
+          console.error('Failed to reload on mode switch:', filepath, err)
+        }
+      }
+    }
+
+    // Small delay to let the engine initialize
+    const timer = setTimeout(reloadSounds, 500)
+    return () => clearTimeout(timer)
+  }, [audioMode, soundMappings, loadSound])
 
   // Register/unregister global hotkeys
   useEffect(() => {
@@ -534,11 +560,11 @@ export default function Home() {
         <title>SoundPad Pro - Haute42</title>
       </Head>
 
-      <div className="min-h-screen bg-gray-950 py-8">
+      <div className={`min-h-screen py-8 transition-colors duration-200 ${theme === 'light' ? 'bg-gray-100' : 'bg-gray-950'}`}>
         <div className="max-w-6xl mx-auto px-4">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-white mb-4">SoundPad Pro</h1>
+            <h1 className={`text-4xl font-bold mb-4 ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>SoundPad Pro</h1>
             <div className="flex items-center justify-center gap-4">
               {profiles.length > 0 && (
                 <ProfileSelector
@@ -556,7 +582,7 @@ export default function Home() {
                   {connected ? 'Controller Connected' : 'No Controller'}
                 </span>
               </div>
-              <div className="text-gray-400 text-sm">
+              <div className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
                 {soundMappings.size} sounds loaded
               </div>
             </div>
@@ -621,7 +647,7 @@ export default function Home() {
                     setAutoLoadComplete(false)
                   }
                 }}
-                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
+                className={`px-6 py-3 font-bold rounded-lg transition-colors ${theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
               >
                 RELOAD SOUNDS
               </button>
@@ -652,7 +678,7 @@ export default function Home() {
                 className={`px-6 py-3 font-bold rounded-lg transition-colors flex items-center gap-2 ${
                   obsConnected
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white'
-                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                    : theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'
                 }`}
               >
                 <span className="text-xl">🎬</span>
@@ -663,7 +689,7 @@ export default function Home() {
                 className={`px-6 py-3 font-bold rounded-lg transition-colors flex items-center gap-2 ${
                   liveSplitConnected
                     ? 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white'
-                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                    : theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'
                 }`}
               >
                 <span className="text-xl">🏁</span>
@@ -685,14 +711,14 @@ export default function Home() {
               </button>
               {stopButton !== null && (
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-sm">
-                    Stop Button: <span className="text-white font-bold">
+                  <span className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
+                    Stop Button: <span className={`font-bold ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
                       {stopButton < 100 ? `Button ${stopButton}` : `Axis ${Math.floor((stopButton - 100) / 2)}${(stopButton - 100) % 2 === 0 ? '+' : '-'}`}
                     </span>
                   </span>
                   <button
                     onClick={() => setStopButton(null)}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+                    className={`px-3 py-1 text-xs rounded transition-colors ${theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
                   >
                     Clear
                   </button>
@@ -728,17 +754,17 @@ export default function Home() {
                     setLinkingStep(null)
                     setPendingPrimaryButton(null)
                   }}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors"
+                  className={`px-4 py-2 text-sm rounded transition-colors ${theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
                 >
                   Cancel
                 </button>
               )}
               {linkedButtons.size > 0 && !configuringLinkedButtons && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-gray-400 text-sm">Linked:</span>
+                  <span className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>Linked:</span>
                   {Array.from(linkedButtons.entries()).map(([secondary, primary]) => (
-                    <div key={secondary} className="flex items-center gap-1 px-2 py-1 bg-gray-800 rounded text-xs">
-                      <span className="text-white">{secondary}</span>
+                    <div key={secondary} className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${theme === 'light' ? 'bg-gray-200' : 'bg-gray-800'}`}>
+                      <span className={theme === 'light' ? 'text-gray-900' : 'text-white'}>{secondary}</span>
                       <span className="text-gray-500">→</span>
                       <span className="text-indigo-400">{primary}</span>
                       <button
@@ -757,7 +783,7 @@ export default function Home() {
                   ))}
                   <button
                     onClick={() => setLinkedButtons(new Map())}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+                    className={`px-3 py-1 text-xs rounded transition-colors ${theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
                   >
                     Clear All
                   </button>
@@ -767,8 +793,8 @@ export default function Home() {
 
             {/* Global Hotkeys Toggle */}
             <div className="flex justify-center items-center gap-4">
-              <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 rounded-lg">
-                <span className="text-white font-bold">⌨️ Global Hotkeys (Numpad):</span>
+              <div className={`flex items-center gap-3 px-6 py-3 rounded-lg ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-gray-900'}`}>
+                <span className={`font-bold ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>⌨️ Global Hotkeys (Numpad):</span>
                 <button
                   onClick={() => {
                     const newValue = !globalHotkeysEnabled
@@ -777,44 +803,53 @@ export default function Home() {
                   }}
                   className={`px-4 py-2 font-bold rounded transition-colors ${
                     globalHotkeysEnabled
-                      ? 'bg-green-600 hover:bg-green-700'
-                      : 'bg-gray-700 hover:bg-gray-600'
-                  } text-white`}
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : theme === 'light' ? 'bg-gray-300 hover:bg-gray-400 text-gray-800' : 'bg-gray-700 hover:bg-gray-600 text-white'
+                  }`}
                 >
                   {globalHotkeysEnabled ? 'ON' : 'OFF'}
                 </button>
                 {globalHotkeysEnabled && (
-                  <span className="text-gray-400 text-xs">
+                  <span className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
                     Ctrl+Num0-9 for pads | Ctrl+Esc to stop
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Audio Output Device Selector */}
+            {/* Audio Output Mode Toggle */}
             <div className="flex justify-center items-center gap-4">
-              <div className="flex items-center gap-3 px-6 py-3 bg-gray-900 rounded-lg">
-                <span className="text-white font-bold">🔊 Audio Output:</span>
-                <select
-                  value={selectedAudioDevice}
-                  onChange={(e) => selectAudioDevice(e.target.value)}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded transition-colors cursor-pointer"
+              <div className={`flex items-center gap-3 px-6 py-3 rounded-lg ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-gray-900'}`}>
+                <span className={`font-bold ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>Audio Output:</span>
+                <button
+                  onClick={() => setAudioMode('wdm')}
+                  className={`px-4 py-2 rounded font-bold text-sm transition-colors ${
+                    audioMode === 'wdm'
+                      ? 'bg-blue-600 text-white'
+                      : theme === 'light' ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                  }`}
                 >
-                  <option value="">Default Device</option>
-                  {audioDevices.map(device => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label}
-                    </option>
-                  ))}
-                </select>
-                {selectedAudioDevice && audioDevices.find(d => d.deviceId === selectedAudioDevice)?.label.toLowerCase().includes('voicemeeter') && (
-                  <span className="text-green-400 text-xs font-medium">
-                    ✓ Routing to VoiceMeeter
-                  </span>
-                )}
-                {selectedAudioDevice && audioDevices.find(d => d.deviceId === selectedAudioDevice)?.label.toLowerCase().includes('cable') && (
-                  <span className="text-blue-400 text-xs font-medium">
-                    ✓ Routing to VB-Cable
+                  <div>WDM (Default)</div>
+                  <div className={`text-xs font-normal ${audioMode === 'wdm' ? 'text-blue-200' : theme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
+                    Route via Windows Volume Mixer
+                  </div>
+                </button>
+                <button
+                  onClick={() => setAudioMode('asio')}
+                  className={`px-4 py-2 rounded font-bold text-sm transition-colors ${
+                    audioMode === 'asio'
+                      ? asioReady ? 'bg-green-600 text-white' : 'bg-yellow-600 text-white'
+                      : theme === 'light' ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                  }`}
+                >
+                  <div>Direct (VoiceMeeter)</div>
+                  <div className={`text-xs font-normal ${audioMode === 'asio' ? (asioReady ? 'text-green-200' : 'text-yellow-200') : theme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
+                    {audioMode === 'asio' && !asioReady ? 'Connecting...' : 'Direct to VoiceMeeter AUX Strip'}
+                  </div>
+                </button>
+                {audioMode === 'asio' && loadErrors.get('__asio__') && (
+                  <span className="text-xs text-red-400">
+                    {loadErrors.get('__asio__')}
                   </span>
                 )}
               </div>
@@ -822,27 +857,32 @@ export default function Home() {
           </div>
 
           {/* Instructions */}
-          <div className="mt-6 p-4 bg-gray-900 rounded-lg">
-            <div className="text-white text-sm">
+          <div className={`mt-6 p-4 rounded-lg ${theme === 'light' ? 'bg-white border border-gray-200' : 'bg-gray-900'}`}>
+            <div className={`text-sm ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
               <div className="font-bold mb-2">Quick Guide:</div>
-              <ul className="list-disc list-inside text-gray-400 space-y-1">
+              <ul className={`list-disc list-inside space-y-1 ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
                 <li>Press buttons on your Haute42 to trigger sounds</li>
-                <li>Click <span className="text-gray-300">empty pads</span> to assign custom sounds</li>
-                <li>Click <span className="text-blue-400">mapped pads</span> to preview sounds</li>
-                <li><span className="text-yellow-400">Right-click or Ctrl+Click</span> any pad to change/assign audio file</li>
+                <li>Click <span className={theme === 'light' ? 'text-gray-800' : 'text-gray-300'}>empty pads</span> to assign custom sounds</li>
+                <li>Click <span className="text-blue-500">mapped pads</span> to preview sounds</li>
+                <li><span className="text-yellow-500">Right-click or Ctrl+Click</span> any pad to change/assign audio file</li>
                 {obsConnected && (
                   <>
-                    <li><span className="text-purple-400">Right-click</span> any pad to assign OBS actions</li>
-                    <li><span className="text-purple-400">Alt+Click</span> any pad to assign OBS actions</li>
-                    <li>Pads with <span className="text-purple-400">🎬 badge</span> have OBS actions assigned</li>
+                    <li><span className="text-purple-500">Right-click</span> any pad to assign OBS actions</li>
+                    <li><span className="text-purple-500">Alt+Click</span> any pad to assign OBS actions</li>
+                    <li>Pads with <span className="text-purple-500">🎬 badge</span> have OBS actions assigned</li>
                   </>
                 )}
                 <li>Assign a controller button to stop all sounds instantly</li>
                 <li>Enable global hotkeys to use numpad keys when app is not in focus</li>
                 <li>Use "Remap Buttons" if your controller layout doesn't match</li>
-                <li>Use <span className="text-indigo-400">"Link Dual-Press Buttons"</span> if one physical button triggers two - link the ghost to the real one</li>
+                <li>Use <span className="text-indigo-500">"Link Dual-Press Buttons"</span> if one physical button triggers two - link the ghost to the real one</li>
               </ul>
             </div>
+          </div>
+
+          {/* Theme Toggle */}
+          <div className="mt-6 flex justify-center">
+            <ThemeToggle />
           </div>
         </div>
       </div>

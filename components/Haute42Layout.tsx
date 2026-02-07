@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { HAUTE42_LAYOUT } from '../config/constants'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
@@ -35,6 +36,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonShape = 'circle',
 }) => {
   const layout = boardLayout && boardLayout.length > 0 ? boardLayout : HAUTE42_LAYOUT
+  const { theme } = useTheme()
 
   // Compute dynamic container dimensions and scale
   const { containerWidth, containerHeight, scale } = useMemo(() => {
@@ -141,7 +143,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
               ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:scale-105 shadow-lg shadow-red-500/30'
               : hasSound
                 ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
-                : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
+                : theme === 'light'
+                  ? 'bg-gray-200 border-gray-300 hover:bg-gray-300 hover:scale-105'
+                  : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
           }
         `}
         aria-label={buttonLabel}
@@ -150,7 +154,9 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
         tabIndex={0}
       >
         {hasOBSAction && (
-          <div className={`absolute -top-1 -right-1 w-6 h-6 rounded-full border-2 border-gray-900 flex items-center justify-center ${
+          <div className={`absolute -top-1 -right-1 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+            theme === 'light' ? 'border-white' : 'border-gray-900'
+          } ${
             obsAction?.service === 'livesplit'
               ? 'bg-gradient-to-br from-green-500 to-blue-500'
               : 'bg-gradient-to-br from-purple-500 to-pink-500'
@@ -168,15 +174,15 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
             {extractFilename(soundFile)}
           </div>
         ) : (
-          <div className="text-gray-500 text-lg">+</div>
+          <div className={`text-lg ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>+</div>
         )}
       </button>
     )
   }
 
   return (
-    <div className="p-8 bg-gray-900 rounded-xl">
-      <h2 className="text-2xl font-bold text-white mb-6 text-center">Controller</h2>
+    <div className={`p-8 rounded-xl transition-colors duration-200 ${theme === 'light' ? 'bg-white border border-gray-200 shadow-lg' : 'bg-gray-900'}`}>
+      <h2 className={`text-2xl font-bold mb-6 text-center ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>Controller</h2>
 
       <div className="relative mx-auto" style={{ width: `${containerWidth}px`, height: `${containerHeight}px` }}>
         {layout.map(btn => (
