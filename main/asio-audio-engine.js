@@ -5,7 +5,7 @@ const path = require('path');
  * Direct Audio Engine for SoundPad Pro
  *
  * Routes audio directly to VoiceMeeter AUX Input via ASIO using audify (RtAudio).
- * Uses audio-decode for file decoding.
+ * WAV files decoded in main process; MP3/OGG/FLAC decoded in renderer via Web Audio API.
  *
  * Audio path: SoundPad Pro → RtAudio ASIO → VoiceMeeter AUX Virtual ASIO → Strip[4] → A1 + B1
  */
@@ -447,20 +447,11 @@ class AsioAudioEngine {
 
   async _ensureAudioDecode() {
     if (!this._audioDecode) {
-      // Use built-in WAV decoder first; fall back to audio-decode for other formats
+      // WAV-only decoder in main process; MP3/OGG/FLAC decoded in renderer via Web Audio API
       this._audioDecode = async (buffer) => {
-        // Try WAV first (most common for soundboards)
         const wavResult = this._decodeWav(buffer);
         if (wavResult) return wavResult;
-
-        // Fallback to audio-decode for MP3/OGG/etc
-        try {
-          const mod = await import('audio-decode');
-          const decode = mod.default || mod;
-          return await decode(buffer);
-        } catch (err) {
-          throw new Error(`Unsupported audio format (WAV decode failed, audio-decode unavailable: ${err.message})`);
-        }
+        throw new Error('Non-WAV formats must be decoded in the renderer via asioCachePcm');
       };
     }
   }

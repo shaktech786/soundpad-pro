@@ -14,7 +14,7 @@
     "shortcut": "powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1",
     "start": "electron simple-main.js",
     "type-check": "tsc --noEmit",
-    "postinstall": "electron-rebuild -f -w naudiodon"
+    "postinstall": "electron-rebuild -f -w audify"
   },
   "keywords": [
     "soundboard",
@@ -26,11 +26,9 @@
   "license": "MIT",
   "dependencies": {
     "audify": "^1.10.1",
-    "audio-decode": "^2.2.3",
     "electron-is-dev": "^2.0.0",
     "electron-store": "^8.2.0",
     "howler": "^2.2.4",
-    "naudiodon": "^2.3.6",
     "next": "^14.0.0",
     "node-hid": "^3.2.0",
     "obs-websocket-js": "^5.0.6",

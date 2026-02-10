@@ -25,7 +25,6 @@ module.exports = {
   },
   asarUnpack: [
     "node_modules/howler/**/*",
-    "node_modules/naudiodon/**/*",
     "node_modules/audify/**/*"
   ],
   compression: "maximum",

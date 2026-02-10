@@ -100,7 +100,8 @@ export default function Home() {
   const { theme, toggleTheme } = useTheme()
   const { buttonStates, connected } = useSimpleGamepad()
   const [audioMode, setAudioMode] = usePersistentStorage<AudioMode>('audio-output-mode', 'wdm')
-  const { playSound, stopAll, loadSound, asioReady, loadErrors } = useAudioEngine(audioMode)
+  const { playSound, stopAll, loadSound, setMasterVolume, asioReady, loadErrors } = useAudioEngine(audioMode)
+  const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
   const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
@@ -189,6 +190,13 @@ export default function Home() {
       }
     }
   }, [buttonMappingLoading, buttonMapping.size, boardLayoutLoading, boardLayout.length])
+
+  // Apply master volume on mount and mode changes (quadratic curve)
+  useEffect(() => {
+    if (masterVolumeLoading) return
+    const linear = masterVolume / 100
+    setMasterVolume(linear * linear)
+  }, [masterVolume, masterVolumeLoading, audioMode, asioReady, setMasterVolume])
 
   // Load global hotkeys setting from localStorage
   useEffect(() => {
@@ -786,6 +794,39 @@ export default function Home() {
                       </div>
                     </button>
                   </div>
+                  {/* Master Volume */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className={`text-xs font-medium ${theme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
+                        Master Volume
+                      </label>
+                      <span className={`text-xs tabular-nums ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {masterVolume}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={masterVolume}
+                      onChange={(e) => {
+                        const val = Number(e.target.value)
+                        setMasterVolumeState(val)
+                        // Quadratic curve: 50% slider ≈ -12dB, perceptually "half volume"
+                        const linear = val / 100
+                        setMasterVolume(linear * linear)
+                      }}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500"
+                      style={{
+                        background: `linear-gradient(to right, ${
+                          theme === 'light' ? '#3b82f6' : '#3b82f6'
+                        } ${masterVolume}%, ${
+                          theme === 'light' ? '#e5e7eb' : '#374151'
+                        } ${masterVolume}%)`
+                      }}
+                    />
+                  </div>
+
                   {audioMode === 'asio' && asioReady && (
                     <button
                       onClick={() => {
