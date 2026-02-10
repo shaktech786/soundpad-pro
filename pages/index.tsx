@@ -577,6 +577,11 @@ export default function Home() {
             newMap.set(index, result.filePath)
             return newMap
           })
+          setCombinedActions(prev => {
+            const newMap = new Map(prev)
+            newMap.delete(index)
+            return newMap
+          })
         }
       } catch (error) {
         console.error('Error selecting file:', error)
@@ -595,6 +600,11 @@ export default function Home() {
       setSoundMappings(prev => {
         const newMap = new Map(prev)
         newMap.set(assigningUrlSound, url)
+        return newMap
+      })
+      setCombinedActions(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(assigningUrlSound)
         return newMap
       })
       setAssigningUrlSound(null)
