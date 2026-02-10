@@ -622,6 +622,9 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <h1 className={`text-lg font-bold ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
               SoundPad Pro
+              <span className={`ml-2 text-xs font-normal ${theme === 'light' ? 'text-gray-400' : 'text-gray-600'}`}>
+                v{process.env.APP_VERSION}
+              </span>
             </h1>
             {profiles.length > 0 && (
               <ProfileSelector

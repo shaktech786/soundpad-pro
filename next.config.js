@@ -2,8 +2,13 @@
 const isDev = process.env.NODE_ENV === 'development';
 const isElectron = process.env.ELECTRON === 'true';
 
+const pkg = require('./package.json');
+
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    APP_VERSION: pkg.version,
+  },
   swcMinify: true,
   // Important for Electron
   ...(isDev ? {} : { output: 'export' }),
