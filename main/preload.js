@@ -50,13 +50,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   asioGetDevices: () => ipcRenderer.invoke('asio:get-devices'),
   asioInitialize: (deviceId) => ipcRenderer.invoke('asio:initialize', deviceId),
   asioShutdown: () => ipcRenderer.invoke('asio:shutdown'),
+  asioStatus: () => ipcRenderer.invoke('asio:status'),
   asioLoadSound: (filePath) => ipcRenderer.invoke('asio:load-sound', filePath),
+  asioCachePcm: (filePath, pcmData) => ipcRenderer.invoke('asio:cache-pcm', filePath, pcmData),
   asioUnloadSound: (filePath) => ipcRenderer.invoke('asio:unload-sound', filePath),
   asioPlaySound: (filePath, options) => ipcRenderer.invoke('asio:play-sound', filePath, options),
   asioStopSound: (filePath) => ipcRenderer.invoke('asio:stop-sound', filePath),
   asioStopAll: () => ipcRenderer.invoke('asio:stop-all'),
   asioSetVolume: (filePath, volume) => ipcRenderer.invoke('asio:set-volume', filePath, volume),
   asioSetMasterVolume: (volume) => ipcRenderer.invoke('asio:set-master-volume', volume),
+  asioTestTone: () => ipcRenderer.invoke('asio:test-tone'),
+  asioDiag: () => ipcRenderer.invoke('asio:diag'),
 
   // Cleanup listeners
   removeAllListeners: () => {

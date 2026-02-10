@@ -356,14 +356,17 @@ export default function Home() {
     }
   }, [soundMappings, buttonVolumes, playSound, stopAll])
 
-  // Poll for triggers from OBS dock
+  // Poll for triggers from OBS dock (only in dev mode where API routes exist)
   useEffect(() => {
+    // Skip trigger polling in production Electron (no Next.js API server)
+    if (typeof window !== 'undefined' && (window as any).electronAPI && !window.location.href.includes('localhost')) {
+      return
+    }
     console.log('[Trigger] Starting trigger polling...')
     const pollTriggers = async () => {
       try {
         const response = await fetch('/api/trigger')
         if (!response.ok) {
-          console.log('[Trigger] Response not ok:', response.status)
           return
         }
         const data = await response.json()
@@ -779,10 +782,25 @@ export default function Home() {
                           ? asioReady ? 'text-green-200' : 'text-yellow-200'
                           : theme === 'light' ? 'text-gray-400' : 'text-gray-500'
                       }`}>
-                        {audioMode === 'asio' && !asioReady ? 'Connecting...' : 'VoiceMeeter AUX'}
+                        {audioMode === 'asio' && !asioReady ? 'Connecting...' : 'VoiceMeeter ASIO'}
                       </div>
                     </button>
                   </div>
+                  {audioMode === 'asio' && asioReady && (
+                    <button
+                      onClick={() => {
+                        const api = (window as any).electronAPI
+                        if (api?.asioTestTone) {
+                          api.asioTestTone().then((r: any) => {
+                            if (!r.success) console.error('[TestTone]', r.error)
+                          })
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                    >
+                      Test Tone
+                    </button>
+                  )}
                   {audioMode === 'asio' && loadErrors.get('__asio__') && (
                     <p className="text-xs text-red-400">{loadErrors.get('__asio__')}</p>
                   )}

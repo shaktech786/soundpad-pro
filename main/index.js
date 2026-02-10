@@ -30,6 +30,48 @@ let saveWindowBoundsTimeout = null;
 let hidGamepad = null;
 let asioEngine = null;
 
+// Auto-initialize the Direct Audio engine on startup so it's always ready.
+// Also pre-loads any sound mappings from the store so playback is instant.
+async function autoInitDirectAudio() {
+  try {
+    asioEngine = new AsioAudioEngine();
+    const device = asioEngine.findVoiceMeeterAsio();
+    if (device) {
+      const result = asioEngine.initialize();
+      if (result.success) {
+        console.log(`[DirectAudio] Auto-initialized: ${result.device} via ${result.mode} @ ${result.sampleRate}Hz`);
+        // Pre-load sounds from store so they're ready before renderer loads
+        const audioMode = store.get('audio-output-mode');
+        if (audioMode === 'asio') {
+          const mappings = store.get('soundpad-mappings', []);
+          if (Array.isArray(mappings) && mappings.length > 0) {
+            console.log(`[DirectAudio] Pre-loading ${mappings.length} sounds...`);
+            for (const [, filePath] of mappings) {
+              if (typeof filePath === 'string') {
+                try {
+                  await asioEngine.loadSound(filePath);
+                } catch (err) {
+                  console.error(`[DirectAudio] Pre-load failed: ${filePath}:`, err.message);
+                }
+              }
+            }
+            console.log(`[DirectAudio] Pre-loaded ${asioEngine._soundCache.size} sounds`);
+          }
+        }
+      } else {
+        console.error('[DirectAudio] Auto-init failed:', result.error);
+        asioEngine = null;
+      }
+    } else {
+      console.log('[DirectAudio] VoiceMeeter AUX device not found, skipping auto-init');
+      asioEngine = null;
+    }
+  } catch (err) {
+    console.error('[DirectAudio] Auto-init error:', err.message);
+    asioEngine = null;
+  }
+}
+
 function createWindow() {
   // Get saved window bounds or use defaults
   const windowBounds = store.get('windowBounds', { 
@@ -92,6 +134,13 @@ app.whenReady().then(() => {
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(true);
+  });
+
+  // Auto-init direct audio engine before creating window
+  autoInitDirectAudio().then(() => {
+    console.log('[Startup] Direct audio init complete');
+  }).catch(err => {
+    console.error('[Startup] Direct audio init error:', err.message);
   });
 
   createWindow();
@@ -311,10 +360,27 @@ ipcMain.handle('asio:initialize', async (event, deviceId) => {
     if (!asioEngine) {
       asioEngine = new AsioAudioEngine();
     }
-    return asioEngine.initialize(deviceId);
+    const result = asioEngine.initialize(deviceId);
+    console.log('[IPC] asio:initialize result:', JSON.stringify(result));
+    return result;
   } catch (err) {
+    console.error('[IPC] asio:initialize error:', err.message);
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle('asio:status', async () => {
+  if (!asioEngine || !asioEngine.isInitialized()) {
+    return { initialized: false };
+  }
+  return {
+    initialized: true,
+    device: asioEngine._deviceName,
+    sampleRate: asioEngine._sampleRate,
+    channels: asioEngine._channels,
+    cachedSounds: asioEngine._soundCache.size,
+    activeVoices: asioEngine._activeVoices.size
+  };
 });
 
 ipcMain.handle('asio:shutdown', async () => {
@@ -333,10 +399,14 @@ ipcMain.handle('asio:shutdown', async () => {
 ipcMain.handle('asio:load-sound', async (event, filePath) => {
   try {
     if (!asioEngine || !asioEngine.isInitialized()) {
+      console.error('[IPC] asio:load-sound called but engine not initialized');
       return { success: false, error: 'ASIO engine not initialized' };
     }
-    return await asioEngine.loadSound(filePath);
+    const result = await asioEngine.loadSound(filePath);
+    console.log(`[IPC] asio:load-sound ${filePath}: ${result.success ? 'OK' : result.error}`);
+    return result;
   } catch (err) {
+    console.error(`[IPC] asio:load-sound ${filePath} error:`, err.message);
     return { success: false, error: err.message };
   }
 });
@@ -350,13 +420,29 @@ ipcMain.handle('asio:unload-sound', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('asio:cache-pcm', async (event, filePath, pcmData) => {
+  try {
+    if (!asioEngine || !asioEngine.isInitialized()) {
+      return { success: false, error: 'ASIO engine not initialized' };
+    }
+    const result = asioEngine.cachePcm(filePath, pcmData);
+    console.log(`[IPC] asio:cache-pcm ${filePath}: ${result.success ? 'OK' : result.error} (${result.samples || 0} samples)`);
+    return result;
+  } catch (err) {
+    console.error(`[IPC] asio:cache-pcm ${filePath} error:`, err.message);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('asio:play-sound', async (event, filePath, options) => {
   try {
     if (!asioEngine || !asioEngine.isInitialized()) {
       return { success: false, error: 'ASIO engine not initialized' };
     }
-    return asioEngine.playSound(filePath, options);
+    const result = asioEngine.playSound(filePath, options);
+    return result;
   } catch (err) {
+    console.error(`[IPC] asio:play-sound ${filePath} error:`, err.message);
     return { success: false, error: err.message };
   }
 });
@@ -395,4 +481,39 @@ ipcMain.handle('asio:set-master-volume', async (event, volume) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle('asio:test-tone', async () => {
+  try {
+    if (!asioEngine || !asioEngine.isInitialized()) {
+      return { success: false, error: 'Engine not initialized' };
+    }
+    const result = asioEngine.playTestTone();
+    return result;
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('asio:diag', async () => {
+  if (!asioEngine) return { engine: null };
+  return {
+    initialized: asioEngine.isInitialized(),
+    device: asioEngine._deviceName,
+    sampleRate: asioEngine._sampleRate,
+    framesPerBuffer: asioEngine._framesPerBuffer,
+    cachedSounds: Array.from(asioEngine._soundCache.keys()),
+    cachedSoundDetails: Array.from(asioEngine._soundCache.entries()).map(([k, v]) => ({
+      key: k,
+      length: v.length,
+      channels: v.channels,
+      sampleRate: v.sampleRate,
+      maxAmp: Math.max(...Array.from(v.pcm[0].slice(0, 1000)).map(Math.abs))
+    })),
+    activeVoices: Array.from(asioEngine._activeVoices.entries()).map(([k, v]) => ({
+      key: k,
+      voices: v.map(voice => ({ cursor: voice.cursor, volume: voice.volume, loop: voice.loop }))
+    })),
+    masterVolume: asioEngine._masterVolume
+  };
 });

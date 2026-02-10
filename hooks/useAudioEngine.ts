@@ -39,44 +39,47 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     loadingRef.current = isLoading
   }, [isLoading])
 
-  // Initialize/shutdown ASIO engine when mode changes
+  // Initialize ASIO engine when mode is 'asio'.
+  // The engine is auto-initialized in the main process on startup,
+  // so this typically just confirms it's ready.
   useEffect(() => {
     const api = typeof window !== 'undefined' ? (window as any).electronAPI : null
     if (!api) return
 
     if (audioMode === 'asio') {
-      logger.debug('[AudioEngine] Initializing ASIO mode')
-      api.asioInitialize().then((result: any) => {
-        if (result.success) {
-          logger.debug(`[AudioEngine] ASIO initialized: ${result.device} @ ${result.sampleRate}Hz`)
-          setAsioReady(true)
-        } else {
-          logger.error(`[AudioEngine] ASIO init failed: ${result.error}`)
+      // First check if engine is already running (auto-initialized by main process)
+      const checkAndInit = async () => {
+        try {
+          if (api.asioStatus) {
+            const status = await api.asioStatus()
+            if (status.initialized) {
+              console.log(`[AudioEngine] Engine already running: ${status.device} (${status.cachedSounds} cached sounds)`)
+              setAsioReady(true)
+              return
+            }
+          }
+          // Engine not running, try to initialize
+          console.log('[AudioEngine] Engine not running, initializing...')
+          const result = await api.asioInitialize()
+          if (result.success) {
+            console.log(`[AudioEngine] ASIO initialized: ${result.device} @ ${result.sampleRate}Hz via ${result.mode}`)
+            setAsioReady(true)
+          } else {
+            console.error(`[AudioEngine] ASIO init failed: ${result.error}`)
+            setAsioReady(false)
+            setLoadErrors(prev => new Map(prev).set('__asio__', result.error))
+          }
+        } catch (err: any) {
+          console.error('[AudioEngine] ASIO init exception:', err)
           setAsioReady(false)
-          setLoadErrors(prev => new Map(prev).set('__asio__', result.error))
         }
-      }).catch((err: any) => {
-        logger.error('[AudioEngine] ASIO init exception:', err)
-        setAsioReady(false)
-      })
+      }
+      checkAndInit()
     } else {
-      // Switching away from ASIO - shut it down
-      if (asioReady) {
-        logger.debug('[AudioEngine] Shutting down ASIO mode')
-        api.asioShutdown().catch((err: any) => {
-          logger.error('[AudioEngine] ASIO shutdown error:', err)
-        })
-        asioLoadedFiles.clear()
-        setAsioReady(false)
-      }
-    }
-
-    return () => {
-      // Cleanup ASIO on unmount if active
-      if (audioModeRef.current === 'asio' && api?.asioShutdown) {
-        api.asioShutdown().catch(() => {})
-        asioLoadedFiles.clear()
-      }
+      // Switching away from ASIO - clear loaded files tracker but keep engine running
+      // (engine is a shared resource managed by main process)
+      asioLoadedFiles.clear()
+      setAsioReady(false)
     }
   }, [audioMode])
 
@@ -90,8 +93,8 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [])
 
   const loadSound = useCallback(async (filePath: string, forceReload: boolean = false): Promise<void> => {
-    // --- ASIO path ---
-    if (audioMode === 'asio') {
+    // --- ASIO path --- (use ref to avoid stale closure)
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (!api?.asioLoadSound) return
 
@@ -116,17 +119,47 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
           asioLoadedFiles.delete(filePath)
         }
 
+        // Try main process decode first (works for WAV)
         const result = await api.asioLoadSound(filePath)
         if (result.success) {
           asioLoadedFiles.add(filePath)
-          // Track in loadedSounds keys for UI (using null placeholder since no Howl in ASIO mode)
           setLoadedSounds(prev => {
             const newMap = new Map(prev).set(filePath, null as any)
             loadedSoundsRef.current = newMap
             return newMap
           })
         } else {
-          throw new Error(result.error || 'ASIO load failed')
+          // Main process decode failed (likely MP3/OGG) - decode in renderer using Web Audio API
+          const fileData = await api.readAudioFile(filePath)
+          if (fileData.error) throw new Error(fileData.error)
+
+          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+          try {
+            const arrayBuf = fileData.buffer.buffer.slice(
+              fileData.buffer.byteOffset,
+              fileData.buffer.byteOffset + fileData.buffer.byteLength
+            )
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuf)
+            const channels: Float32Array[] = []
+            for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+              channels.push(audioBuffer.getChannelData(ch))
+            }
+            const cacheResult = await api.asioCachePcm(filePath, {
+              channels,
+              sampleRate: audioBuffer.sampleRate,
+              length: audioBuffer.length
+            })
+            if (!cacheResult.success) throw new Error(cacheResult.error || 'PCM cache failed')
+          } finally {
+            audioCtx.close()
+          }
+
+          asioLoadedFiles.add(filePath)
+          setLoadedSounds(prev => {
+            const newMap = new Map(prev).set(filePath, null as any)
+            loadedSoundsRef.current = newMap
+            return newMap
+          })
         }
       } catch (error: any) {
         logger.error(`[ASIO] Failed to load ${filePath}:`, error)
@@ -302,31 +335,35 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }) => {
     const api = (window as any).electronAPI
 
-    // --- ASIO path ---
-    if (audioMode === 'asio') {
+    // --- ASIO path --- (use ref to avoid stale closure)
+    if (audioModeRef.current === 'asio') {
       if (!api?.asioPlaySound) return
 
+      const asioOpts = {
+        volume: options?.volume ?? 1.0,
+        loop: options?.loop ?? false,
+        restart: options?.restart ?? false
+      }
+
+      const doPlay = async (fp: string) => {
+        const result = await api.asioPlaySound(fp, asioOpts)
+        if (result && !result.success) {
+          console.error(`[AudioEngine] asioPlaySound failed for ${fp}: ${result.error}`)
+        } else {
+          setIsPlaying(prev => new Map(prev).set(fp, true))
+        }
+      }
+
       if (!asioLoadedFiles.has(filePath)) {
-        // Load then play
-        loadSound(filePath).then(() => {
-          api.asioPlaySound(filePath, {
-            volume: options?.volume ?? 1.0,
-            loop: options?.loop ?? false,
-            restart: options?.restart ?? false
-          })
-          setIsPlaying(prev => new Map(prev).set(filePath, true))
-        }).catch(err => {
-          logger.error(`[ASIO] Failed to load and play: ${filePath}`, err)
+        loadSound(filePath).then(() => doPlay(filePath)).catch(err => {
+          console.error(`[AudioEngine] load-then-play failed: ${err.message}`)
         })
         return
       }
 
-      api.asioPlaySound(filePath, {
-        volume: options?.volume ?? 1.0,
-        loop: options?.loop ?? false,
-        restart: options?.restart ?? false
+      doPlay(filePath).catch(err => {
+        console.error(`[AudioEngine] play error: ${err.message}`)
       })
-      setIsPlaying(prev => new Map(prev).set(filePath, true))
       return
     }
 
@@ -368,7 +405,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }
 
   const stopSound = useCallback((filePath: string) => {
-    if (audioMode === 'asio') {
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioStopSound) {
         api.asioStopSound(filePath)
@@ -385,7 +422,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode])
 
   const unloadSound = useCallback((filePath: string) => {
-    if (audioMode === 'asio') {
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioUnloadSound) {
         api.asioUnloadSound(filePath)
@@ -444,7 +481,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode])
 
   const stopAll = useCallback(() => {
-    if (audioMode === 'asio') {
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioStopAll) {
         api.asioStopAll()
@@ -458,7 +495,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode])
 
   const setVolume = useCallback((filePath: string, volume: number) => {
-    if (audioMode === 'asio') {
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetVolume) {
         api.asioSetVolume(filePath, Math.max(0, Math.min(1, volume)))
@@ -473,7 +510,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode, loadedSounds])
 
   const setMasterVolume = useCallback((volume: number) => {
-    if (audioMode === 'asio') {
+    if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetMasterVolume) {
         api.asioSetMasterVolume(Math.max(0, Math.min(1, volume)))
