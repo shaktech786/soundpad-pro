@@ -1139,10 +1139,20 @@ export default function Home() {
               newMap.set(assigningAction, url)
               return newMap
             })
+            setCombinedActions(prev => {
+              const newMap = new Map(prev)
+              newMap.delete(assigningAction)
+              return newMap
+            })
           }}
           onClearSound={() => {
             console.log(`Clearing sound from button ${assigningAction}`)
             setSoundMappings(prev => {
+              const newMap = new Map(prev)
+              newMap.delete(assigningAction)
+              return newMap
+            })
+            setCombinedActions(prev => {
               const newMap = new Map(prev)
               newMap.delete(assigningAction)
               return newMap
