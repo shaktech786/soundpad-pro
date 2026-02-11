@@ -483,9 +483,7 @@ export default function Home() {
       const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
 
       if (isPressed && !wasPressed) {
-        const linkedPrimary = linkedButtons.get(gamepadButtonIndex)
-        if (linkedPrimary !== undefined && buttonStates.get(linkedPrimary)) {
-          console.log(`[Gamepad] Button ${gamepadButtonIndex} is linked to ${linkedPrimary} which is also pressed - ignoring`)
+        if (linkedButtons.has(gamepadButtonIndex)) {
           return
         }
 
