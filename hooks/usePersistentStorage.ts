@@ -1,5 +1,16 @@
 import { useEffect, useState, useRef } from 'react'
 
+// JSON round-trip turns Map number keys into strings.
+// Restore numeric keys so Map.get(numericKey) works correctly.
+function deserializeMap(entries: any): Map<any, any> {
+  const restored = new Map()
+  for (const [k, v] of new Map(entries)) {
+    const numKey = Number(k)
+    restored.set(isNaN(numKey) ? k : numKey, v)
+  }
+  return restored
+}
+
 export function usePersistentStorage<T>(key: string, defaultValue: T) {
   const [value, setValue] = useState<T>(defaultValue)
   const [isLoading, setIsLoading] = useState(true)
@@ -15,7 +26,7 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
           if (storedValue !== undefined && storedValue !== null) {
             // Handle Map deserialization
             if (defaultValue instanceof Map) {
-              setValue(new Map(storedValue) as T)
+              setValue(deserializeMap(storedValue) as T)
             } else {
               setValue(storedValue)
             }
@@ -33,7 +44,7 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
               const parsed = JSON.parse(item)
               // Handle Map deserialization
               if (defaultValue instanceof Map) {
-                setValue(new Map(parsed) as T)
+                setValue(deserializeMap(parsed) as T)
               } else {
                 setValue(parsed)
               }
