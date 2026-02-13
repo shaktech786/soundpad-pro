@@ -1,11 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
+// Hat switch axes encode 8 directions as specific values on a single axis.
+// Neutral value is ~1.286 (9/7). Standard values: N=-1, NE=-5/7, E=-3/7,
+// SE=-1/7, S=1/7, SW=3/7, W=5/7, NW=1. Virtual button IDs: 300-303.
+function decodeHatSwitch(value: number): { up: boolean, right: boolean, down: boolean, left: boolean } {
+  if (value >= 1.143) return { up: false, right: false, down: false, left: false } // neutral
+  if (value < -0.857) return { up: true, right: false, down: false, left: false } // N
+  if (value < -0.571) return { up: true, right: true, down: false, left: false } // NE
+  if (value < -0.286) return { up: false, right: true, down: false, left: false } // E
+  if (value < 0.0) return { up: false, right: true, down: true, left: false } // SE
+  if (value < 0.286) return { up: false, right: false, down: true, left: false } // S
+  if (value < 0.571) return { up: false, right: false, down: true, left: true } // SW
+  if (value < 0.857) return { up: false, right: false, down: false, left: true } // W
+  return { up: true, right: false, down: false, left: true } // NW
+}
+
 export function useSimpleGamepad() {
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const [connected, setConnected] = useState(false)
 
   // Store HID states separately so they can be merged with Web Gamepad states
   const hidStates = useRef<Map<number, boolean>>(new Map())
+
+  // Store keyboard states for controllers that send key events (e.g. GP2040-CE keyboard mode)
+  // IDs: 200 + keyCode to avoid collision with gamepad buttons (0-99) and axes (100-199)
+  const keyboardStates = useRef<Map<number, boolean>>(new Map())
+
+  // Track which axes are hat switches (detected by value > 1.1)
+  const hatSwitchAxes = useRef<Set<string>>(new Set())
 
   const scanGamepads = useCallback(() => {
     const gamepads = navigator.getGamepads()
@@ -27,21 +49,39 @@ export function useSimpleGamepad() {
         }
 
         // Get all axis states (treat as virtual buttons)
-        // Axes use indices starting at 100 to avoid collision with regular buttons
-        // 100 = axis0+, 101 = axis0-, 102 = axis1+, 103 = axis1-, etc.
         for (let axisIndex = 0; axisIndex < gamepad.axes.length; axisIndex++) {
           const axisValue = gamepad.axes[axisIndex]
-          const threshold = 0.5
+          const hatKey = `${i}:${axisIndex}`
 
-          // Positive direction (pushing right/down)
-          const posButtonId = 100 + (axisIndex * 2)
-          const currentPos = newStates.get(posButtonId) || false
-          newStates.set(posButtonId, currentPos || axisValue > threshold)
+          // Detect hat switch: value > 1.1 means neutral position of a hat switch
+          if (axisValue > 1.1) {
+            hatSwitchAxes.current.add(hatKey)
+          }
 
-          // Negative direction (pushing left/up)
-          const negButtonId = 100 + (axisIndex * 2) + 1
-          const currentNeg = newStates.get(negButtonId) || false
-          newStates.set(negButtonId, currentNeg || axisValue < -threshold)
+          if (hatSwitchAxes.current.has(hatKey)) {
+            // Hat switch: decode to Up/Down/Left/Right virtual buttons (IDs 300-303)
+            const dirs = decodeHatSwitch(axisValue)
+            const base = 300
+            newStates.set(base, (newStates.get(base) || false) || dirs.up)
+            newStates.set(base + 1, (newStates.get(base + 1) || false) || dirs.right)
+            newStates.set(base + 2, (newStates.get(base + 2) || false) || dirs.down)
+            newStates.set(base + 3, (newStates.get(base + 3) || false) || dirs.left)
+          } else {
+            // Normal axis: threshold-based detection
+            // Axes use indices starting at 100 to avoid collision with regular buttons
+            // 100 = axis0+, 101 = axis0-, 102 = axis1+, 103 = axis1-, etc.
+            const threshold = 0.5
+
+            // Positive direction (pushing right/down)
+            const posButtonId = 100 + (axisIndex * 2)
+            const currentPos = newStates.get(posButtonId) || false
+            newStates.set(posButtonId, currentPos || axisValue > threshold)
+
+            // Negative direction (pushing left/up)
+            const negButtonId = 100 + (axisIndex * 2) + 1
+            const currentNeg = newStates.get(negButtonId) || false
+            newStates.set(negButtonId, currentNeg || axisValue < -threshold)
+          }
         }
 
         // DON'T break - check ALL gamepads and merge their button states
@@ -56,8 +96,42 @@ export function useSimpleGamepad() {
       }
     }
 
+    // Merge keyboard states (for controllers sending key events)
+    for (const [keyId, isPressed] of keyboardStates.current) {
+      if (isPressed) {
+        newStates.set(keyId, true)
+      }
+    }
+
     setConnected(hasGamepad)
     setButtonStates(newStates)
+  }, [])
+
+  // Listen for keyboard events from controllers that send key events
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return
+      // Don't capture when typing in text inputs
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      // Prevent browser from consuming arrow keys for focus/scroll navigation
+      if (e.keyCode >= 37 && e.keyCode <= 40) e.preventDefault()
+      keyboardStates.current.set(200 + e.keyCode, true)
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keyboardStates.current.set(200 + e.keyCode, false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
   }, [])
 
   // Listen for HID gamepad events from main process (works when window unfocused)

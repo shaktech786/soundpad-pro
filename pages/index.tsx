@@ -454,7 +454,6 @@ export default function Home() {
         if (linkingStep === 'primary') {
           setPendingPrimaryButton(gamepadButtonIndex)
           setLinkingStep('secondary')
-          console.log('Primary button captured:', gamepadButtonIndex)
         } else if (linkingStep === 'secondary' && pendingPrimaryButton !== null) {
           if (gamepadButtonIndex !== pendingPrimaryButton) {
             setLinkedButtons(prev => {
@@ -462,7 +461,6 @@ export default function Home() {
               newMap.set(gamepadButtonIndex, pendingPrimaryButton)
               return newMap
             })
-            console.log(`Linked button ${gamepadButtonIndex} to primary ${pendingPrimaryButton}`)
           }
           setConfiguringLinkedButtons(false)
           setLinkingStep(null)
@@ -487,11 +485,9 @@ export default function Home() {
           return
         }
 
-        console.log(`[Gamepad] Button ${gamepadButtonIndex} pressed, mapping size: ${buttonMapping.size}, sounds: ${soundMappings.size}`)
         buttonPressStart.current.set(gamepadButtonIndex, Date.now())
 
         if (stopButton !== null && gamepadButtonIndex === stopButton) {
-          console.log(`[Gamepad] Stop button triggered`)
           stopAll()
           return
         }
@@ -505,10 +501,7 @@ export default function Home() {
             }
           }
         }
-        console.log(`[Gamepad] Gamepad btn ${gamepadButtonIndex} -> visual btn ${visualButtonId}`)
-
         const soundFile = soundMappings.get(visualButtonId)
-        console.log(`[Gamepad] Visual btn ${visualButtonId} -> sound: ${soundFile || 'none'}`)
         if (soundFile) {
           const now = Date.now()
           const lastPlay = lastPlayTime.current.get(visualButtonId) || 0
@@ -516,10 +509,8 @@ export default function Home() {
             lastPlayTime.current.set(visualButtonId, now)
             const cleanUrl = soundFile.split('#')[0]
             const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
-            console.log(`[Gamepad] Playing: ${cleanUrl} at ${Math.round(volume * 100)}%`)
             playSound(cleanUrl, { restart: true, volume })
           } else {
-            console.log(`[Gamepad] Debounced - too soon`)
           }
         }
 
@@ -1041,17 +1032,7 @@ export default function Home() {
                 </button>
 
                 <button
-                  onClick={async () => {
-                    if (confirm('Restart button mapping? This will clear your current mapping and take you to the onboarding page.')) {
-                      setButtonMapping(new Map())
-                      if (window.electronAPI?.storeDelete) {
-                        await window.electronAPI.storeDelete('haute42-button-mapping')
-                      }
-                      localStorage.removeItem('haute42-button-mapping')
-                      localStorage.removeItem('onboarding-complete')
-                      window.location.href = '/onboarding'
-                    }
-                  }}
+                  onClick={() => navigateTo('/onboarding?remap=true')}
                   className={`w-full px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
                     theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
                   }`}

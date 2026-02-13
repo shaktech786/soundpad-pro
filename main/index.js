@@ -259,9 +259,15 @@ ipcMain.handle('read-audio-file', async (event, filePath) => {
 // Navigation handler for static export
 ipcMain.handle('navigate', (event, route) => {
   if (mainWindow && !isDev) {
-    // In production, load the appropriate HTML file
-    const htmlFile = route === '/' ? 'index.html' : `${route}.html`;
-    mainWindow.loadFile(path.join(__dirname, '../out', htmlFile));
+    // Split route from query string (e.g. '/onboarding?remap=true')
+    const [pathname, queryString] = route.split('?');
+    const htmlFile = pathname === '/' ? 'index.html' : `${pathname}.html`;
+    const filePath = path.join(__dirname, '../out', htmlFile);
+    if (queryString) {
+      mainWindow.loadFile(filePath, { query: Object.fromEntries(new URLSearchParams(queryString)) });
+    } else {
+      mainWindow.loadFile(filePath);
+    }
   }
 });
 

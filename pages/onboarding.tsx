@@ -1,21 +1,111 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Head from 'next/head'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { useRouter } from 'next/router'
 import { BoardBuilder } from '../components/BoardBuilder'
 import { useProfileManager } from '../hooks/useProfileManager'
+import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { ButtonPosition, ButtonShape } from '../types/profile'
 import { HAUTE42_LAYOUT, APP_CONFIG } from '../config/constants'
 
 type OnboardingStep = 'profile-setup' | 'board-builder' | 'button-mapping'
 
+function RawGamepadDiagnostic({ buttonStates, getInputName }: { buttonStates: Map<number, boolean>, getInputName: (id: number) => string }) {
+  const [rawData, setRawData] = useState<{
+    id: string, buttons: { idx: number, pressed: boolean, value: number }[], axes: { idx: number, value: number }[]
+  }[]>([])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const gamepads = navigator.getGamepads()
+      const data: typeof rawData = []
+      for (let i = 0; i < gamepads.length; i++) {
+        const gp = gamepads[i]
+        if (!gp) continue
+        const buttons = gp.buttons.map((b, idx) => ({ idx, pressed: b.pressed, value: Math.round(b.value * 100) / 100 }))
+        const axes = gp.axes.map((v, idx) => ({ idx, value: Math.round(v * 100) / 100 }))
+        data.push({ id: gp.id, buttons, axes })
+      }
+      setRawData(data)
+    }, 100)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-3 mt-4 text-xs text-gray-400 space-y-2 max-h-64 overflow-y-auto">
+      <div>
+        <span className="text-gray-500 font-bold">Processed inputs: </span>
+        {Array.from(buttonStates.entries()).filter(([, p]) => p).map(([id]) => (
+          <span key={id} className="inline-block bg-green-800 text-green-200 rounded px-2 py-0.5 mr-1 mb-1">
+            {getInputName(id)} ({id})
+          </span>
+        ))}
+        {Array.from(buttonStates.entries()).filter(([, p]) => p).length === 0 && (
+          <span className="text-gray-600">None</span>
+        )}
+      </div>
+      {rawData.map((gp, i) => (
+        <div key={i} className="border-t border-gray-700 pt-2">
+          <div className="text-gray-500 font-bold mb-1">Gamepad {i}: {gp.id}</div>
+          <div>
+            <span className="text-yellow-500">Buttons ({gp.buttons.length}): </span>
+            {gp.buttons.filter(b => b.pressed || b.value > 0).map(b => (
+              <span key={b.idx} className="inline-block bg-yellow-900 text-yellow-200 rounded px-2 py-0.5 mr-1 mb-1">
+                btn[{b.idx}] {b.value > 0 ? `val=${b.value}` : 'pressed'}
+              </span>
+            ))}
+            {gp.buttons.filter(b => b.pressed || b.value > 0).length === 0 && <span className="text-gray-600">none pressed</span>}
+          </div>
+          <div>
+            <span className="text-blue-500">Axes ({gp.axes.length}): </span>
+            {gp.axes.map(a => (
+              <span key={a.idx} className={`inline-block rounded px-2 py-0.5 mr-1 mb-1 ${Math.abs(a.value) > 0.1 ? 'bg-blue-900 text-blue-200' : 'bg-gray-750 text-gray-600'}`}>
+                axis[{a.idx}]={a.value}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+      {rawData.length === 0 && <div className="text-gray-600">No gamepads detected by browser</div>}
+    </div>
+  )
+}
+
 export default function OnboardingPage() {
   const { buttonStates, connected } = useSimpleGamepad()
   const router = useRouter()
   const { createProfile } = useProfileManager()
+  const isRemapOnly = router.query.remap === 'true'
+
+  const navigateTo = async (route: string) => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.navigate) {
+      await (window as any).electronAPI.navigate(route)
+    } else {
+      router.push(route)
+    }
+  }
+
+  // Load existing layout for remap mode
+  const [savedLayout] = usePersistentStorage<ButtonPosition[]>(
+    APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT,
+    HAUTE42_LAYOUT
+  )
+  const [savedShape] = usePersistentStorage<ButtonShape>(
+    APP_CONFIG.PROFILES.STORAGE_KEYS.BUTTON_SHAPE,
+    'circle'
+  )
 
   // Wizard state
   const [step, setStep] = useState<OnboardingStep>('profile-setup')
+
+  // Skip to mapping step in remap mode
+  useEffect(() => {
+    if (isRemapOnly) {
+      setBoardLayout(savedLayout)
+      setButtonShape(savedShape)
+      setStep('button-mapping')
+    }
+  }, [isRemapOnly, savedLayout, savedShape])
 
   // Step 1: Profile setup
   const [profileName, setProfileName] = useState('')
@@ -27,9 +117,12 @@ export default function OnboardingPage() {
   // Step 3: Button mapping
   const [currentMappingStep, setCurrentMappingStep] = useState(0)
   const [mapping, setMapping] = useState<Map<number, number>>(new Map())
-  const [prevButtonStates, setPrevButtonStates] = useState<Map<number, boolean>>(new Map())
   const [isMappingComplete, setIsMappingComplete] = useState(false)
   const [isReady, setIsReady] = useState(false)
+  // Use refs for tracking to avoid effect re-triggers from state changes
+  const prevStatesRef = useRef<Map<number, boolean>>(new Map())
+  const mappingStepRef = useRef(0)
+  const lastMappingTime = useRef(0)
 
   // Compute mapping order: sort buttons top-to-bottom, left-to-right
   const mappingOrder = useMemo(() => {
@@ -47,12 +140,23 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (step !== 'button-mapping') return
     if (!isReady && buttonStates.size > 0) {
-      setPrevButtonStates(new Map(buttonStates))
+      prevStatesRef.current = new Map(buttonStates)
       setIsReady(true)
     }
   }, [buttonStates, isReady, step])
 
   const getInputName = (inputId: number) => {
+    if (inputId >= 300 && inputId <= 303) {
+      return ['Hat Up', 'Hat Right', 'Hat Down', 'Hat Left'][inputId - 300]
+    }
+    if (inputId >= 200) {
+      const keyCode = inputId - 200
+      const knownKeys: Record<number, string> = {
+        37: 'Left', 38: 'Up', 39: 'Right', 40: 'Down',
+        13: 'Enter', 32: 'Space', 27: 'Escape',
+      }
+      return knownKeys[keyCode] || `Key ${keyCode}`
+    }
     if (inputId < 100) return `Button ${inputId}`
     const axisIndex = Math.floor((inputId - 100) / 2)
     const direction = (inputId - 100) % 2 === 0 ? '+' : '-'
@@ -60,29 +164,42 @@ export default function OnboardingPage() {
   }
 
   // Detect button press for mapping step
+  // Only depends on buttonStates (gamepad poll) - all tracking via refs to avoid re-triggers
   useEffect(() => {
     if (step !== 'button-mapping' || isMappingComplete || !isReady) return
 
-    buttonStates.forEach((isPressed, inputId) => {
-      const wasPressed = prevButtonStates.get(inputId) || false
+    const now = Date.now()
+    if (now - lastMappingTime.current < 300) return
 
+    const stepIndex = mappingStepRef.current
+    const button = mappingOrder[stepIndex]
+    if (!button) {
+      prevStatesRef.current = new Map(buttonStates)
+      return
+    }
+
+    for (const [inputId, isPressed] of buttonStates) {
+      const wasPressed = prevStatesRef.current.get(inputId) || false
       if (isPressed && !wasPressed) {
+        lastMappingTime.current = now
         setMapping(prev => {
           const newMap = new Map(prev)
-          newMap.set(currentButton.id, inputId)
+          newMap.set(button.id, inputId)
           return newMap
         })
 
-        if (currentMappingStep < totalButtons - 1) {
-          setCurrentMappingStep(prev => prev + 1)
+        if (stepIndex < totalButtons - 1) {
+          mappingStepRef.current = stepIndex + 1
+          setCurrentMappingStep(stepIndex + 1)
         } else {
           setIsMappingComplete(true)
         }
+        break
       }
-    })
+    }
 
-    setPrevButtonStates(new Map(buttonStates))
-  }, [buttonStates, prevButtonStates, currentMappingStep, currentButton, isMappingComplete, totalButtons, isReady, step])
+    prevStatesRef.current = new Map(buttonStates)
+  }, [buttonStates, isMappingComplete, isReady, step, mappingOrder, totalButtons])
 
   const handleBoardSave = (layout: ButtonPosition[], shape: ButtonShape) => {
     setBoardLayout(layout)
@@ -93,34 +210,42 @@ export default function OnboardingPage() {
   const saveAndContinue = async () => {
     const mappingArray = Array.from(mapping.entries())
 
-    // Create profile
-    const profile = createProfile(
-      profileName || APP_CONFIG.PROFILES.DEFAULT_PROFILE_NAME,
-      boardLayout,
-      buttonShape,
-      mappingArray
-    )
+    if (isRemapOnly) {
+      // Remap mode: only save the button mapping
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
+        await (window as any).electronAPI.storeSet('haute42-button-mapping', mappingArray)
+      }
+    } else {
+      // Full onboarding: create profile and save everything
+      createProfile(
+        profileName || APP_CONFIG.PROFILES.DEFAULT_PROFILE_NAME,
+        boardLayout,
+        buttonShape,
+        mappingArray
+      )
 
-    // Save working state keys
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
-      const storeSet = (window as any).electronAPI.storeSet
-      await Promise.all([
-        storeSet('haute42-button-mapping', mappingArray),
-        storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT, boardLayout),
-        storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BUTTON_SHAPE, buttonShape),
-      ])
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
+        const storeSet = (window as any).electronAPI.storeSet
+        await Promise.all([
+          storeSet('haute42-button-mapping', mappingArray),
+          storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT, boardLayout),
+          storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BUTTON_SHAPE, buttonShape),
+        ])
+      }
     }
 
     localStorage.setItem('onboarding-complete', 'true')
-    router.push('/')
+    navigateTo('/')
   }
 
   const resetMapping = () => {
+    mappingStepRef.current = 0
     setCurrentMappingStep(0)
     setMapping(new Map())
     setIsMappingComplete(false)
     setIsReady(false)
-    setPrevButtonStates(new Map())
+    prevStatesRef.current = new Map()
+    lastMappingTime.current = 0
   }
 
   const shapeClass = buttonShape === 'circle' ? 'rounded-full' : 'rounded-xl'
@@ -128,37 +253,41 @@ export default function OnboardingPage() {
   return (
     <>
       <Head>
-        <title>Setup - SoundPad Pro</title>
+        <title>{isRemapOnly ? 'Remap Buttons' : 'Setup'} - SoundPad Pro</title>
       </Head>
 
       <div className="min-h-screen bg-gray-950 py-8">
         <div className="max-w-6xl mx-auto px-4">
           {/* Header */}
           <div className="text-center mb-6">
-            <h1 className="text-4xl font-bold text-white mb-4">SoundPad Pro Setup</h1>
+            <h1 className="text-4xl font-bold text-white mb-4">
+              {isRemapOnly ? 'Remap Buttons' : 'SoundPad Pro Setup'}
+            </h1>
 
-            {/* Step indicator */}
-            <div className="flex items-center justify-center gap-2 mb-4">
-              {(['profile-setup', 'board-builder', 'button-mapping'] as OnboardingStep[]).map((s, i) => {
-                const labels = ['Profile', 'Layout', 'Mapping']
-                const isCurrent = s === step
-                const isPast = (
-                  (step === 'board-builder' && i === 0) ||
-                  (step === 'button-mapping' && i < 2)
-                )
-                return (
-                  <div key={s} className="flex items-center">
-                    {i > 0 && <div className={`w-8 h-0.5 mx-1 ${isPast ? 'bg-green-500' : 'bg-gray-700'}`} />}
-                    <div className={`
-                      px-4 py-2 rounded-full text-sm font-medium
-                      ${isCurrent ? 'bg-purple-600 text-white' : isPast ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-500'}
-                    `}>
-                      {i + 1}. {labels[i]}
+            {/* Step indicator (hidden in remap mode) */}
+            {!isRemapOnly && (
+              <div className="flex items-center justify-center gap-2 mb-4">
+                {(['profile-setup', 'board-builder', 'button-mapping'] as OnboardingStep[]).map((s, i) => {
+                  const labels = ['Profile', 'Layout', 'Mapping']
+                  const isCurrent = s === step
+                  const isPast = (
+                    (step === 'board-builder' && i === 0) ||
+                    (step === 'button-mapping' && i < 2)
+                  )
+                  return (
+                    <div key={s} className="flex items-center">
+                      {i > 0 && <div className={`w-8 h-0.5 mx-1 ${isPast ? 'bg-green-500' : 'bg-gray-700'}`} />}
+                      <div className={`
+                        px-4 py-2 rounded-full text-sm font-medium
+                        ${isCurrent ? 'bg-purple-600 text-white' : isPast ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-500'}
+                      `}>
+                        {i + 1}. {labels[i]}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
 
             <div className={`inline-block px-6 py-3 rounded-full font-bold ${connected ? 'bg-green-500' : 'bg-red-500'}`}>
               <span className="text-white">
@@ -234,7 +363,7 @@ export default function OnboardingPage() {
                 <button
                   onClick={() => {
                     localStorage.setItem('onboarding-complete', 'true')
-                    router.push('/')
+                    navigateTo('/')
                   }}
                   className="px-8 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-lg transition-colors"
                 >
@@ -330,6 +459,9 @@ export default function OnboardingPage() {
                       })}
                     </div>
                   </div>
+
+                  {/* Diagnostic: raw Gamepad API + processed inputs */}
+                  <RawGamepadDiagnostic buttonStates={buttonStates} getInputName={getInputName} />
 
                   <div className="mt-4 flex justify-center">
                     <button
