@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
@@ -100,7 +100,7 @@ export default function Home() {
   const { theme, toggleTheme } = useTheme()
   const { buttonStates, connected } = useSimpleGamepad()
   const [audioMode, setAudioMode] = usePersistentStorage<AudioMode>('audio-output-mode', 'wdm')
-  const { playSound, stopAll, loadSound, setMasterVolume, asioReady, loadErrors } = useAudioEngine(audioMode)
+  const { playSound, stopAll, loadSound, unloadSound, setMasterVolume, asioReady, loadErrors } = useAudioEngine(audioMode)
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
@@ -151,8 +151,7 @@ export default function Home() {
   const [showBoardEditor, setShowBoardEditor] = useState(false)
   const [assigningStopButton, setAssigningStopButton] = useState(false)
   const [configuringLinkedButtons, setConfiguringLinkedButtons] = useState(false)
-  const [linkingStep, setLinkingStep] = useState<'primary' | 'secondary' | null>(null)
-  const [pendingPrimaryButton, setPendingPrimaryButton] = useState<number | null>(null)
+  const [detectedGroup, setDetectedGroup] = useState<number[] | null>(null)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
@@ -443,34 +442,40 @@ export default function Home() {
     prevButtonStates.current = new Map(buttonStates)
   }, [buttonStates, assigningStopButton])
 
-  // Handle configuring linked buttons
+  // Handle configuring linked buttons: collect presses over a 200ms window
+  const linkDetectBuffer = useRef<Set<number>>(new Set())
+  const linkDetectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
-    if (!configuringLinkedButtons || !linkingStep) return
+    if (!configuringLinkedButtons || detectedGroup) return
 
-    buttonStates.forEach((isPressed, gamepadButtonIndex) => {
-      const wasPressed = prevButtonStates.current.get(gamepadButtonIndex) || false
+    for (const [id, pressed] of buttonStates) {
+      if (pressed && !prevButtonStates.current.get(id)) {
+        linkDetectBuffer.current.add(id)
 
-      if (isPressed && !wasPressed) {
-        if (linkingStep === 'primary') {
-          setPendingPrimaryButton(gamepadButtonIndex)
-          setLinkingStep('secondary')
-        } else if (linkingStep === 'secondary' && pendingPrimaryButton !== null) {
-          if (gamepadButtonIndex !== pendingPrimaryButton) {
-            setLinkedButtons(prev => {
-              const newMap = new Map(prev)
-              newMap.set(gamepadButtonIndex, pendingPrimaryButton)
-              return newMap
-            })
+        // Reset the timer on each new press — wait 200ms after the LAST press
+        if (linkDetectTimer.current) clearTimeout(linkDetectTimer.current)
+        linkDetectTimer.current = setTimeout(() => {
+          const collected = Array.from(linkDetectBuffer.current)
+          linkDetectBuffer.current = new Set()
+          if (collected.length >= 2) {
+            setDetectedGroup(collected)
           }
-          setConfiguringLinkedButtons(false)
-          setLinkingStep(null)
-          setPendingPrimaryButton(null)
-        }
+          // If only 1, ignore — user pressed a non-linked button
+        }, 200)
       }
-    })
+    }
 
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, configuringLinkedButtons, linkingStep, pendingPrimaryButton])
+  }, [buttonStates, configuringLinkedButtons, detectedGroup])
+
+  // Cleanup timer on unmount or mode change
+  useEffect(() => {
+    if (!configuringLinkedButtons) {
+      linkDetectBuffer.current = new Set()
+      if (linkDetectTimer.current) clearTimeout(linkDetectTimer.current)
+    }
+  }, [configuringLinkedButtons])
 
   // Play sound when controller buttons are pressed
   useEffect(() => {
@@ -607,6 +612,16 @@ export default function Home() {
       : `Axis ${Math.floor((stopButton - 100) / 2)}${(stopButton - 100) % 2 === 0 ? '+' : '-'}`
     : null
 
+  // Filter out ghost buttons from visual display
+  const filteredButtonStates = useMemo(() => {
+    if (linkedButtons.size === 0) return buttonStates
+    const filtered = new Map(buttonStates)
+    for (const ghostId of linkedButtons.keys()) {
+      filtered.delete(ghostId)
+    }
+    return filtered
+  }, [buttonStates, linkedButtons])
+
   return (
     <>
       <Head>
@@ -695,7 +710,7 @@ export default function Home() {
           {/* Left: Board area */}
           <div className="flex-1 flex flex-col items-center justify-center px-4 py-4 overflow-auto">
             <Haute42Layout
-              buttonStates={buttonStates}
+              buttonStates={filteredButtonStates}
               soundMappings={soundMappings}
               obsActions={combinedActions}
               onPlaySound={handlePlaySound}
@@ -886,60 +901,100 @@ export default function Home() {
                   <label className={`text-xs font-medium ${theme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
                     Linked Buttons
                   </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        if (configuringLinkedButtons) {
-                          setConfiguringLinkedButtons(false)
-                          setLinkingStep(null)
-                          setPendingPrimaryButton(null)
-                        } else {
-                          setConfiguringLinkedButtons(true)
-                          setLinkingStep('primary')
-                          setPendingPrimaryButton(null)
-                        }
-                      }}
-                      className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                        configuringLinkedButtons
-                          ? 'bg-yellow-500 text-white animate-pulse'
-                          : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
-                      }`}
-                    >
-                      {configuringLinkedButtons
-                        ? linkingStep === 'primary'
-                          ? 'Press PRIMARY...'
-                          : 'Press GHOST...'
-                        : 'Add Link'
-                      }
-                    </button>
-                    {linkedButtons.size > 0 && !configuringLinkedButtons && (
+                  {!configuringLinkedButtons && !detectedGroup && (
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setLinkedButtons(new Map())}
-                        className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${
+                        onClick={() => {
+                          setConfiguringLinkedButtons(true)
+                          setDetectedGroup(null)
+                        }}
+                        className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                          theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                        }`}
+                      >
+                        Detect Links
+                      </button>
+                      {linkedButtons.size > 0 && (
+                        <button
+                          onClick={() => setLinkedButtons(new Map())}
+                          className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${
+                            theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-500' : 'bg-gray-800 hover:bg-gray-700 text-gray-500'
+                          }`}
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {configuringLinkedButtons && !detectedGroup && (
+                    <div className="space-y-1">
+                      <div className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-yellow-500 text-white animate-pulse text-center">
+                        Press a linked button...
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-mono bg-gray-900 rounded p-1">
+                        Active: [{Array.from(buttonStates.entries()).filter(([,v]) => v).map(([id]) => id).join(', ')}]
+                      </div>
+                      <button
+                        onClick={() => { setConfiguringLinkedButtons(false); setDetectedGroup(null) }}
+                        className={`w-full px-3 py-1 text-xs rounded-lg ${
                           theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-500' : 'bg-gray-800 hover:bg-gray-700 text-gray-500'
                         }`}
                       >
-                        Clear All
+                        Cancel
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  {detectedGroup && (
+                    <div className="space-y-1">
+                      <div className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
+                        {detectedGroup.length} buttons fired together. Click the one to <span className="text-red-400 font-bold">suppress</span>:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectedGroup.map(id => (
+                          <button
+                            key={id}
+                            onClick={() => {
+                              const primary = detectedGroup.find(x => x !== id) ?? detectedGroup[0]
+                              setLinkedButtons(prev => {
+                                const newMap = new Map(prev)
+                                newMap.set(id, primary)
+                                return newMap
+                              })
+                              setDetectedGroup(null)
+                              setConfiguringLinkedButtons(false)
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          >
+                            {id < 100 ? `Btn ${id}` : id >= 300 ? ['Hat Up', 'Hat Right', 'Hat Down', 'Hat Left'][id - 300] : `Axis ${Math.floor((id - 100) / 2)}${(id - 100) % 2 === 0 ? '+' : '-'}`}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => { setDetectedGroup(null); setConfiguringLinkedButtons(false) }}
+                        className={`w-full px-3 py-1 text-xs rounded-lg ${
+                          theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-500' : 'bg-gray-800 hover:bg-gray-700 text-gray-500'
+                        }`}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                   {linkedButtons.size > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1">
-                      {Array.from(linkedButtons.entries()).map(([secondary, primary]) => (
+                      {Array.from(linkedButtons.entries()).map(([ghost, primary]) => (
                         <div
-                          key={secondary}
+                          key={ghost}
                           className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                             theme === 'light' ? 'bg-gray-100 text-gray-700' : 'bg-gray-800 text-gray-300'
                           }`}
                         >
-                          <span>{secondary}</span>
-                          <span className="text-gray-500">&#8594;</span>
-                          <span className="text-indigo-400">{primary}</span>
+                          <span className="text-red-400">{ghost}</span>
+                          <span className="text-gray-500">suppressed</span>
                           <button
                             onClick={() => {
                               setLinkedButtons(prev => {
                                 const newMap = new Map(prev)
-                                newMap.delete(secondary)
+                                newMap.delete(ghost)
                                 return newMap
                               })
                             }}
@@ -1113,6 +1168,9 @@ export default function Home() {
           }}
           onAssignSound={(url, name) => {
             console.log(`Assigning sound to button ${assigningAction}:`, url, name)
+            // Unload any cached version of this file to force a fresh read from disk
+            // (handles the case where the file was modified externally)
+            unloadSound(url)
             setSoundMappings(prev => {
               const newMap = new Map(prev)
               newMap.set(assigningAction, url)
@@ -1126,6 +1184,11 @@ export default function Home() {
           }}
           onClearSound={() => {
             console.log(`Clearing sound from button ${assigningAction}`)
+            // Unload the cached audio so re-assigning the same file reads fresh from disk
+            const oldFilePath = soundMappings.get(assigningAction)
+            if (oldFilePath) {
+              unloadSound(oldFilePath)
+            }
             setSoundMappings(prev => {
               const newMap = new Map(prev)
               newMap.delete(assigningAction)

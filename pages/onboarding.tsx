@@ -10,67 +10,6 @@ import { HAUTE42_LAYOUT, APP_CONFIG } from '../config/constants'
 
 type OnboardingStep = 'profile-setup' | 'board-builder' | 'button-mapping'
 
-function RawGamepadDiagnostic({ buttonStates, getInputName }: { buttonStates: Map<number, boolean>, getInputName: (id: number) => string }) {
-  const [rawData, setRawData] = useState<{
-    id: string, buttons: { idx: number, pressed: boolean, value: number }[], axes: { idx: number, value: number }[]
-  }[]>([])
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const gamepads = navigator.getGamepads()
-      const data: typeof rawData = []
-      for (let i = 0; i < gamepads.length; i++) {
-        const gp = gamepads[i]
-        if (!gp) continue
-        const buttons = gp.buttons.map((b, idx) => ({ idx, pressed: b.pressed, value: Math.round(b.value * 100) / 100 }))
-        const axes = gp.axes.map((v, idx) => ({ idx, value: Math.round(v * 100) / 100 }))
-        data.push({ id: gp.id, buttons, axes })
-      }
-      setRawData(data)
-    }, 100)
-    return () => clearInterval(interval)
-  }, [])
-
-  return (
-    <div className="bg-gray-800 rounded-lg p-3 mt-4 text-xs text-gray-400 space-y-2 max-h-64 overflow-y-auto">
-      <div>
-        <span className="text-gray-500 font-bold">Processed inputs: </span>
-        {Array.from(buttonStates.entries()).filter(([, p]) => p).map(([id]) => (
-          <span key={id} className="inline-block bg-green-800 text-green-200 rounded px-2 py-0.5 mr-1 mb-1">
-            {getInputName(id)} ({id})
-          </span>
-        ))}
-        {Array.from(buttonStates.entries()).filter(([, p]) => p).length === 0 && (
-          <span className="text-gray-600">None</span>
-        )}
-      </div>
-      {rawData.map((gp, i) => (
-        <div key={i} className="border-t border-gray-700 pt-2">
-          <div className="text-gray-500 font-bold mb-1">Gamepad {i}: {gp.id}</div>
-          <div>
-            <span className="text-yellow-500">Buttons ({gp.buttons.length}): </span>
-            {gp.buttons.filter(b => b.pressed || b.value > 0).map(b => (
-              <span key={b.idx} className="inline-block bg-yellow-900 text-yellow-200 rounded px-2 py-0.5 mr-1 mb-1">
-                btn[{b.idx}] {b.value > 0 ? `val=${b.value}` : 'pressed'}
-              </span>
-            ))}
-            {gp.buttons.filter(b => b.pressed || b.value > 0).length === 0 && <span className="text-gray-600">none pressed</span>}
-          </div>
-          <div>
-            <span className="text-blue-500">Axes ({gp.axes.length}): </span>
-            {gp.axes.map(a => (
-              <span key={a.idx} className={`inline-block rounded px-2 py-0.5 mr-1 mb-1 ${Math.abs(a.value) > 0.1 ? 'bg-blue-900 text-blue-200' : 'bg-gray-750 text-gray-600'}`}>
-                axis[{a.idx}]={a.value}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
-      {rawData.length === 0 && <div className="text-gray-600">No gamepads detected by browser</div>}
-    </div>
-  )
-}
-
 export default function OnboardingPage() {
   const { buttonStates, connected } = useSimpleGamepad()
   const router = useRouter()
@@ -148,14 +87,6 @@ export default function OnboardingPage() {
   const getInputName = (inputId: number) => {
     if (inputId >= 300 && inputId <= 303) {
       return ['Hat Up', 'Hat Right', 'Hat Down', 'Hat Left'][inputId - 300]
-    }
-    if (inputId >= 200) {
-      const keyCode = inputId - 200
-      const knownKeys: Record<number, string> = {
-        37: 'Left', 38: 'Up', 39: 'Right', 40: 'Down',
-        13: 'Enter', 32: 'Space', 27: 'Escape',
-      }
-      return knownKeys[keyCode] || `Key ${keyCode}`
     }
     if (inputId < 100) return `Button ${inputId}`
     const axisIndex = Math.floor((inputId - 100) / 2)
@@ -459,9 +390,6 @@ export default function OnboardingPage() {
                       })}
                     </div>
                   </div>
-
-                  {/* Diagnostic: raw Gamepad API + processed inputs */}
-                  <RawGamepadDiagnostic buttonStates={buttonStates} getInputName={getInputName} />
 
                   <div className="mt-4 flex justify-center">
                     <button
