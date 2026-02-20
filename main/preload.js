@@ -62,6 +62,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   asioTestTone: () => ipcRenderer.invoke('asio:test-tone'),
   asioDiag: () => ipcRenderer.invoke('asio:diag'),
 
+  // GP2040-CE Controller Config
+  gp2040CheckConnection: () => ipcRenderer.invoke('gp2040:check-connection'),
+  gp2040GetPinMappings: () => ipcRenderer.invoke('gp2040:get-pin-mappings'),
+  gp2040SetPinMappings: (mappings) => ipcRenderer.invoke('gp2040:set-pin-mappings', mappings),
+  gp2040GetGamepadOptions: () => ipcRenderer.invoke('gp2040:get-gamepad-options'),
+  gp2040SetGamepadOptions: (options) => ipcRenderer.invoke('gp2040:set-gamepad-options', options),
+  gp2040GetAddonsOptions: () => ipcRenderer.invoke('gp2040:get-addons-options'),
+  gp2040AnalyzeMappings: (mappings) => ipcRenderer.invoke('gp2040:analyze-mappings', mappings),
+
   // Cleanup listeners
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('hotkey-triggered');

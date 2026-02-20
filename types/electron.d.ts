@@ -25,9 +25,18 @@ interface ElectronAPI {
   onHotkeyTriggered: (callback: (buttonIndex: number) => void) => void
   onGlobalStopAudio: (callback: () => void) => void
   
+  // GP2040-CE Controller Config
+  gp2040CheckConnection: () => Promise<{ connected: boolean; version?: any; error?: string }>
+  gp2040GetPinMappings: () => Promise<{ success: boolean; mappings?: Record<string, { pin: number; gamepadIndex: number | null }>; error?: string }>
+  gp2040SetPinMappings: (mappings: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  gp2040GetGamepadOptions: () => Promise<{ success: boolean; options?: any; error?: string }>
+  gp2040SetGamepadOptions: (options: any) => Promise<{ success: boolean; error?: string }>
+  gp2040GetAddonsOptions: () => Promise<{ success: boolean; options?: any; error?: string }>
+  gp2040AnalyzeMappings: (mappings: Record<string, any>) => Promise<any>
+
   // Cleanup
   removeAllListeners: () => void
-  
+
   // Logging
   logError: (error: { message: string; stack?: string; details?: any; componentStack?: string }) => void
 }

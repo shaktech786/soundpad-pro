@@ -6,6 +6,9 @@ const Store = require('electron-store');
 // HID gamepad disabled - Windows DirectInput exclusively claims gamepad data, blocking raw HID access
 // const { HIDGamepad } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
+const { GP2040ceApi } = require('./gp2040ce-api');
+
+let gp2040api = new GP2040ceApi();
 
 // Enable Chromium audio output device selection (required for AudioContext.setSinkId)
 app.commandLine.appendSwitch('enable-features', 'AudioServiceOutOfProcess,WebRtcAllowInputVolumeAdjustment');
@@ -522,4 +525,49 @@ ipcMain.handle('asio:diag', async () => {
     })),
     masterVolume: asioEngine._masterVolume
   };
+});
+
+// --- GP2040-CE Controller Config IPC Handlers ---
+
+ipcMain.handle('gp2040:check-connection', async () => {
+  return gp2040api.checkConnection();
+});
+
+ipcMain.handle('gp2040:get-pin-mappings', async () => {
+  return gp2040api.getPinMappings();
+});
+
+ipcMain.handle('gp2040:set-pin-mappings', async (event, mappings) => {
+  return gp2040api.setPinMappings(mappings);
+});
+
+ipcMain.handle('gp2040:get-gamepad-options', async () => {
+  return gp2040api.getGamepadOptions();
+});
+
+ipcMain.handle('gp2040:set-gamepad-options', async (event, options) => {
+  return gp2040api.setGamepadOptions(options);
+});
+
+ipcMain.handle('gp2040:get-addons-options', async () => {
+  return gp2040api.getAddonsOptions();
+});
+
+ipcMain.handle('gp2040:get-raw-api', async (event, endpoint) => {
+  // Generic endpoint fetcher for debugging
+  const http = require('http');
+  return new Promise((resolve) => {
+    const req = http.get({
+      hostname: '192.168.7.1', port: 80, path: endpoint, timeout: 3000,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve({ success: true, data: JSON.parse(data) }); }
+        catch { resolve({ success: true, data }); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve({ success: false, error: 'timeout' }); });
+    req.on('error', (err) => resolve({ success: false, error: err.message }));
+  });
 });

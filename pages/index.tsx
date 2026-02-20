@@ -1095,6 +1095,15 @@ export default function Home() {
                   Remap Buttons
                 </button>
 
+                <button
+                  onClick={() => navigateTo('/controller-config')}
+                  className={`w-full px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
+                    theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  Controller Config
+                </button>
+
                 {/* Theme toggle */}
                 <button
                   onClick={toggleTheme}
