@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
@@ -13,6 +13,13 @@ let gp2040api = new GP2040ceApi();
 // Enable Chromium audio output device selection (required for AudioContext.setSinkId)
 app.commandLine.appendSwitch('enable-features', 'AudioServiceOutOfProcess,WebRtcAllowInputVolumeAdjustment');
 app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
+
+// Prevent background throttling of timers and audio when window loses focus
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
+// Prevent OS from throttling this process (keeps audio playback smooth)
+powerSaveBlocker.start('prevent-app-suspension');
 
 // Initialize electron-store for persistent storage
 const store = new Store({
