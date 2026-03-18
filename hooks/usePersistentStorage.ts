@@ -15,6 +15,7 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
   const [value, setValue] = useState<T>(defaultValue)
   const [isLoading, setIsLoading] = useState(true)
   const isInitialized = useRef(false)
+  const skipNextSave = useRef(true)
 
   // Load data on mount
   useEffect(() => {
@@ -78,8 +79,12 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
 
   // Save data whenever value changes
   useEffect(() => {
-    // Skip the initial load
+    // Skip the initial load and the first render after loading completes
     if (!isInitialized.current || isLoading) return
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
 
     const saveData = async () => {
       try {

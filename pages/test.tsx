@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Head from 'next/head'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
-import { SimplePad } from '../components/SimplePad'
 import { useAudioEngine } from '../hooks/useAudioEngine'
 
 export default function TestPage() {
@@ -27,6 +26,8 @@ export default function TestPage() {
     }
   }
 
+  const buttons = Array.from({ length: 16 }, (_, i) => i)
+
   return (
     <>
       <Head>
@@ -44,12 +45,27 @@ export default function TestPage() {
             </div>
           </div>
 
-          <SimplePad
-            buttonStates={buttonStates}
-            soundMappings={soundMappings}
-            onPlaySound={handlePlaySound}
-            onMapSound={handleMapSound}
-          />
+          <div className="grid grid-cols-4 gap-3 max-w-lg mx-auto">
+            {buttons.map(index => {
+              const isPressed = buttonStates.get(index)
+              const sound = soundMappings.get(index)
+              return (
+                <button
+                  key={index}
+                  onClick={() => sound ? handlePlaySound(sound) : handleMapSound(index)}
+                  className={`aspect-square rounded-lg border-2 flex items-center justify-center text-sm font-bold transition-colors ${
+                    isPressed
+                      ? 'bg-blue-500 border-blue-400 text-white'
+                      : sound
+                        ? 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600'
+                        : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'
+                  }`}
+                >
+                  {sound ? sound.split(/[\\/]/).pop()?.slice(0, 10) : `Pad ${index}`}
+                </button>
+              )
+            })}
+          </div>
 
           <div className="mt-6 text-center">
             <button

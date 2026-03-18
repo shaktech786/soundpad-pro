@@ -213,30 +213,8 @@ export default function Home() {
       console.log(`[Init] Sound mappings loaded:`, Array.from(soundMappings.entries()))
 
       if (soundMappings.size === 0 && !autoLoadComplete) {
-        const soundFiles = [
-          'C:\\Users\\shake\\Documents\\SoundBoard\\go_to_jail.wav',
-          'C:\\Users\\shake\\Documents\\SoundBoard\\just_up_v1.wav',
-          'C:\\Users\\shake\\Documents\\SoundBoard\\little_brother.wav',
-          'C:\\Users\\shake\\Documents\\SoundBoard\\pauL_creenis.wav',
-          'C:\\Users\\shake\\Documents\\SoundBoard\\spaghetti.wav'
-        ]
-
-        const newMappings = new Map<number, string>()
-        soundFiles.forEach((file, index) => {
-          if (index < 16) newMappings.set(index, file)
-        })
-
-        setSoundMappings(newMappings)
         setAutoLoadComplete(true)
-        console.log('Auto-loaded', newMappings.size, 'sounds')
-
-        for (const [_, filepath] of newMappings) {
-          try {
-            await loadSound(filepath)
-          } catch (err) {
-            console.error('Failed to preload:', filepath, err)
-          }
-        }
+        console.log('No sound mappings found — assign sounds via the UI')
       } else if (soundMappings.size > 0) {
         setAutoLoadComplete(true)
         console.log('Loaded', soundMappings.size, 'mappings from store')
@@ -347,19 +325,19 @@ export default function Home() {
       }
     }
 
-    ;(window as any).electronAPI.onHotkeyTriggered(handleHotkey)
+    const cleanupHotkey = (window as any).electronAPI.onHotkeyTriggered(handleHotkey)
 
+    let cleanupStop: (() => void) | undefined
     if ((window as any).electronAPI?.onGlobalStopAudio) {
-      (window as any).electronAPI.onGlobalStopAudio(() => {
+      cleanupStop = (window as any).electronAPI.onGlobalStopAudio(() => {
         console.log('Global stop audio triggered')
         stopAll()
       })
     }
 
     return () => {
-      if ((window as any).electronAPI?.removeAllListeners) {
-        (window as any).electronAPI.removeAllListeners()
-      }
+      if (typeof cleanupHotkey === 'function') cleanupHotkey()
+      if (typeof cleanupStop === 'function') cleanupStop()
     }
   }, [soundMappings, buttonVolumes, playSound, stopAll])
 

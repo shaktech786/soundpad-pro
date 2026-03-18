@@ -70,6 +70,10 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
   const obsRef = useRef<OBSWebSocket | null>(null)
   const isInitialized = useRef(false)
   const autoConnectAttempted = useRef(false)
+  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const savedConfigRef = useRef<OBSConnectionConfig | null>(null)
+  const isConnectingRef = useRef(false)
+  const connectedRef = useRef(false)
 
   // Initialize OBS WebSocket client ONCE
   useEffect(() => {
@@ -91,10 +95,7 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       setConnected(true)
       setConnecting(false)
       setError(null)
-      // Set global flag for auto-connect check
-      if (typeof window !== 'undefined') {
-        (window as any).__obsConnected = true
-      }
+      connectedRef.current = true
 
       // Fetch initial state
       try {
@@ -108,17 +109,21 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       console.log('🔴 OBS WebSocket connection closed')
       setConnected(false)
       setConnecting(false)
-      // Reset global flag
-      if (typeof window !== 'undefined') {
-        (window as any).__obsConnected = false
-      }
+      isConnectingRef.current = false
+      connectedRef.current = false
+      // Start reconnection loop if we have saved config
+      startReconnectLoop()
     })
 
     obs.on('ConnectionError', (err) => {
-      console.error('❌ OBS WebSocket connection error:', err)
-      setError(err.message || 'Connection error')
+      // Only show error in UI if not background reconnecting
+      if (!reconnectIntervalRef.current) {
+        console.error('❌ OBS WebSocket connection error:', err)
+        setError(err.message || 'Connection error')
+      }
       setConnected(false)
       setConnecting(false)
+      isConnectingRef.current = false
     })
 
     // Listen to OBS state changes
@@ -165,9 +170,16 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       const url = `ws://${config.address}:${config.port}`
       console.log('🔌 Connecting to OBS at:', url)
 
+      // Stop any running reconnect loop — manual connect takes over
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current)
+        reconnectIntervalRef.current = null
+      }
+
       await obsRef.current.connect(url, config.password)
 
-      // Save config to electron-store for auto-connect on next launch
+      // Save config for auto-connect and reconnection
+      savedConfigRef.current = config
       if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
         await (window as any).electronAPI.storeSet('obs-connection-config', config)
       } else {
@@ -184,88 +196,124 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
     }
   }, [])
 
-  // Auto-connect on mount if saved config exists (with retries)
+  // Load saved OBS config from electron-store or localStorage
+  const loadSavedConfig = useCallback(async (): Promise<OBSConnectionConfig | null> => {
+    let config: OBSConnectionConfig | null = null
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
+      config = await (window as any).electronAPI.storeGet('obs-connection-config')
+    }
+
+    if (!config) {
+      const savedConfig = localStorage.getItem('obs-connection-config')
+      if (savedConfig) {
+        try {
+          config = JSON.parse(savedConfig)
+        } catch (e) {
+          console.error('Failed to parse OBS config from localStorage')
+        }
+      }
+    }
+
+    return config
+  }, [])
+
+  // Stop the reconnection loop
+  const stopReconnectLoop = useCallback(() => {
+    if (reconnectIntervalRef.current) {
+      clearInterval(reconnectIntervalRef.current)
+      reconnectIntervalRef.current = null
+    }
+  }, [])
+
+  // Attempt a single silent connection (no UI error updates on failure)
+  const tryReconnect = useCallback(async () => {
+    if (!obsRef.current || isConnectingRef.current) return
+    if (connectedRef.current) return
+
+    const config = savedConfigRef.current
+    if (!config) return
+
+    isConnectingRef.current = true
+    try {
+      const url = `ws://${config.address}:${config.port}`
+      console.log('🔄 Auto-reconnecting to OBS at:', url)
+      await obsRef.current.connect(url, config.password)
+      // Success handled by 'Identified' event
+    } catch {
+      // Silent failure — will retry on next interval
+    } finally {
+      isConnectingRef.current = false
+    }
+  }, [])
+
+  // Start the persistent reconnection loop (10s interval)
+  const startReconnectLoop = useCallback(() => {
+    // Don't start if already running or no saved config
+    if (reconnectIntervalRef.current) return
+    if (!savedConfigRef.current) return
+
+    console.log('🔁 Starting OBS reconnection loop (every 10s)')
+    reconnectIntervalRef.current = setInterval(() => {
+      if (connectedRef.current) {
+        console.log('✅ OBS connected, stopping reconnection loop')
+        stopReconnectLoop()
+        return
+      }
+      tryReconnect()
+    }, 10000)
+  }, [tryReconnect, stopReconnectLoop])
+
+  // Auto-connect on mount and start persistent reconnection
   useEffect(() => {
     if (autoConnectAttempted.current) return
     autoConnectAttempted.current = true
 
-    let retryCount = 0
-    const maxRetries = 5
-    const retryDelays = [2000, 5000, 10000, 15000, 30000] // Increasing delays
-    let retryTimeoutId: NodeJS.Timeout | null = null
     let cancelled = false
+    let initTimeout: NodeJS.Timeout | null = null
 
-    const tryAutoConnect = async () => {
-      if (cancelled) return
-
+    const initAutoConnect = async () => {
       // Wait for OBS client to be initialized
       if (!obsRef.current) {
-        console.log('⏳ Waiting for OBS client to initialize...')
-        retryTimeoutId = setTimeout(tryAutoConnect, 500)
+        initTimeout = setTimeout(initAutoConnect, 500)
         return
       }
+      if (cancelled) return
 
-      let config: OBSConnectionConfig | null = null
-
-      // Try electron-store first
-      if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
-        config = await (window as any).electronAPI.storeGet('obs-connection-config')
-      }
-
-      // Fallback to localStorage
-      if (!config) {
-        const savedConfig = localStorage.getItem('obs-connection-config')
-        if (savedConfig) {
-          try {
-            config = JSON.parse(savedConfig)
-          } catch (e) {
-            console.error('Failed to parse OBS config from localStorage')
-          }
-        }
-      }
-
+      const config = await loadSavedConfig()
       if (!config) {
         console.log('ℹ️ No saved OBS config found, skipping auto-connect')
         return
       }
 
-      console.log(`🔄 Auto-connecting to OBS (attempt ${retryCount + 1}/${maxRetries}):`, config.address + ':' + config.port)
-      await connect(config)
+      savedConfigRef.current = config
+      console.log('🔄 Auto-connecting to OBS:', config.address + ':' + config.port)
 
-      // Wait a bit then check if connection succeeded by checking state
-      // We use a closure to capture the connected state check
-      const checkConnection = () => {
-        if (cancelled) return
-
-        // Check if we're now connected (set by the 'Identified' event handler)
-        // We need to check via a fresh call since this is async
-        if (typeof window !== 'undefined' && (window as any).__obsConnected) {
-          console.log('✅ OBS auto-connect successful')
-          return
+      // First attempt immediately
+      isConnectingRef.current = true
+      try {
+        const url = `ws://${config.address}:${config.port}`
+        await obsRef.current.connect(url, config.password)
+        // Success handled by 'Identified' event
+      } catch {
+        // OBS not available yet — start reconnection loop
+        if (!cancelled) {
+          console.log('⏳ OBS not available, will keep retrying every 10s')
+          startReconnectLoop()
         }
-
-        retryCount++
-        if (retryCount < maxRetries) {
-          const delay = retryDelays[retryCount - 1] || 30000
-          console.log(`⏳ OBS not connected, retrying in ${delay / 1000}s... (attempt ${retryCount + 1}/${maxRetries})`)
-          retryTimeoutId = setTimeout(tryAutoConnect, delay)
-        } else {
-          console.log('❌ OBS auto-connect failed after max retries. Connect manually via settings.')
-        }
+      } finally {
+        isConnectingRef.current = false
       }
-      setTimeout(checkConnection, 2000) // Wait 2s for connection to establish
     }
 
-    // Start auto-connect after a short delay
-    retryTimeoutId = setTimeout(tryAutoConnect, 500)
+    initTimeout = setTimeout(initAutoConnect, 500)
 
     return () => {
       cancelled = true
-      if (retryTimeoutId) {
-        clearTimeout(retryTimeoutId)
-      }
+      if (initTimeout) clearTimeout(initTimeout)
+      stopReconnectLoop()
     }
-  }, [connect])
+  }, [connect, loadSavedConfig, startReconnectLoop, stopReconnectLoop])
 
   const refreshOBSStateInternal = async () => {
     if (!obsRef.current) return
@@ -415,15 +463,21 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
 
         case 'toggle_source_visibility':
           if (action.params?.sceneName && action.params?.sourceName) {
-            const response = await obsRef.current.call('GetSceneItemId', {
+            const itemIdResponse = await obsRef.current.call('GetSceneItemId', {
               sceneName: action.params.sceneName,
               sourceName: action.params.sourceName
+            })
+            const sceneItemId = (itemIdResponse as any).sceneItemId
+
+            const enabledResponse = await obsRef.current.call('GetSceneItemEnabled', {
+              sceneName: action.params.sceneName,
+              sceneItemId
             })
 
             await obsRef.current.call('SetSceneItemEnabled', {
               sceneName: action.params.sceneName,
-              sceneItemId: (response as any).sceneItemId,
-              sceneItemEnabled: !(response as any).sceneItemEnabled
+              sceneItemId,
+              sceneItemEnabled: !(enabledResponse as any).sceneItemEnabled
             })
           }
           break

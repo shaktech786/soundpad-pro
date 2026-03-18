@@ -30,17 +30,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleGlobalHotkeys: (enabled) => ipcRenderer.invoke('toggle-global-hotkeys', enabled),
   getRegisteredHotkeys: () => ipcRenderer.invoke('get-registered-hotkeys'),
   
-  // Listen for hotkey events
+  // Listen for hotkey events (returns cleanup function to avoid listener leaks)
   onHotkeyTriggered: (callback) => {
-    ipcRenderer.on('hotkey-triggered', (event, buttonIndex) => callback(buttonIndex));
+    const handler = (event, buttonIndex) => callback(buttonIndex);
+    ipcRenderer.on('hotkey-triggered', handler);
+    return () => ipcRenderer.removeListener('hotkey-triggered', handler);
   },
   onGlobalStopAudio: (callback) => {
-    ipcRenderer.on('global-stop-audio', () => callback());
+    const handler = () => callback();
+    ipcRenderer.on('global-stop-audio', handler);
+    return () => ipcRenderer.removeListener('global-stop-audio', handler);
   },
 
   // Listen for HID gamepad button states (works when window unfocused)
   onHIDGamepadState: (callback) => {
-    ipcRenderer.on('hid-gamepad-state', (event, buttonStates) => callback(buttonStates));
+    const handler = (event, buttonStates) => callback(buttonStates);
+    ipcRenderer.on('hid-gamepad-state', handler);
+    return () => ipcRenderer.removeListener('hid-gamepad-state', handler);
   },
 
   // Audio diagnostics
@@ -70,6 +76,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gp2040SetGamepadOptions: (options) => ipcRenderer.invoke('gp2040:set-gamepad-options', options),
   gp2040GetAddonsOptions: () => ipcRenderer.invoke('gp2040:get-addons-options'),
   gp2040AnalyzeMappings: (mappings) => ipcRenderer.invoke('gp2040:analyze-mappings', mappings),
+
+  // Logging
+  logError: (error) => ipcRenderer.invoke('log-error', error),
 
   // Cleanup listeners
   removeAllListeners: () => {

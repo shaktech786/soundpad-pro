@@ -43,19 +43,102 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [liveSplitState, setLiveSplitState] = useState<LiveSplitState>({
+  const [liveSplitState] = useState<LiveSplitState>({
     currentTimerState: 'NotRunning'
   })
 
   const socketRef = useRef<WebSocket | null>(null)
-  const isInitialized = useRef(false)
   const autoConnectAttempted = useRef(false)
-  const stateQueryInterval = useRef<NodeJS.Timeout | null>(null)
+  const savedConfigRef = useRef<LiveSplitConnectionConfig | null>(null)
+  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isConnectingRef = useRef(false)
+
+  // Load saved config from electron-store or localStorage
+  const loadSavedConfig = useCallback(async (): Promise<LiveSplitConnectionConfig | null> => {
+    let config: LiveSplitConnectionConfig | null = null
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.storeGet) {
+      config = await (window as any).electronAPI.storeGet('livesplit-connection-config')
+    }
+
+    if (!config) {
+      const saved = localStorage.getItem('livesplit-connection-config')
+      if (saved) {
+        try {
+          config = JSON.parse(saved)
+        } catch (e) {
+          console.error('Failed to parse LiveSplit config from localStorage')
+        }
+      }
+    }
+
+    return config
+  }, [])
+
+  const stopReconnectLoop = useCallback(() => {
+    if (reconnectIntervalRef.current) {
+      clearInterval(reconnectIntervalRef.current)
+      reconnectIntervalRef.current = null
+    }
+  }, [])
+
+  // Attempt a single silent reconnection
+  const tryReconnect = useCallback(() => {
+    const config = savedConfigRef.current
+    if (!config || isConnectingRef.current) return
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) return
+
+    isConnectingRef.current = true
+    try {
+      const url = `ws://${config.address}:${config.port}/livesplit`
+      console.log('🔄 Auto-reconnecting to LiveSplit at:', url)
+      const socket = new WebSocket(url)
+
+      socket.onopen = () => {
+        console.log('✅ LiveSplit Server reconnected')
+        setConnected(true)
+        setConnecting(false)
+        setError(null)
+        isConnectingRef.current = false
+        stopReconnectLoop()
+      }
+
+      socket.onerror = () => {
+        isConnectingRef.current = false
+      }
+
+      socket.onclose = () => {
+        setConnected(false)
+        setConnecting(false)
+        isConnectingRef.current = false
+        startReconnectLoop()
+      }
+
+      socketRef.current = socket
+    } catch {
+      isConnectingRef.current = false
+    }
+  }, [stopReconnectLoop])
+
+  const startReconnectLoop = useCallback(() => {
+    if (reconnectIntervalRef.current) return
+    if (!savedConfigRef.current) return
+
+    console.log('🔁 Starting LiveSplit reconnection loop (every 10s)')
+    reconnectIntervalRef.current = setInterval(() => {
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        stopReconnectLoop()
+        return
+      }
+      tryReconnect()
+    }, 10000)
+  }, [tryReconnect, stopReconnectLoop])
 
   // Connect function
   const connect = useCallback(async (config: LiveSplitConnectionConfig) => {
     setConnecting(true)
     setError(null)
+    stopReconnectLoop()
 
     try {
       const url = `ws://${config.address}:${config.port}/livesplit`
@@ -69,8 +152,13 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
         setConnecting(false)
         setError(null)
 
-        // Save config to localStorage for auto-connect on next launch
-        localStorage.setItem('livesplit-connection-config', JSON.stringify(config))
+        // Save config for auto-connect and reconnection
+        savedConfigRef.current = config
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.storeSet) {
+          (window as any).electronAPI.storeSet('livesplit-connection-config', config)
+        } else {
+          localStorage.setItem('livesplit-connection-config', JSON.stringify(config))
+        }
         console.log('💾 Saved LiveSplit config for auto-connect')
       }
 
@@ -85,6 +173,7 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
         console.log('🔴 LiveSplit Server connection closed')
         setConnected(false)
         setConnecting(false)
+        startReconnectLoop()
       }
 
       socketRef.current = socket
@@ -94,31 +183,42 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
       setConnecting(false)
       setConnected(false)
     }
-  }, [])
+  }, [stopReconnectLoop, startReconnectLoop])
 
   // Auto-connect on mount if saved config exists
   useEffect(() => {
     if (autoConnectAttempted.current) return
     autoConnectAttempted.current = true
 
+    let cancelled = false
+
     const tryAutoConnect = async () => {
+      const config = await loadSavedConfig()
+      if (!config || cancelled) return
+
+      savedConfigRef.current = config
+      console.log('🔄 Auto-connecting to LiveSplit Server with saved config...')
+
       try {
-        const savedConfig = localStorage.getItem('livesplit-connection-config')
-        if (savedConfig) {
-          const config: LiveSplitConnectionConfig = JSON.parse(savedConfig)
-          console.log('🔄 Auto-connecting to LiveSplit Server with saved config...')
-          await connect(config)
+        await connect(config)
+      } catch {
+        if (!cancelled) {
+          startReconnectLoop()
         }
-      } catch (err) {
-        console.log('No saved LiveSplit config or auto-connect failed:', err)
       }
     }
 
-    // Wait a bit for socket initialization
     setTimeout(tryAutoConnect, 1500)
-  }, [connect])
+
+    return () => {
+      cancelled = true
+      stopReconnectLoop()
+    }
+  }, [connect, loadSavedConfig, startReconnectLoop, stopReconnectLoop])
 
   const disconnect = useCallback(() => {
+    stopReconnectLoop()
+    savedConfigRef.current = null
     if (socketRef.current) {
       console.log('🔌 Disconnecting from LiveSplit Server')
       socketRef.current.close()
@@ -126,7 +226,7 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
       setConnected(false)
       setError(null)
     }
-  }, [])
+  }, [stopReconnectLoop])
 
   const executeAction = useCallback(async (action: LiveSplitAction, isLongPress?: boolean) => {
     // Check if socket exists and is in OPEN state (readyState === 1)
@@ -201,6 +301,9 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current)
+      }
       if (socketRef.current) {
         console.log('🧹 Cleaning up LiveSplit connection')
         socketRef.current.close()

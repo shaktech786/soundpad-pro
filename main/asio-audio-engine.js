@@ -595,12 +595,14 @@ class AsioAudioEngine {
           const vol = voice.volume * this._masterVolume;
 
           for (let frame = 0; frame < framesPerBuffer; frame++) {
-            const sampleIndex = voice.cursor + frame;
+            let sampleIndex = voice.cursor + frame;
 
             if (sampleIndex >= pcmLength) {
               if (voice.loop) {
-                voice.cursor = -(frame);
-                break;
+                // Wrap cursor for seamless looping (no silence gap)
+                voice.cursor -= pcmLength;
+                sampleIndex = voice.cursor + frame;
+                if (sampleIndex < 0) sampleIndex = 0;
               } else {
                 voicesToRemove.push(vi);
                 break;

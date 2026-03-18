@@ -37,12 +37,14 @@ let mainWindow;
 let globalHotkeysEnabled = true;
 let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
-let hidGamepad = null;
 let asioEngine = null;
+let asioInitializing = false;
 
 // Auto-initialize the Direct Audio engine on startup so it's always ready.
 // Also pre-loads any sound mappings from the store so playback is instant.
 async function autoInitDirectAudio() {
+  if (asioInitializing) return;
+  asioInitializing = true;
   try {
     asioEngine = new AsioAudioEngine();
     const device = asioEngine.findVoiceMeeterAsio();
@@ -79,6 +81,8 @@ async function autoInitDirectAudio() {
   } catch (err) {
     console.error('[DirectAudio] Auto-init error:', err.message);
     asioEngine = null;
+  } finally {
+    asioInitializing = false;
   }
 }
 
@@ -135,15 +139,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Grant permissions for setSinkId (audio output device selection) and media
+  // Grant only permissions the app needs (audio output device selection and media)
+  const allowedPermissions = new Set(['speaker-selection', 'media', 'audioCapture']);
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-    if (permission === 'speaker-selection') return true;
-    if (permission === 'media') return true;
-    return true;
+    return allowedPermissions.has(permission);
   });
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(true);
+    callback(allowedPermissions.has(permission));
   });
 
   // Auto-init direct audio engine before creating window
@@ -372,6 +375,10 @@ ipcMain.handle('asio:get-devices', async () => {
 });
 
 ipcMain.handle('asio:initialize', async (event, deviceId) => {
+  if (asioInitializing) {
+    return { success: false, error: 'ASIO initialization already in progress' };
+  }
+  asioInitializing = true;
   try {
     if (!asioEngine) {
       asioEngine = new AsioAudioEngine();
@@ -382,6 +389,8 @@ ipcMain.handle('asio:initialize', async (event, deviceId) => {
   } catch (err) {
     console.error('[IPC] asio:initialize error:', err.message);
     return { success: false, error: err.message };
+  } finally {
+    asioInitializing = false;
   }
 });
 
@@ -558,6 +567,23 @@ ipcMain.handle('gp2040:set-gamepad-options', async (event, options) => {
 
 ipcMain.handle('gp2040:get-addons-options', async () => {
   return gp2040api.getAddonsOptions();
+});
+
+// Analyze controller mappings (placeholder — returns the mappings unchanged)
+ipcMain.handle('gp2040:analyze-mappings', async (event, mappings) => {
+  return { success: true, mappings };
+});
+
+// Log errors from renderer process
+ipcMain.handle('log-error', async (event, errorData) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[Renderer Error ${timestamp}]`, errorData.message || errorData);
+  if (errorData.stack) console.error(errorData.stack);
+  // Also write to error log file
+  const logPath = path.join(app.getPath('userData'), 'error.log');
+  const line = `[${timestamp}] ${errorData.message || JSON.stringify(errorData)}\n${errorData.stack || ''}\n${errorData.componentStack || ''}\n---\n`;
+  await fs.appendFile(logPath, line).catch(() => {});
+  return { success: true };
 });
 
 ipcMain.handle('gp2040:get-raw-api', async (event, endpoint) => {

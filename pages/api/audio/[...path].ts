@@ -26,11 +26,12 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     // Normalize to Windows path
     filePath = filePath.replace(/\//g, '\\')
 
-    // Security: Only allow audio files from specific directories
+    // Security: Only allow audio files from user's home directory subtrees
+    const homeDir = process.env.USERPROFILE || process.env.HOME || ''
     const allowedPaths = [
-      'C:\\Users\\shake\\Documents\\SoundBoard',
-      'C:\\Users\\shake\\Music',
-      'C:\\Users\\shake\\Downloads'
+      path.join(homeDir, 'Documents', 'SoundBoard'),
+      path.join(homeDir, 'Music'),
+      path.join(homeDir, 'Downloads')
     ]
 
     const isAllowed = allowedPaths.some(allowed =>

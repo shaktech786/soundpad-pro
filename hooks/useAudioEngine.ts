@@ -23,6 +23,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   // Refs to avoid stale closures in callbacks
   const loadedSoundsRef = useRef<Map<string, Howl>>(new Map())
   const loadingRef = useRef<Map<string, boolean>>(new Map())
+  const isPlayingRef = useRef<Map<string, boolean>>(new Map())
   const audioModeRef = useRef<AudioMode>(audioMode)
 
   // Keep audioMode ref in sync
@@ -34,6 +35,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   useEffect(() => {
     loadedSoundsRef.current = loadedSounds
   }, [loadedSounds])
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying
+  }, [isPlaying])
 
   useEffect(() => {
     loadingRef.current = isLoading
@@ -86,7 +91,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   // WDM cleanup on unmount
   useEffect(() => {
     return () => {
-      loadedSounds.forEach(sound => sound.unload())
+      loadedSoundsRef.current.forEach(sound => sound.unload())
       blobUrlRegistry.forEach(url => URL.revokeObjectURL(url))
       blobUrlRegistry.clear()
     }
@@ -388,7 +393,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode, loadSound])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
-    if (options?.restart || !isPlaying.get(filePath)) {
+    if (options?.restart || !isPlayingRef.current.get(filePath)) {
       sound.stop()
     }
 
@@ -503,11 +508,11 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       return
     }
 
-    const sound = loadedSounds.get(filePath)
+    const sound = loadedSoundsRef.current.get(filePath)
     if (sound) {
       sound.volume(Math.max(0, Math.min(1, volume)))
     }
-  }, [audioMode, loadedSounds])
+  }, [audioMode])
 
   const setMasterVolume = useCallback((volume: number) => {
     if (audioModeRef.current === 'asio') {

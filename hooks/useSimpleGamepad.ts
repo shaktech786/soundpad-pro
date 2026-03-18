@@ -18,11 +18,22 @@ function decodeHatSwitch(value: number) {
   return { up: true, right: false, down: false, left: true }
 }
 
+// Compare two button state maps — returns true if identical
+function mapsEqual(a: Map<number, boolean>, b: Map<number, boolean>): boolean {
+  if (a.size !== b.size) return false
+  for (const [key, val] of a) {
+    if (b.get(key) !== val) return false
+  }
+  return true
+}
+
 export function useSimpleGamepad() {
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const [connected, setConnected] = useState(false)
   const hidStates = useRef<Map<number, boolean>>(new Map())
   const hatSwitchAxes = useRef<Set<string>>(new Set())
+  const prevStatesRef = useRef<Map<number, boolean>>(new Map())
+  const prevConnectedRef = useRef(false)
 
   const scanGamepads = useCallback(() => {
     const gamepads = navigator.getGamepads()
@@ -73,8 +84,15 @@ export function useSimpleGamepad() {
       }
     }
 
-    setConnected(hasGamepad)
-    setButtonStates(newStates)
+    // Only trigger React re-renders when state actually changed
+    if (!mapsEqual(newStates, prevStatesRef.current)) {
+      prevStatesRef.current = newStates
+      setButtonStates(newStates)
+    }
+    if (hasGamepad !== prevConnectedRef.current) {
+      prevConnectedRef.current = hasGamepad
+      setConnected(hasGamepad)
+    }
   }, [])
 
   // HID gamepad events from main process
@@ -83,11 +101,12 @@ export function useSimpleGamepad() {
     const api = (window as any).electronAPI
     if (!api?.onHIDGamepadState) return
 
-    api.onHIDGamepadState((states: Record<string, boolean>) => {
+    const cleanup = api.onHIDGamepadState((states: Record<string, boolean>) => {
       const m = new Map<number, boolean>()
       for (const [k, v] of Object.entries(states)) m.set(Number(k), v)
       hidStates.current = m
     })
+    return () => { if (typeof cleanup === 'function') cleanup() }
   }, [])
 
   // Poll at 60fps
