@@ -32,4 +32,4 @@ jobs:
         with:
           name: SoundPad-Pro-Setup
           path: dist/SoundPad-Pro-Setup.exe
-          retention-days: 14
+          retention-days: 3
