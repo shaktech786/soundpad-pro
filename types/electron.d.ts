@@ -47,7 +47,12 @@ interface ElectronAPI {
   asioSetVolume: (filePath: string, volume: number) => Promise<{ success: boolean; error?: string }>
   asioSetMasterVolume: (volume: number) => Promise<{ success: boolean; error?: string }>
   asioTestTone: () => Promise<{ success: boolean; error?: string }>
+  asioReconnect: () => Promise<{ success: boolean; device?: string; reconnected?: boolean; error?: string }>
   asioDiag: () => Promise<any>
+
+  // ASIO stream health events
+  onAsioStreamLost: (callback: (reason: string) => void) => (() => void)
+  onAsioStreamRecovered: (callback: (device: string) => void) => (() => void)
 
   // GP2040-CE Controller Config
   gp2040CheckConnection: () => Promise<{ connected: boolean; version?: any; error?: string }>

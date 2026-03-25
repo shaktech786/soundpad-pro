@@ -88,6 +88,42 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
   }, [audioMode])
 
+  // Listen for ASIO stream-lost/recovered events from main process
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : null
+    if (!api || audioMode !== 'asio') return
+
+    let cleanupLost: (() => void) | undefined
+    let cleanupRecovered: (() => void) | undefined
+
+    if (api.onAsioStreamLost) {
+      cleanupLost = api.onAsioStreamLost((reason: string) => {
+        console.error(`[AudioEngine] ASIO stream lost: ${reason}`)
+        setAsioReady(false)
+        setLoadErrors(prev => new Map(prev).set('__asio__', `Stream lost: ${reason}`))
+      })
+    }
+
+    if (api.onAsioStreamRecovered) {
+      cleanupRecovered = api.onAsioStreamRecovered((device: string) => {
+        console.log(`[AudioEngine] ASIO stream recovered: ${device}`)
+        setAsioReady(true)
+        setLoadErrors(prev => {
+          const newMap = new Map(prev)
+          newMap.delete('__asio__')
+          return newMap
+        })
+        // Re-mark loaded files since cache is preserved across reconnect
+        // but the Set needs to match engine state
+      })
+    }
+
+    return () => {
+      cleanupLost?.()
+      cleanupRecovered?.()
+    }
+  }, [audioMode])
+
   // WDM cleanup on unmount
   useEffect(() => {
     return () => {
@@ -351,10 +387,22 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       }
 
       const doPlay = async (fp: string) => {
-        const result = await api.asioPlaySound(fp, asioOpts)
+        let result = await api.asioPlaySound(fp, asioOpts)
         if (result && !result.success) {
-          console.error(`[AudioEngine] asioPlaySound failed for ${fp}: ${result.error}`)
-        } else {
+          // If engine reports not initialized, try reconnecting once
+          if (result.error?.includes('not initialized') && api.asioReconnect) {
+            console.log('[AudioEngine] Engine not initialized, attempting reconnect...')
+            const reconnResult = await api.asioReconnect()
+            if (reconnResult.success) {
+              setAsioReady(true)
+              result = await api.asioPlaySound(fp, asioOpts)
+            }
+          }
+          if (result && !result.success) {
+            console.error(`[AudioEngine] asioPlaySound failed for ${fp}: ${result.error}`)
+          }
+        }
+        if (result?.success) {
           setIsPlaying(prev => new Map(prev).set(fp, true))
         }
       }

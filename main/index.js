@@ -52,6 +52,15 @@ async function autoInitDirectAudio() {
       const result = asioEngine.initialize();
       if (result.success) {
         console.log(`[DirectAudio] Auto-initialized: ${result.device} via ${result.mode} @ ${result.sampleRate}Hz`);
+
+        // Notify renderer when ASIO stream is lost so it can show status
+        asioEngine.onStreamLost((reason) => {
+          console.error(`[DirectAudio] Stream lost: ${reason}`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('asio:stream-lost', reason);
+          }
+        });
+
         // Pre-load sounds from store so they're ready before renderer loads
         const audioMode = store.get('audio-output-mode');
         if (audioMode === 'asio') {
@@ -404,8 +413,36 @@ ipcMain.handle('asio:status', async () => {
     sampleRate: asioEngine._sampleRate,
     channels: asioEngine._channels,
     cachedSounds: asioEngine._soundCache.size,
-    activeVoices: asioEngine._activeVoices.size
+    activeVoices: asioEngine._activeVoices.size,
+    healthy: asioEngine.isStreamHealthy()
   };
+});
+
+ipcMain.handle('asio:reconnect', async () => {
+  try {
+    if (!asioEngine) {
+      // Engine doesn't exist, do a full init
+      asioEngine = new AsioAudioEngine();
+      const result = asioEngine.initialize();
+      if (result.success) {
+        asioEngine.onStreamLost((reason) => {
+          console.error(`[DirectAudio] Stream lost: ${reason}`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('asio:stream-lost', reason);
+          }
+        });
+      }
+      return result;
+    }
+    const result = asioEngine.reconnect();
+    if (result.success && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('asio:stream-recovered', result.device);
+    }
+    return result;
+  } catch (err) {
+    console.error('[IPC] asio:reconnect error:', err.message);
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('asio:shutdown', async () => {

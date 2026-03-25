@@ -66,7 +66,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   asioSetVolume: (filePath, volume) => ipcRenderer.invoke('asio:set-volume', filePath, volume),
   asioSetMasterVolume: (volume) => ipcRenderer.invoke('asio:set-master-volume', volume),
   asioTestTone: () => ipcRenderer.invoke('asio:test-tone'),
+  asioReconnect: () => ipcRenderer.invoke('asio:reconnect'),
   asioDiag: () => ipcRenderer.invoke('asio:diag'),
+
+  // ASIO stream health events (returns cleanup function)
+  onAsioStreamLost: (callback) => {
+    const handler = (event, reason) => callback(reason);
+    ipcRenderer.on('asio:stream-lost', handler);
+    return () => ipcRenderer.removeListener('asio:stream-lost', handler);
+  },
+  onAsioStreamRecovered: (callback) => {
+    const handler = (event, device) => callback(device);
+    ipcRenderer.on('asio:stream-recovered', handler);
+    return () => ipcRenderer.removeListener('asio:stream-recovered', handler);
+  },
 
   // GP2040-CE Controller Config
   gp2040CheckConnection: () => ipcRenderer.invoke('gp2040:check-connection'),
@@ -85,5 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('hotkey-triggered');
     ipcRenderer.removeAllListeners('global-stop-audio');
     ipcRenderer.removeAllListeners('hid-gamepad-state');
+    ipcRenderer.removeAllListeners('asio:stream-lost');
+    ipcRenderer.removeAllListeners('asio:stream-recovered');
   }
 });

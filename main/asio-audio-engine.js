@@ -36,6 +36,14 @@ class AsioAudioEngine {
 
     this._deviceId = null;
     this._deviceName = null;
+
+    // Stream health tracking
+    this._consecutiveWriteErrors = 0;
+    this._writeErrorThreshold = 5;
+    this._reconnecting = false;
+    this._lastReconnectAttempt = 0;
+    this._reconnectCooldownMs = 3000;
+    this._onStreamLost = null; // callback: (reason) => void
   }
 
   /**
@@ -400,6 +408,78 @@ class AsioAudioEngine {
     return { success: true, samples: numSamples };
   }
 
+  /**
+   * Set a callback that fires when the ASIO stream is lost/broken.
+   * @param {(reason: string) => void} callback
+   */
+  onStreamLost(callback) {
+    this._onStreamLost = callback;
+  }
+
+  /**
+   * Reconnect to the ASIO device, preserving the sound cache.
+   * Called automatically when write errors exceed threshold, or manually.
+   */
+  reconnect() {
+    if (this._reconnecting) {
+      return { success: false, error: 'Reconnection already in progress' };
+    }
+
+    const now = Date.now();
+    if (now - this._lastReconnectAttempt < this._reconnectCooldownMs) {
+      return { success: false, error: 'Reconnect cooldown active' };
+    }
+
+    this._reconnecting = true;
+    this._lastReconnectAttempt = now;
+
+    console.log('[DirectAudio] Reconnecting ASIO stream...');
+
+    // Save state we want to preserve
+    const savedCache = this._soundCache;
+    const savedMasterVolume = this._masterVolume;
+    const savedDeviceId = this._deviceId;
+
+    // Tear down the stream (but not the cache)
+    if (this._mixInterval) {
+      clearInterval(this._mixInterval);
+      this._mixInterval = null;
+    }
+
+    if (this._rtAudio) {
+      try {
+        this._rtAudio.stop();
+        this._rtAudio.closeStream();
+      } catch (err) {
+        // Expected to fail if stream is already broken
+      }
+      this._rtAudio = null;
+    }
+
+    this._initialized = false;
+    this._activeVoices.clear();
+    this._consecutiveWriteErrors = 0;
+
+    // Try to re-initialize
+    try {
+      const result = this.initialize(savedDeviceId);
+      this._soundCache = savedCache;
+      this._masterVolume = savedMasterVolume;
+      this._reconnecting = false;
+
+      console.log(`[DirectAudio] Reconnected: ${result.device} @ ${result.sampleRate}Hz`);
+      return { success: true, device: result.device, reconnected: true };
+    } catch (err) {
+      // Restore cache even on failure so sounds don't need reloading
+      this._soundCache = savedCache;
+      this._masterVolume = savedMasterVolume;
+      this._reconnecting = false;
+
+      console.error(`[DirectAudio] Reconnect failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
   shutdown() {
     if (this._mixInterval) {
       clearInterval(this._mixInterval);
@@ -421,6 +501,7 @@ class AsioAudioEngine {
     this._initialized = false;
     this._deviceId = null;
     this._deviceName = null;
+    this._consecutiveWriteErrors = 0;
 
     console.log('[DirectAudio] Engine shut down');
     return { success: true };
@@ -428,6 +509,10 @@ class AsioAudioEngine {
 
   isInitialized() {
     return this._initialized;
+  }
+
+  isStreamHealthy() {
+    return this._initialized && !this._reconnecting && this._consecutiveWriteErrors < this._writeErrorThreshold;
   }
 
   // --- Private methods ---
@@ -641,8 +726,21 @@ class AsioAudioEngine {
       const buffer = Buffer.from(floatView.buffer);
       try {
         this._rtAudio.write(buffer);
+        this._consecutiveWriteErrors = 0;
       } catch (err) {
-        console.error('[DirectAudio] Write error:', err.message);
+        this._consecutiveWriteErrors++;
+        if (this._consecutiveWriteErrors === 1) {
+          console.error(`[DirectAudio] Write error: ${err.message}`);
+        }
+
+        if (this._consecutiveWriteErrors >= this._writeErrorThreshold && !this._reconnecting) {
+          console.error(`[DirectAudio] ${this._consecutiveWriteErrors} consecutive write errors — stream lost, attempting reconnect`);
+          if (this._onStreamLost) {
+            this._onStreamLost(`ASIO write failed ${this._consecutiveWriteErrors} times: ${err.message}`);
+          }
+          // Reconnect asynchronously so we don't block the interval
+          setImmediate(() => this.reconnect());
+        }
       }
     }, intervalMs);
   }
