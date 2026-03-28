@@ -109,6 +109,32 @@ export function useSimpleGamepad() {
     return () => { if (typeof cleanup === 'function') cleanup() }
   }, [])
 
+  // Listen for gamepad connect/disconnect so newly plugged-in controllers are recognized
+  useEffect(() => {
+    const onConnect = (e: GamepadEvent) => {
+      console.log('[Gamepad] connected:', e.gamepad.id, 'index:', e.gamepad.index)
+      // Reset hat switch detection for this gamepad since axes may differ
+      for (const key of hatSwitchAxes.current) {
+        if (key.startsWith(`${e.gamepad.index}:`)) hatSwitchAxes.current.delete(key)
+      }
+      scanGamepads()
+    }
+    const onDisconnect = (e: GamepadEvent) => {
+      console.log('[Gamepad] disconnected:', e.gamepad.id, 'index:', e.gamepad.index)
+      // Clean up hat switch tracking for this gamepad
+      for (const key of hatSwitchAxes.current) {
+        if (key.startsWith(`${e.gamepad.index}:`)) hatSwitchAxes.current.delete(key)
+      }
+      scanGamepads()
+    }
+    window.addEventListener('gamepadconnected', onConnect)
+    window.addEventListener('gamepaddisconnected', onDisconnect)
+    return () => {
+      window.removeEventListener('gamepadconnected', onConnect)
+      window.removeEventListener('gamepaddisconnected', onDisconnect)
+    }
+  }, [scanGamepads])
+
   // Poll at 60fps
   useEffect(() => {
     const id = setInterval(scanGamepads, 16)
