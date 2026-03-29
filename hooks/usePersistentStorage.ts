@@ -28,6 +28,8 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
             // Handle Map deserialization
             if (defaultValue instanceof Map) {
               setValue(deserializeMap(storedValue) as T)
+            } else if (defaultValue instanceof Set) {
+              setValue(new Set(storedValue) as T)
             } else {
               setValue(storedValue)
             }
@@ -43,9 +45,11 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
           if (item) {
             try {
               const parsed = JSON.parse(item)
-              // Handle Map deserialization
+              // Handle Map/Set deserialization
               if (defaultValue instanceof Map) {
                 setValue(deserializeMap(parsed) as T)
+              } else if (defaultValue instanceof Set) {
+                setValue(new Set(parsed) as T)
               } else {
                 setValue(parsed)
               }
@@ -53,6 +57,8 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
               // Migrate from localStorage to electron-store
               if (window.electronAPI?.storeSet) {
                 if (defaultValue instanceof Map) {
+                  await window.electronAPI.storeSet(key, Array.from(parsed))
+                } else if (defaultValue instanceof Set) {
                   await window.electronAPI.storeSet(key, Array.from(parsed))
                 } else {
                   await window.electronAPI.storeSet(key, parsed)
@@ -90,9 +96,11 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
       try {
         let dataToSave = value
         
-        // Handle Map serialization
+        // Handle Map/Set serialization
         if (value instanceof Map) {
           dataToSave = Array.from((value as Map<any, any>).entries()) as T
+        } else if (value instanceof Set) {
+          dataToSave = Array.from(value as Set<any>) as T
         }
         
         // Save to electron-store if available

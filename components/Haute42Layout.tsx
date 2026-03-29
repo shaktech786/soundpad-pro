@@ -7,6 +7,7 @@ interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
   soundMappings: Map<number, string>
   obsActions?: Map<number, CombinedAction>
+  drumPadButtons?: Set<number>
   onPlaySound: (url: string, buttonIndex?: number) => void
   onMapSound: (index: number) => void
   onMapSoundFromUrl?: (index: number) => void
@@ -25,6 +26,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
   buttonStates,
   soundMappings,
   obsActions,
+  drumPadButtons,
   onPlaySound,
   onMapSound,
   onMapSoundFromUrl,
@@ -82,6 +84,7 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
     const isPressed = buttonStates.get(gamepadButton) === true
     const soundFile = soundMappings.get(index)
     const hasSound = !!soundFile
+    const isDrumPad = hasSound && (drumPadButtons?.has(index) ?? false)
     const obsAction = obsActions?.get(index)
     const hasOBSAction = !!obsAction
     const isStopButton = stopButton !== null && gamepadButton === stopButton
@@ -138,14 +141,18 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
           relative
           focus:outline-none focus:ring-4 focus:ring-purple-500/50
           ${isPressed
-            ? 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
+            ? isDrumPad
+              ? 'bg-orange-400 border-orange-200 scale-110 shadow-lg shadow-orange-400/50'
+              : 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
             : isStopButton
               ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:scale-105 shadow-lg shadow-red-500/30'
-              : hasSound
-                ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
-                : theme === 'light'
-                  ? 'bg-gray-200 border-gray-300 hover:bg-gray-300 hover:scale-105'
-                  : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
+              : isDrumPad
+                ? 'bg-orange-600 border-orange-500 hover:bg-orange-500 hover:scale-105'
+                : hasSound
+                  ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
+                  : theme === 'light'
+                    ? 'bg-gray-200 border-gray-300 hover:bg-gray-300 hover:scale-105'
+                    : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
           }
         `}
         aria-label={buttonLabel}
@@ -162,6 +169,16 @@ export const Haute42Layout: React.FC<Haute42LayoutProps> = ({
               : 'bg-gradient-to-br from-purple-500 to-pink-500'
           }`}>
             <span className="text-xs">{obsAction?.service === 'livesplit' ? '🏁' : '🎬'}</span>
+          </div>
+        )}
+        {isDrumPad && (
+          <div className={`absolute -top-1 -left-1 w-5 h-5 rounded-full border-2 flex items-center justify-center bg-orange-500 ${
+            theme === 'light' ? 'border-white' : 'border-gray-900'
+          }`}>
+            <svg className="w-3 h-3 text-white" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="8" cy="8" r="3" />
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
           </div>
         )}
 

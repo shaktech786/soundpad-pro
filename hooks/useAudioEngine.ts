@@ -373,6 +373,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     volume?: number
     loop?: boolean
     restart?: boolean
+    drumPad?: boolean
   }) => {
     const api = (window as any).electronAPI
 
@@ -383,7 +384,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       const asioOpts = {
         volume: options?.volume ?? 1.0,
         loop: options?.loop ?? false,
-        restart: options?.restart ?? false
+        restart: options?.drumPad ? false : (options?.restart ?? false)
       }
 
       const doPlay = async (fp: string) => {
@@ -441,6 +442,16 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [audioMode, loadSound])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
+    // Drum pad mode: layer new voices without stopping previous ones
+    if (options?.drumPad) {
+      if (options?.volume !== undefined) {
+        sound.volume(options.volume)
+      }
+      sound.play()
+      setIsPlaying(prev => new Map(prev).set(filePath, true))
+      return
+    }
+
     if (options?.restart || !isPlayingRef.current.get(filePath)) {
       sound.stop()
     }

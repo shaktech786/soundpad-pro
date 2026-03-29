@@ -36,6 +36,7 @@ export function useProfileManager() {
     stopButton: number | null
     boardLayout: ButtonPosition[]
     buttonShape: ButtonShape
+    drumPadButtons: number[]
   }> => {
     const storeGet = (window as any).electronAPI?.storeGet
     if (!storeGet) {
@@ -48,6 +49,7 @@ export function useProfileManager() {
         stopButton: null,
         boardLayout: HAUTE42_LAYOUT,
         buttonShape: 'circle',
+        drumPadButtons: [],
       }
     }
 
@@ -60,6 +62,7 @@ export function useProfileManager() {
       stopButton,
       boardLayout,
       buttonShape,
+      drumPadButtons,
     ] = await Promise.all([
       storeGet('haute42-button-mapping'),
       storeGet('soundpad-mappings'),
@@ -69,6 +72,7 @@ export function useProfileManager() {
       storeGet('haute42-stop-button'),
       storeGet(STORAGE_KEYS.BOARD_LAYOUT),
       storeGet(STORAGE_KEYS.BUTTON_SHAPE),
+      storeGet('drum-pad-buttons'),
     ])
 
     return {
@@ -80,6 +84,7 @@ export function useProfileManager() {
       stopButton: stopButton ?? null,
       boardLayout: boardLayout ?? HAUTE42_LAYOUT,
       buttonShape: buttonShape ?? 'circle',
+      drumPadButtons: drumPadButtons ?? [],
     }
   }, [])
 
@@ -96,6 +101,7 @@ export function useProfileManager() {
       storeSet('haute42-stop-button', profile.stopButton),
       storeSet(STORAGE_KEYS.BOARD_LAYOUT, profile.boardLayout),
       storeSet(STORAGE_KEYS.BUTTON_SHAPE, profile.buttonShape),
+      storeSet('drum-pad-buttons', profile.drumPadButtons ?? []),
     ])
   }, [])
 
@@ -134,6 +140,7 @@ export function useProfileManager() {
       buttonVolumes: [],
       linkedButtons: [],
       stopButton: null,
+      drumPadButtons: [],
     }
     setProfiles(prev => [...prev, profile])
     setActiveProfileId(profile.id)

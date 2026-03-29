@@ -26,6 +26,7 @@ export interface BoardProfile {
   buttonVolumes: [number, number][]
   linkedButtons: [number, number][]
   stopButton: number | null
+  drumPadButtons: number[]
 }
 
 export interface LayoutPreset {

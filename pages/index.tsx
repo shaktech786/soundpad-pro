@@ -11,6 +11,7 @@ import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
+import { DrumPadModal } from '../components/DrumPadModal'
 import { ProfileSelector } from '../components/ProfileSelector'
 import { BoardBuilder } from '../components/BoardBuilder'
 import { useProfileManager } from '../hooks/useProfileManager'
@@ -116,6 +117,11 @@ export default function Home() {
     'button-volumes',
     new Map()
   )
+  const [drumPadButtons, setDrumPadButtons] = usePersistentStorage<Set<number>>(
+    'drum-pad-buttons',
+    new Set()
+  )
+  const [pendingSoundAssign, setPendingSoundAssign] = useState<{ index: number; filePath: string } | null>(null)
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping, buttonMappingLoading] = usePersistentStorage<Map<number, number>>(
     'haute42-button-mapping',
@@ -320,8 +326,13 @@ export default function Home() {
       if (soundFile) {
         const cleanUrl = soundFile.split('#')[0]
         const volume = (buttonVolumes.get(buttonIndex) ?? 100) / 100
-        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`)
-        playSound(cleanUrl, { restart: true, volume })
+        const isDrumPad = drumPadButtons.has(buttonIndex)
+        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`, isDrumPad ? '(drum pad)' : '')
+        if (isDrumPad) {
+          playSound(cleanUrl, { volume, drumPad: true })
+        } else {
+          playSound(cleanUrl, { restart: true, volume })
+        }
       }
     }
 
@@ -339,7 +350,7 @@ export default function Home() {
       if (typeof cleanupHotkey === 'function') cleanupHotkey()
       if (typeof cleanupStop === 'function') cleanupStop()
     }
-  }, [soundMappings, buttonVolumes, playSound, stopAll])
+  }, [soundMappings, buttonVolumes, drumPadButtons, playSound, stopAll])
 
   // Poll for triggers from OBS dock (only in dev mode where API routes exist)
   useEffect(() => {
@@ -486,14 +497,21 @@ export default function Home() {
         }
         const soundFile = soundMappings.get(visualButtonId)
         if (soundFile) {
+          const isDrumPad = drumPadButtons.has(visualButtonId)
           const now = Date.now()
           const lastPlay = lastPlayTime.current.get(visualButtonId) || 0
-          if (now - lastPlay >= 150) {
+          // Drum pad mode: no debounce, polyphonic layering
+          // Normal mode: 150ms debounce, restart playback
+          const debounceMs = isDrumPad ? 0 : 150
+          if (now - lastPlay >= debounceMs) {
             lastPlayTime.current.set(visualButtonId, now)
             const cleanUrl = soundFile.split('#')[0]
             const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
-            playSound(cleanUrl, { restart: true, volume })
-          } else {
+            if (isDrumPad) {
+              playSound(cleanUrl, { volume, drumPad: true })
+            } else {
+              playSound(cleanUrl, { restart: true, volume })
+            }
           }
         }
 
@@ -531,12 +549,17 @@ export default function Home() {
     })
 
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, buttonVolumes, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
+  }, [buttonStates, soundMappings, buttonVolumes, drumPadButtons, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
 
   const handlePlaySound = (url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
     const volume = buttonIndex !== undefined ? (buttonVolumes.get(buttonIndex) ?? 100) / 100 : 1.0
-    playSound(cleanUrl, { restart: true, volume })
+    const isDrumPad = buttonIndex !== undefined && drumPadButtons.has(buttonIndex)
+    if (isDrumPad) {
+      playSound(cleanUrl, { volume, drumPad: true })
+    } else {
+      playSound(cleanUrl, { restart: true, volume })
+    }
   }
 
   const handleMapSound = async (index: number) => {
@@ -544,16 +567,7 @@ export default function Home() {
       try {
         const result = await (window as any).electronAPI.selectAudioFile()
         if (result && result.filePath) {
-          setSoundMappings(prev => {
-            const newMap = new Map(prev)
-            newMap.set(index, result.filePath)
-            return newMap
-          })
-          setCombinedActions(prev => {
-            const newMap = new Map(prev)
-            newMap.delete(index)
-            return newMap
-          })
+          setPendingSoundAssign({ index, filePath: result.filePath })
         }
       } catch (error) {
         console.error('Error selecting file:', error)
@@ -561,6 +575,32 @@ export default function Home() {
     } else {
       handleMapSoundFromUrl(index)
     }
+  }
+
+  const handleConfirmSoundAssign = (drumPad: boolean) => {
+    if (!pendingSoundAssign) return
+    const { index, filePath } = pendingSoundAssign
+
+    setSoundMappings(prev => {
+      const newMap = new Map(prev)
+      newMap.set(index, filePath)
+      return newMap
+    })
+    setCombinedActions(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(index)
+      return newMap
+    })
+    setDrumPadButtons(prev => {
+      const newSet = new Set(prev)
+      if (drumPad) {
+        newSet.add(index)
+      } else {
+        newSet.delete(index)
+      }
+      return newSet
+    })
+    setPendingSoundAssign(null)
   }
 
   const handleMapSoundFromUrl = (index: number) => {
@@ -691,6 +731,7 @@ export default function Home() {
               buttonStates={filteredButtonStates}
               soundMappings={soundMappings}
               obsActions={combinedActions}
+              drumPadButtons={drumPadButtons}
               onPlaySound={handlePlaySound}
               onMapSound={handleMapSound}
               onMapSoundFromUrl={handleMapSoundFromUrl}
@@ -731,6 +772,7 @@ export default function Home() {
                   onClick={() => {
                     if (confirm('Clear all pad mappings?')) {
                       setSoundMappings(new Map())
+                      setDrumPadButtons(new Set())
                       setAutoLoadComplete(false)
                     }
                   }}
@@ -1205,6 +1247,16 @@ export default function Home() {
           buttonIndex={assigningUrlSound}
           onConfirm={handleConfirmUrlSound}
           onClose={() => setAssigningUrlSound(null)}
+        />
+      )}
+
+      {pendingSoundAssign && (
+        <DrumPadModal
+          buttonIndex={pendingSoundAssign.index}
+          fileName={pendingSoundAssign.filePath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Unknown'}
+          isDrumPad={drumPadButtons.has(pendingSoundAssign.index)}
+          onConfirm={handleConfirmSoundAssign}
+          onCancel={() => setPendingSoundAssign(null)}
         />
       )}
 
