@@ -318,7 +318,10 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
         const sound = new Howl({
           src: [audioUrl],
-          html5: true,
+          // blob: URLs are local files already read into memory — use Web Audio API for
+          // sub-millisecond playback latency (critical for MPC/drum pad feel).
+          // Remote/HTTP URLs use html5 streaming to avoid decoding large files upfront.
+          html5: !audioUrl.startsWith('blob:'),
           preload: true,
           volume: 1.0,
           format: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'aac', 'opus', 'weba'],

@@ -135,9 +135,9 @@ export function useSimpleGamepad() {
     }
   }, [scanGamepads])
 
-  // Poll at 60fps
+  // Poll at 125Hz (8ms) — halves input detection latency vs 60fps for tighter drum pad response
   useEffect(() => {
-    const id = setInterval(scanGamepads, 16)
+    const id = setInterval(scanGamepads, 8)
     return () => clearInterval(id)
   }, [scanGamepads])
 
