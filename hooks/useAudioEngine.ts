@@ -29,7 +29,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   // Keep audioMode ref in sync
   useEffect(() => {
     audioModeRef.current = audioMode
-  }, [audioMode])
+  }, [])
 
   // Update refs when state changes
   useEffect(() => {
@@ -86,7 +86,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       asioLoadedFiles.clear()
       setAsioReady(false)
     }
-  }, [audioMode])
+  }, [])
 
   // Listen for ASIO stream-lost/recovered events from main process
   useEffect(() => {
@@ -122,7 +122,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       cleanupLost?.()
       cleanupRecovered?.()
     }
-  }, [audioMode])
+  }, [])
 
   // WDM cleanup on unmount
   useEffect(() => {
@@ -367,7 +367,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       })
       throw error
     }
-  }, [audioMode])
+  }, [])
 
   const playSound = useCallback((filePath: string, options?: {
     volume?: number
@@ -439,7 +439,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
 
     playLoadedSound(sound, filePath, options)
-  }, [audioMode, loadSound])
+  }, [])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
     // Drum pad mode: layer new voices without stopping previous ones
@@ -483,7 +483,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       sound.stop()
       setIsPlaying(prev => new Map(prev).set(filePath, false))
     }
-  }, [audioMode])
+  }, [])
 
   const unloadSound = useCallback((filePath: string) => {
     if (audioModeRef.current === 'asio') {
@@ -542,7 +542,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
         return newMap
       })
     }
-  }, [audioMode])
+  }, [])
 
   const stopAll = useCallback(() => {
     if (audioModeRef.current === 'asio') {
@@ -556,7 +556,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
     Howler.stop()
     setIsPlaying(new Map())
-  }, [audioMode])
+  }, [])
 
   const setVolume = useCallback((filePath: string, volume: number) => {
     if (audioModeRef.current === 'asio') {
@@ -571,7 +571,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     if (sound) {
       sound.volume(Math.max(0, Math.min(1, volume)))
     }
-  }, [audioMode])
+  }, [])
 
   const setMasterVolume = useCallback((volume: number) => {
     if (audioModeRef.current === 'asio') {
@@ -583,7 +583,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
 
     Howler.volume(Math.max(0, Math.min(1, volume)))
-  }, [audioMode])
+  }, [])
 
   return {
     loadSound,

@@ -96,6 +96,8 @@ export const OBSProvider: React.FC<OBSProviderProps> = ({ children }) => {
       setConnecting(false)
       setError(null)
       connectedRef.current = true
+      // Stop reconnect loop immediately instead of waiting for next interval check
+      stopReconnectLoop()
 
       // Fetch initial state
       try {

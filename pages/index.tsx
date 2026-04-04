@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
@@ -11,7 +11,6 @@ import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
-import { DrumPadModal } from '../components/DrumPadModal'
 import { ProfileSelector } from '../components/ProfileSelector'
 import { BoardBuilder } from '../components/BoardBuilder'
 import { useProfileManager } from '../hooks/useProfileManager'
@@ -121,7 +120,6 @@ export default function Home() {
     'drum-pad-buttons',
     new Set()
   )
-  const [pendingSoundAssign, setPendingSoundAssign] = useState<{ index: number; filePath: string } | null>(null)
   const [autoLoadComplete, setAutoLoadComplete] = useState(false)
   const [buttonMapping, setButtonMapping, buttonMappingLoading] = usePersistentStorage<Map<number, number>>(
     'haute42-button-mapping',
@@ -176,10 +174,7 @@ export default function Home() {
 
   // Check if onboarding needed (wait for button mapping to load first)
   useEffect(() => {
-    console.log(`[Init] buttonMappingLoading: ${buttonMappingLoading}, buttonMapping.size: ${buttonMapping.size}`)
     if (buttonMappingLoading || boardLayoutLoading) return
-
-    console.log(`[Init] Button mapping loaded with ${buttonMapping.size} entries:`, Array.from(buttonMapping.entries()))
 
     if (buttonMapping.size === 0) {
       const hasSeenOnboarding = localStorage.getItem('onboarding-complete')
@@ -214,16 +209,12 @@ export default function Home() {
   // Auto-load sounds from SoundBoard directory on first run
   useEffect(() => {
     const autoLoadSounds = async () => {
-      console.log(`[Init] soundMappingsLoading: ${soundMappingsLoading}, soundMappings.size: ${soundMappings.size}`)
       if (soundMappingsLoading) return
-      console.log(`[Init] Sound mappings loaded:`, Array.from(soundMappings.entries()))
 
       if (soundMappings.size === 0 && !autoLoadComplete) {
         setAutoLoadComplete(true)
-        console.log('No sound mappings found — assign sounds via the UI')
       } else if (soundMappings.size > 0) {
         setAutoLoadComplete(true)
-        console.log('Loaded', soundMappings.size, 'mappings from store')
 
         for (const [_, filepath] of soundMappings) {
           try {
@@ -409,6 +400,15 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [soundMappings, buttonVolumes, playSound, stopAll])
 
+  // Reverse mapping: gamepadId → visualId (O(1) lookup instead of O(n) scan on every button press)
+  const reverseButtonMapping = useMemo(() => {
+    const reverse = new Map<number, number>()
+    buttonMapping.forEach((gamepadId, visualId) => {
+      reverse.set(gamepadId, visualId)
+    })
+    return reverse
+  }, [buttonMapping])
+
   // Track previous button states for edge detection
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())
   const buttonPressStart = useRef<Map<number, number>>(new Map())
@@ -486,15 +486,7 @@ export default function Home() {
           return
         }
 
-        let visualButtonId = gamepadButtonIndex
-        if (buttonMapping.size > 0) {
-          for (const [vId, gId] of buttonMapping.entries()) {
-            if (gId === gamepadButtonIndex) {
-              visualButtonId = vId
-              break
-            }
-          }
-        }
+        const visualButtonId = reverseButtonMapping.get(gamepadButtonIndex) ?? gamepadButtonIndex
         const soundFile = soundMappings.get(visualButtonId)
         if (soundFile) {
           const isDrumPad = drumPadButtons.has(visualButtonId)
@@ -524,16 +516,7 @@ export default function Home() {
       }
 
       if (!isPressed && wasPressed) {
-        let visualButtonId = gamepadButtonIndex
-        if (buttonMapping.size > 0) {
-          for (const [vId, gId] of buttonMapping.entries()) {
-            if (gId === gamepadButtonIndex) {
-              visualButtonId = vId
-              break
-            }
-          }
-        }
-
+        const visualButtonId = reverseButtonMapping.get(gamepadButtonIndex) ?? gamepadButtonIndex
         const combinedAction = combinedActions.get(visualButtonId)
 
         if (combinedAction?.service === 'livesplit' && liveSplitConnected) {
@@ -549,9 +532,9 @@ export default function Home() {
     })
 
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, buttonVolumes, drumPadButtons, playSound, buttonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
+  }, [buttonStates, soundMappings, buttonVolumes, drumPadButtons, playSound, reverseButtonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
 
-  const handlePlaySound = (url: string, buttonIndex?: number) => {
+  const handlePlaySound = useCallback((url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
     const volume = buttonIndex !== undefined ? (buttonVolumes.get(buttonIndex) ?? 100) / 100 : 1.0
     const isDrumPad = buttonIndex !== undefined && drumPadButtons.has(buttonIndex)
@@ -560,14 +543,27 @@ export default function Home() {
     } else {
       playSound(cleanUrl, { restart: true, volume })
     }
-  }
+  }, [buttonVolumes, drumPadButtons, playSound])
 
-  const handleMapSound = async (index: number) => {
+  const handleMapSoundFromUrl = useCallback((index: number) => {
+    setAssigningUrlSound(index)
+  }, [])
+
+  const handleMapSound = useCallback(async (index: number) => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
       try {
         const result = await (window as any).electronAPI.selectAudioFile()
         if (result && result.filePath) {
-          setPendingSoundAssign({ index, filePath: result.filePath })
+          setSoundMappings(prev => {
+            const newMap = new Map(prev)
+            newMap.set(index, result.filePath)
+            return newMap
+          })
+          setCombinedActions(prev => {
+            const newMap = new Map(prev)
+            newMap.delete(index)
+            return newMap
+          })
         }
       } catch (error) {
         console.error('Error selecting file:', error)
@@ -575,39 +571,9 @@ export default function Home() {
     } else {
       handleMapSoundFromUrl(index)
     }
-  }
+  }, [handleMapSoundFromUrl, setSoundMappings, setCombinedActions])
 
-  const handleConfirmSoundAssign = (drumPad: boolean) => {
-    if (!pendingSoundAssign) return
-    const { index, filePath } = pendingSoundAssign
-
-    setSoundMappings(prev => {
-      const newMap = new Map(prev)
-      newMap.set(index, filePath)
-      return newMap
-    })
-    setCombinedActions(prev => {
-      const newMap = new Map(prev)
-      newMap.delete(index)
-      return newMap
-    })
-    setDrumPadButtons(prev => {
-      const newSet = new Set(prev)
-      if (drumPad) {
-        newSet.add(index)
-      } else {
-        newSet.delete(index)
-      }
-      return newSet
-    })
-    setPendingSoundAssign(null)
-  }
-
-  const handleMapSoundFromUrl = (index: number) => {
-    setAssigningUrlSound(index)
-  }
-
-  const handleConfirmUrlSound = (url: string, name?: string) => {
+  const handleConfirmUrlSound = useCallback((url: string, _name?: string) => {
     if (assigningUrlSound !== null) {
       setSoundMappings(prev => {
         const newMap = new Map(prev)
@@ -621,7 +587,19 @@ export default function Home() {
       })
       setAssigningUrlSound(null)
     }
-  }
+  }, [assigningUrlSound, setSoundMappings, setCombinedActions])
+
+  const handleAssignOBSAction = useCallback((index: number) => {
+    setAssigningAction(index)
+  }, [])
+
+  const handleTriggerAction = useCallback((action: CombinedAction) => {
+    if (action.service === 'obs' && obsConnected) {
+      executeOBSAction(action as OBSAction)
+    } else if (action.service === 'livesplit' && liveSplitConnected) {
+      executeLiveSplitAction(action as LiveSplitAction, false)
+    }
+  }, [obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
 
   // --- Format stop button label ---
   const stopButtonLabel = stopButton !== null
@@ -735,14 +713,8 @@ export default function Home() {
               onPlaySound={handlePlaySound}
               onMapSound={handleMapSound}
               onMapSoundFromUrl={handleMapSoundFromUrl}
-              onAssignOBSAction={(index) => setAssigningAction(index)}
-              onTriggerAction={(action) => {
-                if (action.service === 'obs' && obsConnected) {
-                  executeOBSAction(action as OBSAction)
-                } else if (action.service === 'livesplit' && liveSplitConnected) {
-                  executeLiveSplitAction(action as LiveSplitAction, false)
-                }
-              }}
+              onAssignOBSAction={handleAssignOBSAction}
+              onTriggerAction={handleTriggerAction}
               buttonMapping={buttonMapping}
               stopButton={stopButton}
               boardLayout={boardLayout}
@@ -1169,6 +1141,18 @@ export default function Home() {
           currentAction={combinedActions.get(assigningAction) || null}
           currentSound={soundMappings.get(assigningAction) || null}
           currentVolume={buttonVolumes.get(assigningAction) ?? 100}
+          isDrumPad={drumPadButtons.has(assigningAction)}
+          onDrumPadToggle={(enabled) => {
+            setDrumPadButtons(prev => {
+              const newSet = new Set(prev)
+              if (enabled) {
+                newSet.add(assigningAction)
+              } else {
+                newSet.delete(assigningAction)
+              }
+              return newSet
+            })
+          }}
           scenes={obsState.scenes}
           sources={obsState.sources}
           obsConnected={obsConnected}
@@ -1247,16 +1231,6 @@ export default function Home() {
           buttonIndex={assigningUrlSound}
           onConfirm={handleConfirmUrlSound}
           onClose={() => setAssigningUrlSound(null)}
-        />
-      )}
-
-      {pendingSoundAssign && (
-        <DrumPadModal
-          buttonIndex={pendingSoundAssign.index}
-          fileName={pendingSoundAssign.filePath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Unknown'}
-          isDrumPad={drumPadButtons.has(pendingSoundAssign.index)}
-          onConfirm={handleConfirmSoundAssign}
-          onCancel={() => setPendingSoundAssign(null)}
         />
       )}
 

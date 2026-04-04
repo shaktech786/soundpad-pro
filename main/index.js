@@ -136,7 +136,10 @@ function createWindow() {
   if (isDev) {
     mainWindow.loadURL('http://localhost:3005');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../out/index.html'));
+    // Clear cached code to ensure latest build is loaded
+    session.defaultSession.clearCache().then(() => {
+      mainWindow.loadFile(path.join(__dirname, '../out/index.html'));
+    });
   }
 
   mainWindow.on('closed', () => {

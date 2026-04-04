@@ -88,6 +88,13 @@ export const LiveSplitProvider: React.FC<LiveSplitProviderProps> = ({ children }
     if (!config || isConnectingRef.current) return
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) return
 
+    // Close stale socket if it's still connecting (not open, not already closed)
+    if (socketRef.current && socketRef.current.readyState !== WebSocket.CLOSED) {
+      if (socketRef.current.readyState === WebSocket.OPEN) return
+      socketRef.current.close()
+      socketRef.current = null
+    }
+
     isConnectingRef.current = true
     try {
       const url = `ws://${config.address}:${config.port}/livesplit`

@@ -342,6 +342,10 @@ class AsioAudioEngine {
 
   stopAll() {
     this._activeVoices.clear();
+    // Flush buffered audio immediately so playback stops without delay
+    if (this._rtAudio) {
+      try { this._rtAudio.clearOutputQueue(); } catch (e) { /* ignore */ }
+    }
     return { success: true };
   }
 

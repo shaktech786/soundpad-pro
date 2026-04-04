@@ -9,6 +9,8 @@ interface OBSActionAssignerProps {
   currentAction: CombinedAction | null
   currentSound?: string | null
   currentVolume?: number
+  isDrumPad?: boolean
+  onDrumPadToggle?: (enabled: boolean) => void
   scenes: string[]
   sources: string[]
   onAssign: (action: CombinedAction | null) => void
@@ -73,6 +75,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   currentAction,
   currentSound,
   currentVolume = 100,
+  isDrumPad = false,
+  onDrumPadToggle,
   scenes,
   sources,
   onAssign,
@@ -362,6 +366,30 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                     <span>100%</span>
                   </div>
                 </div>
+
+                {/* Drum Pad Mode Toggle */}
+                {currentSound && onDrumPadToggle && (
+                  <div className="p-4 bg-gray-800 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-white">Drum Pad Mode</div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          Polyphonic playback, zero debounce. Best for drum hits and one-shots.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onDrumPadToggle(!isDrumPad)}
+                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${
+                          isDrumPad ? 'bg-orange-500' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                          isDrumPad ? 'translate-x-6' : 'translate-x-1'
+                        }`} />
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Error Message */}
                 {error && (

@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "2.14.0",
+  "version": "2.15.0",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
@@ -37,7 +37,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
+    "@electron/rebuild": "^4.0.3",
     "@types/howler": "^2.2.8",
     "@types/node": "20.19.30",
     "@types/react": "18.3.27",
@@ -45,8 +45,8 @@
     "autoprefixer": "^10.4.0",
     "concurrently": "^8.0.0",
     "cross-env": "^7.0.3",
-    "electron": "^27.0.0",
-    "electron-builder": "^24.0.0",
+    "electron": "^40.8.5",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.3.0",
     "typescript": "5.9.3",
