@@ -98,7 +98,10 @@ function StatusDot({ active, live }: { active: boolean; live?: boolean }) {
 export default function Home() {
   const router = useRouter()
   const { theme, toggleTheme } = useTheme()
-  const { buttonStates, connected } = useSimpleGamepad()
+  // Direct button-down handler ref — called synchronously from the gamepad poll loop,
+  // bypassing the React rendering cycle for zero-latency drum pad audio.
+  const buttonDownHandlerRef = useRef<(gamepadId: number) => void>(() => {})
+  const { buttonStates, connected } = useSimpleGamepad(buttonDownHandlerRef)
   const [audioMode, setAudioMode] = usePersistentStorage<AudioMode>('audio-output-mode', 'wdm')
   const { playSound, stopAll, loadSound, unloadSound, setMasterVolume, asioReady, loadErrors } = useAudioEngine(audioMode)
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
@@ -466,7 +469,30 @@ export default function Home() {
     }
   }, [configuringLinkedButtons])
 
-  // Play sound when controller buttons are pressed
+  // Keep the direct callback ref up to date with latest state — drum pads fire through
+  // this ref synchronously from the gamepad poll loop, before any React re-render.
+  useEffect(() => {
+    buttonDownHandlerRef.current = (gamepadId: number) => {
+      if (assigningStopButton || configuringLinkedButtons) return
+      if (buttonMappingLoading || soundMappingsLoading) return
+      if (linkedButtons.has(gamepadId)) return
+      if (stopButton !== null && gamepadId === stopButton) return
+
+      const visualButtonId = reverseButtonMapping.get(gamepadId) ?? gamepadId
+      const soundFile = soundMappings.get(visualButtonId)
+      if (!soundFile) return
+
+      if (!drumPadButtons.has(visualButtonId)) return
+
+      const cleanUrl = soundFile.split('#')[0]
+      const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
+      lastPlayTime.current.set(visualButtonId, Date.now())
+      playSound(cleanUrl, { volume, drumPad: true })
+    }
+  }, [assigningStopButton, configuringLinkedButtons, buttonMappingLoading, soundMappingsLoading,
+      linkedButtons, stopButton, reverseButtonMapping, soundMappings, drumPadButtons, buttonVolumes, playSound])
+
+  // Play sound when controller buttons are pressed (non-drum-pad path + button release handling)
   useEffect(() => {
     if (assigningStopButton || configuringLinkedButtons) return
     if (buttonMappingLoading || soundMappingsLoading) return
@@ -490,18 +516,14 @@ export default function Home() {
         const soundFile = soundMappings.get(visualButtonId)
         if (soundFile) {
           const isDrumPad = drumPadButtons.has(visualButtonId)
-          const now = Date.now()
-          const lastPlay = lastPlayTime.current.get(visualButtonId) || 0
-          // Drum pad mode: no debounce, polyphonic layering
-          // Normal mode: 150ms debounce, restart playback
-          const debounceMs = isDrumPad ? 0 : 150
-          if (now - lastPlay >= debounceMs) {
-            lastPlayTime.current.set(visualButtonId, now)
-            const cleanUrl = soundFile.split('#')[0]
-            const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
-            if (isDrumPad) {
-              playSound(cleanUrl, { volume, drumPad: true })
-            } else {
+          // Drum pads already fired via direct callback ref — skip to avoid double playback
+          if (!isDrumPad) {
+            const now = Date.now()
+            const lastPlay = lastPlayTime.current.get(visualButtonId) || 0
+            if (now - lastPlay >= 150) {
+              lastPlayTime.current.set(visualButtonId, now)
+              const cleanUrl = soundFile.split('#')[0]
+              const volume = (buttonVolumes.get(visualButtonId) ?? 100) / 100
               playSound(cleanUrl, { restart: true, volume })
             }
           }
