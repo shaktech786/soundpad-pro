@@ -3,8 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
-// HID gamepad disabled - Windows DirectInput exclusively claims gamepad data, blocking raw HID access
-// const { HIDGamepad } = require('./hid-gamepad');
+const { HIDGamepad } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
 
@@ -170,14 +169,16 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  // HID gamepad disabled - Windows DirectInput blocks raw HID access
-  // To re-enable, uncomment the HIDGamepad import and the code below:
-  // hidGamepad = new HIDGamepad((buttonStates) => {
-  //   if (mainWindow && !mainWindow.isDestroyed()) {
-  //     mainWindow.webContents.send('hid-gamepad-state', buttonStates);
-  //   }
-  // });
-  // hidGamepad.connect();
+  // Background HID gamepad polling — works even when OBS or another app has focus.
+  // The Pokken Controller (GP2040-CE Switch mode) is a pure HID device, not XInput,
+  // so node-hid can open it without conflict. Auto-reconnects if the controller
+  // is unplugged and replugged.
+  const hidGamepad = new HIDGamepad((buttonStates) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hid-gamepad-state', buttonStates);
+    }
+  });
+  hidGamepad.start();
 
   // No default global stop hotkey - user can configure in settings
 });
@@ -185,11 +186,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   // Unregister all shortcuts when app is closing
   globalShortcut.unregisterAll();
-  // HID gamepad cleanup (currently disabled)
-  // if (hidGamepad) {
-  //   hidGamepad.destroy();
-  //   hidGamepad = null;
-  // }
+  // HID gamepad is local to app.whenReady — no explicit cleanup needed (GC handles it)
   // ASIO engine cleanup
   if (asioEngine) {
     asioEngine.shutdown();
