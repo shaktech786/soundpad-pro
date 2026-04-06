@@ -29,7 +29,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   // Keep audioMode ref in sync
   useEffect(() => {
     audioModeRef.current = audioMode
-  }, [])
+  }, [audioMode])
 
   // Update refs when state changes
   useEffect(() => {
@@ -86,7 +86,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       asioLoadedFiles.clear()
       setAsioReady(false)
     }
-  }, [])
+  }, [audioMode])
 
   // Listen for ASIO stream-lost/recovered events from main process
   useEffect(() => {
@@ -122,7 +122,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       cleanupLost?.()
       cleanupRecovered?.()
     }
-  }, [])
+  }, [audioMode])
 
   // WDM cleanup on unmount
   useEffect(() => {
