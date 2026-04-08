@@ -40,55 +40,73 @@ export function useSimpleGamepad(buttonDownRef?: MutableRefObject<(id: number) =
     const newStates = new Map<number, boolean>()
     let hasGamepad = false
 
+    // Use document.hasFocus() to decide which source to trust.
+    //
+    // When FOCUSED: Web Gamepad API is fully operational. Use it exclusively.
+    //   HID can report button IDs that differ from Chrome's gamepad button ordering
+    //   (due to BYTE0_MAP differences), causing the same physical press to appear
+    //   as two distinct IDs — one per source — and fire two sounds (the triangle bug).
+    //
+    // When UNFOCUSED: Chrome freezes Web Gamepad API state. Use HID exclusively.
+    //   HID polls the controller directly via node-hid regardless of window focus.
+    //
+    // Never merge both sources simultaneously — that's what causes duplicate IDs.
+    const windowFocused = document.hasFocus()
+
     for (let i = 0; i < gamepads.length; i++) {
       const gamepad = gamepads[i]
       if (!gamepad?.connected) continue
       hasGamepad = true
 
-      // Standard buttons (IDs 0-99)
-      for (let b = 0; b < gamepad.buttons.length; b++) {
-        const btn = gamepad.buttons[b]
-        if (btn.pressed || btn.value > 0.5) {
-          newStates.set(b, true)
+      if (windowFocused) {
+        // Standard buttons (IDs 0-99)
+        for (let b = 0; b < gamepad.buttons.length; b++) {
+          const btn = gamepad.buttons[b]
+          if (btn.pressed || btn.value > 0.5) {
+            newStates.set(b, true)
+          }
         }
-      }
 
-      // Axes
-      for (let a = 0; a < gamepad.axes.length; a++) {
-        const val = gamepad.axes[a]
-        const hatKey = `${i}:${a}`
+        // Axes
+        for (let a = 0; a < gamepad.axes.length; a++) {
+          const val = gamepad.axes[a]
+          const hatKey = `${i}:${a}`
 
-        // Auto-detect hat switch axes (neutral value > 1.1, outside normal -1 to 1 range)
-        if (val > 1.1) hatSwitchAxes.current.add(hatKey)
+          // Auto-detect hat switch axes (neutral value > 1.1, outside normal -1 to 1 range)
+          if (val > 1.1) hatSwitchAxes.current.add(hatKey)
 
-        if (hatSwitchAxes.current.has(hatKey)) {
-          // Hat switch → 4 cardinal direction buttons (IDs 300-303)
-          const d = decodeHatSwitch(val)
-          if (d.up) newStates.set(300, true)
-          if (d.right) newStates.set(301, true)
-          if (d.down) newStates.set(302, true)
-          if (d.left) newStates.set(303, true)
-        } else {
-          // Normal analog axis → 2 virtual buttons per axis (IDs 100+)
-          if (val > 0.5) newStates.set(100 + a * 2, true)
-          if (val < -0.5) newStates.set(100 + a * 2 + 1, true)
+          if (hatSwitchAxes.current.has(hatKey)) {
+            // Hat switch → 4 cardinal direction buttons (IDs 300-303)
+            const d = decodeHatSwitch(val)
+            if (d.up)    newStates.set(300, true)
+            if (d.right) newStates.set(301, true)
+            if (d.down)  newStates.set(302, true)
+            if (d.left)  newStates.set(303, true)
+          } else {
+            // Normal analog axis → 2 virtual buttons per axis (IDs 100+)
+            if (val > 0.5)  newStates.set(100 + a * 2, true)
+            if (val < -0.5) newStates.set(100 + a * 2 + 1, true)
+          }
         }
       }
     }
 
-    // Merge HID states (works when window is unfocused)
-    for (const [id, pressed] of hidStates.current) {
-      if (pressed) {
-        newStates.set(id, true)
-        hasGamepad = true
+    // HID states (sourced from node-hid in the main process, always active).
+    // Only merge when unfocused — when focused, Web Gamepad API handles everything.
+    if (!windowFocused) {
+      for (const [id, pressed] of hidStates.current) {
+        if (pressed) {
+          newStates.set(id, true)
+          hasGamepad = true
+        }
       }
     }
 
     // Fire direct callbacks for NEW button presses synchronously — bypasses React scheduling
     // entirely for drum pad audio, eliminating the ~16ms React render cycle latency.
     if (buttonDownRef?.current) {
-      for (const [id, pressed] of newStates) {
-        if (pressed && !prevStatesRef.current.get(id)) {
+      for (const [id] of newStates) {
+        if (!prevStatesRef.current.get(id)) {
           buttonDownRef.current(id)
         }
       }

@@ -445,12 +445,14 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [])
 
   const playLoadedSound = (sound: Howl, filePath: string, options?: any) => {
-    // Drum pad mode: layer new voices without stopping previous ones
+    // Drum pad mode: layer new voices without stopping previous ones.
+    // Volume is set per-voice (using the sound ID returned by play()) so that
+    // rapid re-triggers with different volumes don't mutate each other's playback.
     if (options?.drumPad) {
-      if (options?.volume !== undefined) {
-        sound.volume(options.volume)
+      const soundId = sound.play()
+      if (options?.volume !== undefined && soundId !== undefined) {
+        sound.volume(options.volume, soundId)
       }
-      sound.play()
       setIsPlaying(prev => new Map(prev).set(filePath, true))
       return
     }

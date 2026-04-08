@@ -230,7 +230,7 @@ export default function Home() {
     }
 
     autoLoadSounds()
-  }, [soundMappings.size, soundMappingsLoading, autoLoadComplete, setSoundMappings, loadSound])
+  }, [soundMappings.size, soundMappingsLoading, autoLoadComplete, loadSound])
 
   // Reload all sounds when audio mode changes or ASIO becomes ready
   const prevAudioMode = useRef(audioMode)
@@ -309,8 +309,6 @@ export default function Home() {
     if (typeof window === 'undefined' || !(window as any).electronAPI?.onHotkeyTriggered) return
 
     const handleHotkey = (buttonIndex: number) => {
-      console.log('Global hotkey triggered:', buttonIndex)
-
       if (buttonIndex === 999) {
         stopAll()
         return
@@ -321,7 +319,6 @@ export default function Home() {
         const cleanUrl = soundFile.split('#')[0]
         const volume = (buttonVolumes.get(buttonIndex) ?? 100) / 100
         const isDrumPad = drumPadButtons.has(buttonIndex)
-        console.log(`Global hotkey ${buttonIndex}, playing:`, cleanUrl, `at ${Math.round(volume * 100)}%`, isDrumPad ? '(drum pad)' : '')
         if (isDrumPad) {
           playSound(cleanUrl, { volume, drumPad: true })
         } else {
@@ -334,10 +331,7 @@ export default function Home() {
 
     let cleanupStop: (() => void) | undefined
     if ((window as any).electronAPI?.onGlobalStopAudio) {
-      cleanupStop = (window as any).electronAPI.onGlobalStopAudio(() => {
-        console.log('Global stop audio triggered')
-        stopAll()
-      })
+      cleanupStop = (window as any).electronAPI.onGlobalStopAudio(() => stopAll())
     }
 
     return () => {
@@ -746,10 +740,7 @@ export default function Home() {
             {/* Action bar below board */}
             <div className="w-full max-w-3xl mt-4 flex items-center justify-between px-2">
               <button
-                onClick={() => {
-                  console.log('STOP ALL SOUNDS button clicked')
-                  stopAll()
-                }}
+                onClick={stopAll}
                 className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
