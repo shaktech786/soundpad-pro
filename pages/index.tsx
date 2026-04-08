@@ -263,6 +263,12 @@ export default function Home() {
     reloadSounds()
   }, [audioMode, asioReady, soundMappings, loadSound])
 
+  // Sync stop button to main process so HID callback can fire stop directly
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).electronAPI?.setHidStopButton) return
+    ;(window as any).electronAPI.setHidStopButton(stopButton)
+  }, [stopButton])
+
   // Register/unregister global hotkeys
   useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).electronAPI?.registerHotkey) return

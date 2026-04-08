@@ -38,6 +38,8 @@ let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
 let asioEngine = null;
 let asioInitializing = false;
+let hidStopButtonId = null;
+let hidStopButtonWasPressed = false;
 
 // Auto-initialize the Direct Audio engine on startup so it's always ready.
 // Also pre-loads any sound mappings from the store so playback is instant.
@@ -176,6 +178,16 @@ app.whenReady().then(() => {
   const hidGamepad = new HIDGamepad((buttonStates) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('hid-gamepad-state', buttonStates);
+
+      // Stop button: detect press in main process so it fires even when React
+      // scheduler is idle (bypasses renderer-side setInterval/rAF scheduling).
+      if (hidStopButtonId !== null) {
+        const isPressed = !!buttonStates[hidStopButtonId];
+        if (isPressed && !hidStopButtonWasPressed) {
+          mainWindow.webContents.send('global-stop-audio');
+        }
+        hidStopButtonWasPressed = isPressed;
+      }
     }
   });
   hidGamepad.start();
@@ -311,6 +323,13 @@ ipcMain.handle('store:delete', (event, key) => {
 ipcMain.handle('store:clear', () => {
   store.clear();
   return true;
+});
+
+// HID stop button registration
+ipcMain.handle('set-hid-stop-button', (event, buttonId) => {
+  hidStopButtonId = typeof buttonId === 'number' ? buttonId : null;
+  hidStopButtonWasPressed = false;
+  return { success: true };
 });
 
 // Global hotkey management

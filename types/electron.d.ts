@@ -25,6 +25,9 @@ interface ElectronAPI {
   toggleGlobalHotkeys: (enabled: boolean) => Promise<any>
   getRegisteredHotkeys: () => Promise<any>
 
+  // HID stop button — tells main process which button ID triggers stop all
+  setHidStopButton: (buttonId: number | null) => Promise<{ success: boolean }>
+
   // Event listeners (return cleanup functions to remove the specific listener)
   onHotkeyTriggered: (callback: (buttonIndex: number) => void) => (() => void)
   onGlobalStopAudio: (callback: () => void) => (() => void)

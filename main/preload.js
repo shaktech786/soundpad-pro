@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeDelete: (key) => ipcRenderer.invoke('store:delete', key),
   storeClear: () => ipcRenderer.invoke('store:clear'),
   
+  // HID stop button — tells main process which button ID triggers stop all
+  setHidStopButton: (buttonId) => ipcRenderer.invoke('set-hid-stop-button', buttonId),
+
   // Global hotkey management
   registerHotkey: (key, buttonIndex) => ipcRenderer.invoke('register-hotkey', { key, buttonIndex }),
   unregisterHotkey: (key) => ipcRenderer.invoke('unregister-hotkey', key),
