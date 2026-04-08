@@ -1,0 +1,10 @@
+{
+  "enabledMcpjsonServers": [
+    "playwright-tools",
+    "tavily-search",
+    "restream",
+    "github",
+    "voicemeeter"
+  ],
+  "enableAllProjectMcpServers": true
+}

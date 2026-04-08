@@ -101,7 +101,10 @@ export default function Home() {
   // Direct button-down handler ref — called synchronously from the gamepad poll loop,
   // bypassing the React rendering cycle for zero-latency drum pad audio.
   const buttonDownHandlerRef = useRef<(gamepadId: number) => void>(() => {})
-  const { buttonStates, connected } = useSimpleGamepad(buttonDownHandlerRef)
+  // Stop button refs — synchronous path, same as drum pads, works when unfocused.
+  const stopButtonIdRef = useRef<number | null>(null)
+  const onStopDownRef = useRef<() => void>(() => {})
+  const { buttonStates, connected } = useSimpleGamepad(buttonDownHandlerRef, stopButtonIdRef, onStopDownRef)
   const [audioMode, setAudioMode] = usePersistentStorage<AudioMode>('audio-output-mode', 'wdm')
   const { playSound, stopAll, loadSound, unloadSound, setMasterVolume, asioReady, loadErrors } = useAudioEngine(audioMode)
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
@@ -262,6 +265,10 @@ export default function Home() {
 
     reloadSounds()
   }, [audioMode, asioReady, soundMappings, loadSound])
+
+  // Keep stop button refs in sync — direct callback path for unfocused stop (no React scheduler)
+  useEffect(() => { stopButtonIdRef.current = stopButton }, [stopButton])
+  useEffect(() => { onStopDownRef.current = stopAll }, [stopAll])
 
   // Sync stop button to main process so HID callback can fire stop directly
   useEffect(() => {

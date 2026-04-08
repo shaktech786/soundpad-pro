@@ -27,7 +27,11 @@ function mapsEqual(a: Map<number, boolean>, b: Map<number, boolean>): boolean {
   return true
 }
 
-export function useSimpleGamepad(buttonDownRef?: MutableRefObject<(id: number) => void>) {
+export function useSimpleGamepad(
+  buttonDownRef?: MutableRefObject<(id: number) => void>,
+  stopButtonIdRef?: MutableRefObject<number | null>,
+  onStopDownRef?: MutableRefObject<() => void>
+) {
   const [buttonStates, setButtonStates] = useState<Map<number, boolean>>(new Map())
   const [connected, setConnected] = useState(false)
   const hidStates = useRef<Map<number, boolean>>(new Map())
@@ -104,9 +108,13 @@ export function useSimpleGamepad(buttonDownRef?: MutableRefObject<(id: number) =
 
     // Fire direct callbacks for NEW button presses synchronously — bypasses React scheduling
     // entirely for drum pad audio, eliminating the ~16ms React render cycle latency.
-    if (buttonDownRef?.current) {
-      for (const [id] of newStates) {
-        if (!prevStatesRef.current.get(id)) {
+    // Stop button also fires synchronously here so it works when window is unfocused.
+    for (const [id] of newStates) {
+      if (!prevStatesRef.current.get(id)) {
+        if (stopButtonIdRef?.current !== null && stopButtonIdRef?.current !== undefined && id === stopButtonIdRef.current) {
+          onStopDownRef?.current?.()
+        }
+        if (buttonDownRef?.current) {
           buttonDownRef.current(id)
         }
       }
@@ -121,7 +129,7 @@ export function useSimpleGamepad(buttonDownRef?: MutableRefObject<(id: number) =
       prevConnectedRef.current = hasGamepad
       setConnected(hasGamepad)
     }
-  }, [buttonDownRef])
+  }, [buttonDownRef, stopButtonIdRef, onStopDownRef])
 
   // HID gamepad events from main process
   useEffect(() => {
