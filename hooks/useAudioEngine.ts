@@ -52,6 +52,19 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     if (!api) return
 
     if (audioMode === 'asio') {
+      // Stop all WDM audio before ASIO takes over.
+      // Without this, orphaned Howl instances from WDM mode keep playing at full
+      // volume through Windows audio / CABLE Input, bypassing the ASIO master volume.
+      Howler.stop()
+      loadedSoundsRef.current.forEach((sound) => {
+        if (sound && typeof (sound as any).unload === 'function') {
+          try { sound.stop(); sound.unload(); } catch (e) { /* ignore */ }
+        }
+      })
+      // Clear blob URLs for WDM sounds being replaced
+      blobUrlRegistry.forEach((url) => URL.revokeObjectURL(url))
+      blobUrlRegistry.clear()
+
       // First check if engine is already running (auto-initialized by main process)
       const checkAndInit = async () => {
         try {
@@ -164,6 +177,13 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
         const result = await api.asioLoadSound(filePath)
         if (result.success) {
           asioLoadedFiles.add(filePath)
+          // Unload any WDM Howl being replaced so it doesn't keep playing
+          const existingHowl = loadedSoundsRef.current.get(filePath)
+          if (existingHowl && typeof (existingHowl as any).unload === 'function') {
+            try { existingHowl.stop(); existingHowl.unload(); } catch (e) { /* ignore */ }
+            const blobUrl = blobUrlRegistry.get(filePath)
+            if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrlRegistry.delete(filePath) }
+          }
           setLoadedSounds(prev => {
             const newMap = new Map(prev).set(filePath, null as any)
             loadedSoundsRef.current = newMap
@@ -196,6 +216,13 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
           }
 
           asioLoadedFiles.add(filePath)
+          // Unload any WDM Howl being replaced so it doesn't keep playing
+          const existingHowl2 = loadedSoundsRef.current.get(filePath)
+          if (existingHowl2 && typeof (existingHowl2 as any).unload === 'function') {
+            try { existingHowl2.stop(); existingHowl2.unload(); } catch (e) { /* ignore */ }
+            const blobUrl = blobUrlRegistry.get(filePath)
+            if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrlRegistry.delete(filePath) }
+          }
           setLoadedSounds(prev => {
             const newMap = new Map(prev).set(filePath, null as any)
             loadedSoundsRef.current = newMap

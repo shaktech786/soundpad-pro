@@ -184,6 +184,13 @@ app.whenReady().then(() => {
       if (hidStopButtonId !== null) {
         const isPressed = !!buttonStates[hidStopButtonId];
         if (isPressed && !hidStopButtonWasPressed) {
+          // Stop ASIO directly in the main process — no renderer round-trip.
+          // When the window is unfocused, relying on the renderer to call
+          // asioStopAll() back to main is fragile (IPC scheduling, React state).
+          if (asioEngine) {
+            try { asioEngine.stopAll(); } catch (e) { /* ignore */ }
+          }
+          // Notify renderer for WDM fallback (Howler.stop) and UI state update.
           mainWindow.webContents.send('global-stop-audio');
         }
         hidStopButtonWasPressed = isPressed;
