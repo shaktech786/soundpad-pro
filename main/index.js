@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
-const { HIDGamepad } = require('./hid-gamepad');
+const { HIDGamepad, NEUTRAL: HID_NEUTRAL } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
 
@@ -38,8 +38,40 @@ let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
 let asioEngine = null;
 let asioInitializing = false;
-let hidStopButtonId = null;
-let hidStopButtonWasPressed = false;
+
+// HID stop button — dead-simple raw-byte pattern matching.
+// `hidStopSnapshot` is the 8-byte HID report taken when the user assigned
+// their stop button. Incoming reports match if every byte that was
+// non-neutral in the snapshot is still non-neutral in the report (digital
+// button bytes are compared as subset bitmasks; hat/axis bytes must match
+// exactly). This works for axis-based buttons AND sidesteps every Chrome
+// vs HID index mismatch issue.
+let hidStopSnapshot = null;          // number[8] or null
+let hidStopMatchedLast = false;      // for rising-edge detection
+let hidStopCaptureArmed = false;     // true while "assign stop button" is active
+
+// Load persisted snapshot from store on startup
+try {
+  const saved = store.get('hidStopSnapshot', null);
+  if (Array.isArray(saved) && saved.length === 8) hidStopSnapshot = saved;
+} catch (_) { /* ignore */ }
+
+function hidReportMatchesStopSnapshot(report) {
+  if (!hidStopSnapshot) return false;
+  let anyDiff = false;
+  for (let i = 0; i < 7; i++) {
+    if (hidStopSnapshot[i] === HID_NEUTRAL[i]) continue; // unchanged in snapshot → ignore
+    anyDiff = true;
+    if (i <= 1) {
+      // Digital button bytes: snapshot bits must all be present in current report
+      if ((report[i] & hidStopSnapshot[i]) !== hidStopSnapshot[i]) return false;
+    } else {
+      // Hat (byte 2) and axes (bytes 3-6): exact byte value match
+      if (report[i] !== hidStopSnapshot[i]) return false;
+    }
+  }
+  return anyDiff; // snapshot that equals neutral is never a valid match
+}
 
 // Auto-initialize the Direct Audio engine on startup so it's always ready.
 // Also pre-loads any sound mappings from the store so playback is instant.
@@ -175,27 +207,36 @@ app.whenReady().then(() => {
   // The Pokken Controller (GP2040-CE Switch mode) is a pure HID device, not XInput,
   // so node-hid can open it without conflict. Auto-reconnects if the controller
   // is unplugged and replugged.
-  const hidGamepad = new HIDGamepad((buttonStates) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('hid-gamepad-state', buttonStates);
+  const hidGamepad = new HIDGamepad((report) => {
+    // Detect neutral vs any-press for capture mode
+    let isNeutral = true;
+    for (let i = 0; i < 7; i++) {
+      if (report[i] !== HID_NEUTRAL[i]) { isNeutral = false; break; }
+    }
 
-      // Stop button: detect press in main process so it fires even when React
-      // scheduler is idle (bypasses renderer-side setInterval/rAF scheduling).
-      if (hidStopButtonId !== null) {
-        const isPressed = !!buttonStates[hidStopButtonId];
-        if (isPressed && !hidStopButtonWasPressed) {
-          // Stop ASIO directly in the main process — no renderer round-trip.
-          // When the window is unfocused, relying on the renderer to call
-          // asioStopAll() back to main is fragile (IPC scheduling, React state).
-          if (asioEngine) {
-            try { asioEngine.stopAll(); } catch (e) { /* ignore */ }
-          }
-          // Notify renderer for WDM fallback (Howler.stop) and UI state update.
-          mainWindow.webContents.send('global-stop-audio');
-        }
-        hidStopButtonWasPressed = isPressed;
+    // Capture mode: the next non-neutral report becomes the stop snapshot
+    if (hidStopCaptureArmed && !isNeutral) {
+      hidStopSnapshot = report.slice();
+      hidStopCaptureArmed = false;
+      hidStopMatchedLast = true; // ignore this same press as a trigger
+      try { store.set('hidStopSnapshot', hidStopSnapshot); } catch (_) {}
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('hid-stop-captured', hidStopSnapshot);
+      }
+      return;
+    }
+
+    // Match current report against stored stop snapshot; fire on rising edge
+    const matches = hidReportMatchesStopSnapshot(report);
+    if (matches && !hidStopMatchedLast) {
+      if (asioEngine) {
+        try { asioEngine.stopAll(); } catch (_) { /* ignore */ }
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('global-stop-audio');
       }
     }
+    hidStopMatchedLast = matches;
   });
   hidGamepad.start();
 
@@ -333,9 +374,25 @@ ipcMain.handle('store:clear', () => {
 });
 
 // HID stop button registration
-ipcMain.handle('set-hid-stop-button', (event, buttonId) => {
-  hidStopButtonId = typeof buttonId === 'number' ? buttonId : null;
-  hidStopButtonWasPressed = false;
+ipcMain.handle('arm-hid-stop-capture', () => {
+  hidStopCaptureArmed = true;
+  return { success: true };
+});
+
+ipcMain.handle('clear-hid-stop-pattern', () => {
+  hidStopSnapshot = null;
+  hidStopCaptureArmed = false;
+  hidStopMatchedLast = false;
+  try { store.delete('hidStopSnapshot'); } catch (_) {}
+  return { success: true };
+});
+
+ipcMain.handle('has-hid-stop-pattern', () => {
+  return { success: true, present: !!hidStopSnapshot };
+});
+
+// Legacy no-op: old renderers call this but the new flow uses raw pattern match.
+ipcMain.handle('set-hid-stop-button', () => {
   return { success: true };
 });
 

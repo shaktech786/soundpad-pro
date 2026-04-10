@@ -270,10 +270,26 @@ export default function Home() {
   useEffect(() => { stopButtonIdRef.current = stopButton }, [stopButton])
   useEffect(() => { onStopDownRef.current = stopAll }, [stopAll])
 
-  // Sync stop button to main process so HID callback can fire stop directly
+  // When user enters "assign stop button" mode, also tell main to capture the
+  // next non-neutral HID report as the raw-byte stop pattern. That's the path
+  // that fires stopAll when the window is unfocused (Web Gamepad API frozen).
   useEffect(() => {
-    if (typeof window === 'undefined' || !(window as any).electronAPI?.setHidStopButton) return
-    ;(window as any).electronAPI.setHidStopButton(stopButton)
+    if (typeof window === 'undefined') return
+    const api = (window as any).electronAPI
+    if (!api) return
+    if (assigningStopButton && api.armHidStopCapture) {
+      api.armHidStopCapture().catch(() => {})
+    }
+  }, [assigningStopButton])
+
+  // If the user clears their stop button, clear the HID pattern too
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const api = (window as any).electronAPI
+    if (!api?.clearHidStopPattern) return
+    if (stopButton === null) {
+      api.clearHidStopPattern().catch(() => {})
+    }
   }, [stopButton])
 
   // Register/unregister global hotkeys

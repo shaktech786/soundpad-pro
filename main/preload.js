@@ -24,7 +24,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeDelete: (key) => ipcRenderer.invoke('store:delete', key),
   storeClear: () => ipcRenderer.invoke('store:clear'),
   
-  // HID stop button — tells main process which button ID triggers stop all
+  // HID stop button — raw-byte pattern match, captured when user assigns the button
+  armHidStopCapture: () => ipcRenderer.invoke('arm-hid-stop-capture'),
+  clearHidStopPattern: () => ipcRenderer.invoke('clear-hid-stop-pattern'),
+  hasHidStopPattern: () => ipcRenderer.invoke('has-hid-stop-pattern'),
+  onHidStopCaptured: (callback) => {
+    const handler = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on('hid-stop-captured', handler);
+    return () => ipcRenderer.removeListener('hid-stop-captured', handler);
+  },
+  // Legacy — kept so any in-flight renderer code doesn't throw
   setHidStopButton: (buttonId) => ipcRenderer.invoke('set-hid-stop-button', buttonId),
 
   // Global hotkey management
@@ -43,13 +52,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = () => callback();
     ipcRenderer.on('global-stop-audio', handler);
     return () => ipcRenderer.removeListener('global-stop-audio', handler);
-  },
-
-  // Listen for HID gamepad button states (works when window unfocused)
-  onHIDGamepadState: (callback) => {
-    const handler = (event, buttonStates) => callback(buttonStates);
-    ipcRenderer.on('hid-gamepad-state', handler);
-    return () => ipcRenderer.removeListener('hid-gamepad-state', handler);
   },
 
   // Audio diagnostics
@@ -100,7 +102,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('hotkey-triggered');
     ipcRenderer.removeAllListeners('global-stop-audio');
-    ipcRenderer.removeAllListeners('hid-gamepad-state');
+    ipcRenderer.removeAllListeners('hid-stop-captured');
     ipcRenderer.removeAllListeners('asio:stream-lost');
     ipcRenderer.removeAllListeners('asio:stream-recovered');
   }

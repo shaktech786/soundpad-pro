@@ -25,13 +25,17 @@ interface ElectronAPI {
   toggleGlobalHotkeys: (enabled: boolean) => Promise<any>
   getRegisteredHotkeys: () => Promise<any>
 
-  // HID stop button — tells main process which button ID triggers stop all
+  // HID stop button — raw-byte pattern captured from main's HID poller
+  armHidStopCapture: () => Promise<{ success: boolean }>
+  clearHidStopPattern: () => Promise<{ success: boolean }>
+  hasHidStopPattern: () => Promise<{ success: boolean; present: boolean }>
+  onHidStopCaptured: (callback: (snapshot: number[]) => void) => (() => void)
+  // Legacy, no-op kept for backwards compatibility during rollout
   setHidStopButton: (buttonId: number | null) => Promise<{ success: boolean }>
 
   // Event listeners (return cleanup functions to remove the specific listener)
   onHotkeyTriggered: (callback: (buttonIndex: number) => void) => (() => void)
   onGlobalStopAudio: (callback: () => void) => (() => void)
-  onHIDGamepadState: (callback: (states: Record<string, boolean>) => void) => (() => void)
 
   // Audio diagnostics
   writeAudioDiag: (data: string) => Promise<string>
