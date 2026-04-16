@@ -5,10 +5,34 @@ import logger from '../utils/logger'
 // Audio engine for loading and playing sounds with Electron file system support
 // Supports dual-mode: WDM (Howler.js in renderer) and ASIO (via main process)
 
+/** Convert linear slider value (0–1) to perceptual audio gain using quadratic curve.
+ *  Linear 10% = -20dB (still loud); quadratic 10% = -40dB (actually quiet). */
+const toAudioGain = (v: number): number => v * v
+
 export type AudioMode = 'wdm' | 'asio'
 
 // Track blob URLs for cleanup (WDM mode only)
 const blobUrlRegistry = new Map<string, string>()
+
+/** Convert a filesystem path to a file:// URL suitable for Howler's html5 audio fallback.
+ *  Returns null if the path is already a URL (blob:, file://, http(s)://) or isn't a local path. */
+function pathToFileUrl(filePath: string): string | null {
+  if (!filePath) return null
+  if (filePath.startsWith('blob:') || filePath.startsWith('file://') || /^https?:\/\//.test(filePath)) return null
+  if (/^[A-Z]:[\\\/]/.test(filePath)) {
+    const normalized = filePath.replace(/\\/g, '/')
+    return 'file:///' + encodeURI(normalized).replace(/#/g, '%23')
+  }
+  if (filePath.startsWith('\\\\')) {
+    const normalized = filePath.replace(/\\/g, '/')
+    return 'file:' + encodeURI(normalized).replace(/#/g, '%23')
+  }
+  if (filePath.includes('\\')) {
+    const normalized = filePath.replace(/\\/g, '/')
+    return 'file:///' + encodeURI(normalized).replace(/#/g, '%23')
+  }
+  return null
+}
 
 // Track ASIO-loaded files so we know what's loaded in main process
 const asioLoadedFiles = new Set<string>()
@@ -342,50 +366,68 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       logger.debug('Loading audio from:', audioUrl)
 
       return new Promise((resolve, reject) => {
+        // blob: URLs use Web Audio API for sub-millisecond latency (MPC/drum pad feel).
+        // Some MP3s (e.g. ffmpeg-transcoded YouTube Opus without a Xing header) make
+        // Chromium's decodeAudioData fail or return silence — fall back to html5 audio
+        // via file:// URL, which uses the media pipeline and tolerates these files.
+        const fallbackUrl = audioUrl.startsWith('blob:') ? pathToFileUrl(filePath) : null
 
-        const sound = new Howl({
-          src: [audioUrl],
-          // blob: URLs are local files already read into memory — use Web Audio API for
-          // sub-millisecond playback latency (critical for MPC/drum pad feel).
-          // Remote/HTTP URLs use html5 streaming to avoid decoding large files upfront.
-          html5: !audioUrl.startsWith('blob:'),
-          preload: true,
-          volume: 1.0,
-          format: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'aac', 'opus', 'weba'],
-          onload: () => {
-            logger.debug(`Sound loaded successfully: ${filePath}`)
-            setLoadedSounds(prev => {
-              const newMap = new Map(prev).set(filePath, sound)
-              loadedSoundsRef.current = newMap
-              return newMap
-            })
-            setIsLoading(prev => {
-              const newMap = new Map(prev)
-              newMap.delete(filePath)
-              loadingRef.current = newMap
-              return newMap
-            })
-            resolve()
-          },
-          onloaderror: (_id, error) => {
-            const errorMsg = error || 'Unknown error'
-            logger.error(`Error loading sound ${filePath}:`, errorMsg)
-            setLoadErrors(prev => new Map(prev).set(filePath, String(errorMsg)))
-            setIsLoading(prev => {
-              const newMap = new Map(prev)
-              newMap.delete(filePath)
-              return newMap
-            })
-            reject(new Error(`Failed to load ${filePath}: ${errorMsg}`))
-          },
-          onplayerror: (_id, error) => {
-            logger.error(`Error playing sound ${filePath}:`, error)
-            setIsPlaying(prev => new Map(prev).set(filePath, false))
-          },
-          onend: () => {
-            setIsPlaying(prev => new Map(prev).set(filePath, false))
-          }
-        })
+        const createHowl = (src: string, isFallback: boolean): Howl => {
+          const howl = new Howl({
+            src: [src],
+            html5: !src.startsWith('blob:'),
+            preload: true,
+            volume: 1.0,
+            format: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'aac', 'opus', 'weba'],
+            onload: () => {
+              logger.debug(`Sound loaded successfully${isFallback ? ' (html5 fallback)' : ''}: ${filePath}`)
+              setLoadedSounds(prev => {
+                const newMap = new Map(prev).set(filePath, howl)
+                loadedSoundsRef.current = newMap
+                return newMap
+              })
+              setIsLoading(prev => {
+                const newMap = new Map(prev)
+                newMap.delete(filePath)
+                loadingRef.current = newMap
+                return newMap
+              })
+              resolve()
+            },
+            onloaderror: (_id, error) => {
+              const errorMsg = error || 'Unknown error'
+
+              // Primary attempt used Web Audio via blob URL — try html5 file:// fallback.
+              if (!isFallback && fallbackUrl) {
+                logger.warn(`Web Audio decode failed for ${filePath} (${errorMsg}); retrying with html5 audio`)
+                try { howl.unload() } catch { /* ignore */ }
+                const staleBlob = blobUrlRegistry.get(filePath)
+                if (staleBlob) { URL.revokeObjectURL(staleBlob); blobUrlRegistry.delete(filePath) }
+                createHowl(fallbackUrl, true)
+                return
+              }
+
+              logger.error(`Error loading sound ${filePath}:`, errorMsg)
+              setLoadErrors(prev => new Map(prev).set(filePath, String(errorMsg)))
+              setIsLoading(prev => {
+                const newMap = new Map(prev)
+                newMap.delete(filePath)
+                return newMap
+              })
+              reject(new Error(`Failed to load ${filePath}: ${errorMsg}`))
+            },
+            onplayerror: (_id, error) => {
+              logger.error(`Error playing sound ${filePath}:`, error)
+              setIsPlaying(prev => new Map(prev).set(filePath, false))
+            },
+            onend: () => {
+              setIsPlaying(prev => new Map(prev).set(filePath, false))
+            }
+          })
+          return howl
+        }
+
+        createHowl(audioUrl, false)
       })
     } catch (error) {
       logger.error(`Exception loading sound ${filePath}:`, error)
@@ -412,7 +454,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
       if (!api?.asioPlaySound) return
 
       const asioOpts = {
-        volume: options?.volume ?? 1.0,
+        volume: toAudioGain(options?.volume ?? 1.0),
         loop: options?.loop ?? false,
         restart: options?.drumPad ? false : (options?.restart ?? false)
       }
@@ -478,7 +520,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     if (options?.drumPad) {
       const soundId = sound.play()
       if (options?.volume !== undefined && soundId !== undefined) {
-        sound.volume(options.volume, soundId)
+        sound.volume(toAudioGain(options.volume), soundId)
       }
       setIsPlaying(prev => new Map(prev).set(filePath, true))
       return
@@ -489,7 +531,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     }
 
     if (options?.volume !== undefined) {
-      sound.volume(options.volume)
+      sound.volume(toAudioGain(options.volume))
     }
 
     if (options?.loop !== undefined) {
@@ -591,30 +633,32 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
   }, [])
 
   const setVolume = useCallback((filePath: string, volume: number) => {
+    const gain = toAudioGain(Math.max(0, Math.min(1, volume)))
     if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetVolume) {
-        api.asioSetVolume(filePath, Math.max(0, Math.min(1, volume)))
+        api.asioSetVolume(filePath, gain)
       }
       return
     }
 
     const sound = loadedSoundsRef.current.get(filePath)
     if (sound) {
-      sound.volume(Math.max(0, Math.min(1, volume)))
+      sound.volume(gain)
     }
   }, [])
 
   const setMasterVolume = useCallback((volume: number) => {
+    const gain = toAudioGain(Math.max(0, Math.min(1, volume)))
     if (audioModeRef.current === 'asio') {
       const api = (window as any).electronAPI
       if (api?.asioSetMasterVolume) {
-        api.asioSetMasterVolume(Math.max(0, Math.min(1, volume)))
+        api.asioSetMasterVolume(gain)
       }
       return
     }
 
-    Howler.volume(Math.max(0, Math.min(1, volume)))
+    Howler.volume(gain)
   }, [])
 
   return {
