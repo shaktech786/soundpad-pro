@@ -109,12 +109,14 @@ function extractFilenameFromUrl(url: string): string {
 }
 
 /**
- * Validate if a string is a valid URL
+ * Validate if a string is a valid web URL (http, https, or blob).
+ * Explicitly rejects local file paths — new URL() accepts drive letters
+ * like `C:` as a valid scheme per the WHATWG spec, which would be a false positive.
  */
 export function isValidUrl(str: string): boolean {
   try {
-    new URL(str)
-    return true
+    const url = new URL(str)
+    return ['http:', 'https:', 'blob:'].includes(url.protocol)
   } catch {
     return false
   }

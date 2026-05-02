@@ -1,6 +1,6 @@
 {
   "name": "soundpad-pro",
-  "version": "2.19.0",
+  "version": "2.20.0",
   "description": "Professional soundboard for streamers with controller support",
   "main": "main/index.js",
   "scripts": {
@@ -14,7 +14,9 @@
     "shortcut": "powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1",
     "start": "electron simple-main.js",
     "type-check": "tsc --noEmit",
-    "postinstall": "electron-rebuild -f -w audify"
+    "postinstall": "electron-rebuild -f -w audify",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "soundboard",
@@ -38,18 +40,23 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/howler": "^2.2.8",
     "@types/node": "20.19.30",
     "@types/react": "18.3.27",
     "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.0",
     "concurrently": "^8.0.0",
     "cross-env": "^7.0.3",
     "electron": "^40.8.5",
     "electron-builder": "^26.8.1",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.3.0",
     "typescript": "5.9.3",
+    "vitest": "^4.1.5",
     "wait-on": "^7.0.0"
   }
 }

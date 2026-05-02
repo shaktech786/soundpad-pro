@@ -10,6 +10,7 @@ interface OBSActionAssignerProps {
   currentSound?: string | null
   currentVolume?: number
   isDrumPad?: boolean
+  soundError?: string
   onDrumPadToggle?: (enabled: boolean) => void
   scenes: string[]
   sources: string[]
@@ -70,12 +71,20 @@ const LIVESPLIT_ACTION_TYPES = [
   { value: 'init_game_time', label: '🎮 Init Game Time', needsParams: false, category: 'Advanced', service: 'livesplit' }
 ]
 
+export function formatSoundError(error: string): string {
+  if (/ENOENT|no such file/i.test(error)) return 'File not found — it may have been moved or deleted.'
+  if (/EACCES|permission/i.test(error)) return 'Permission denied — cannot read this file.'
+  if (/decode|unsupported|format/i.test(error)) return 'File could not be decoded — it may be corrupt or an unsupported format.'
+  return 'Failed to load this file.'
+}
+
 export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   buttonIndex,
   currentAction,
   currentSound,
   currentVolume = 100,
   isDrumPad = false,
+  soundError,
   onDrumPadToggle,
   scenes,
   sources,
@@ -284,8 +293,22 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           {selectedTab === 'sound' && (
             <>
               <div className="space-y-4">
+                {/* File error banner */}
+                {soundError && (
+                  <div className="p-3 bg-amber-900/40 border border-amber-600 rounded-lg flex gap-3 items-start">
+                    <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L1 21h22L12 2zm1 13h-2v2h2v-2zm0-6h-2v4h2v-4z"/>
+                    </svg>
+                    <div>
+                      <div className="text-amber-300 text-sm font-semibold">Sound file unavailable</div>
+                      <div className="text-amber-400/80 text-xs mt-0.5">{formatSoundError(soundError)}</div>
+                      <div className="text-gray-500 text-xs mt-1 font-mono break-all">{currentSound}</div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Current Sound Display */}
-                {currentSound && (
+                {currentSound && !soundError && (
                   <div className="p-4 bg-gray-800 rounded-lg">
                     <div className="text-sm text-gray-400 mb-2">Current Sound:</div>
                     <div className="text-white font-medium break-all">{currentSound}</div>
@@ -342,7 +365,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                     <label className="text-sm font-medium text-gray-400">
                       Volume
                     </label>
-                    <span className="text-white font-bold text-lg">{volume}%</span>
+                    <span className="text-white font-bold text-lg">
+                      {volume}%{volume > 0 ? ` (${(20 * Math.log10((volume / 100) ** 2 * 0.7)).toFixed(0)}dB)` : ' (-∞)'}
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -362,8 +387,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-2">
                     <span>0%</span>
-                    <span>50%</span>
-                    <span>100%</span>
+                    <span>50% (-15dB)</span>
+                    <span>100% (-3dB)</span>
                   </div>
                 </div>
 

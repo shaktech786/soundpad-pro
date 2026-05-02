@@ -5,9 +5,10 @@ import logger from '../utils/logger'
 // Audio engine for loading and playing sounds with Electron file system support
 // Supports dual-mode: WDM (Howler.js in renderer) and ASIO (via main process)
 
-/** Convert linear slider value (0–1) to perceptual audio gain using quadratic curve.
- *  Linear 10% = -20dB (still loud); quadratic 10% = -40dB (actually quiet). */
-const toAudioGain = (v: number): number => v * v
+/** Convert linear slider value (0–1) to perceptual audio gain.
+ *  Quadratic curve with 0.7 ceiling: 100% → 0.7 (~-3dB), 50% → 0.175 (~-15dB).
+ *  Combined master×button at both 100% = 0.49 (~-6dBFS) — safe headroom for OBS. */
+const toAudioGain = (v: number): number => v * v * 0.7
 
 export type AudioMode = 'wdm' | 'asio'
 

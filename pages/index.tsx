@@ -197,11 +197,10 @@ export default function Home() {
     }
   }, [buttonMappingLoading, buttonMapping.size, boardLayoutLoading, boardLayout.length])
 
-  // Apply master volume on mount and mode changes (quadratic curve)
+  // Apply master volume on mount and mode changes
   useEffect(() => {
     if (masterVolumeLoading) return
-    const linear = masterVolume / 100
-    setMasterVolume(linear * linear)
+    setMasterVolume(masterVolume / 100)
   }, [masterVolume, masterVolumeLoading, audioMode, asioReady, setMasterVolume])
 
   // Load global hotkeys setting from localStorage
@@ -434,6 +433,16 @@ export default function Home() {
     })
     return reverse
   }, [buttonMapping])
+
+  // Map button IDs to their load errors (file missing, corrupt, etc.)
+  const buttonFileErrors = useMemo(() => {
+    const errors = new Map<number, string>()
+    soundMappings.forEach((filePath, buttonId) => {
+      const err = loadErrors.get(filePath)
+      if (err) errors.set(buttonId, err)
+    })
+    return errors
+  }, [soundMappings, loadErrors])
 
   // Track previous button states for edge detection
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())
@@ -755,6 +764,7 @@ export default function Home() {
               soundMappings={soundMappings}
               obsActions={combinedActions}
               drumPadButtons={drumPadButtons}
+              fileErrors={buttonFileErrors}
               onPlaySound={handlePlaySound}
               onMapSound={handleMapSound}
               onMapSoundFromUrl={handleMapSoundFromUrl}
@@ -852,7 +862,7 @@ export default function Home() {
                         Master Volume
                       </label>
                       <span className={`text-xs tabular-nums ${theme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
-                        {masterVolume}%
+                        {masterVolume}% {masterVolume > 0 ? `(${(20 * Math.log10((masterVolume / 100) ** 2 * 0.7)).toFixed(0)}dB)` : '(-∞)'}
                       </span>
                     </div>
                     <input
@@ -863,9 +873,7 @@ export default function Home() {
                       onChange={(e) => {
                         const val = Number(e.target.value)
                         setMasterVolumeState(val)
-                        // Quadratic curve: 50% slider ≈ -12dB, perceptually "half volume"
-                        const linear = val / 100
-                        setMasterVolume(linear * linear)
+                        setMasterVolume(val / 100)
                       }}
                       className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500"
                       style={{
@@ -1184,6 +1192,7 @@ export default function Home() {
           currentSound={soundMappings.get(assigningAction) || null}
           currentVolume={buttonVolumes.get(assigningAction) ?? 100}
           isDrumPad={drumPadButtons.has(assigningAction)}
+          soundError={buttonFileErrors.get(assigningAction)}
           onDrumPadToggle={(enabled) => {
             setDrumPadButtons(prev => {
               const newSet = new Set(prev)
