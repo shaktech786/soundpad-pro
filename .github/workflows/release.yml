@@ -134,7 +134,7 @@ jobs:
         run: npm run build
 
       - name: Build Electron (Windows)
-        run: npx electron-builder --win --config .electron-builder.config.js
+        run: npx electron-builder --win --config .electron-builder.config.js --publish never
 
       - name: Commit version bump
         shell: bash
