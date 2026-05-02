@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import logger from '../utils/logger'
 
 // JSON round-trip turns Map number keys into strings.
 // Restore numeric keys so Map.get(numericKey) works correctly.
@@ -65,15 +66,15 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
                 }
                 // Clear localStorage after successful migration
                 window.localStorage.removeItem(key)
-                console.log(`Migrated ${key} from localStorage to electron-store`)
+                logger.log(`Migrated ${key} from localStorage to electron-store`)
               }
             } catch (error) {
-              console.error(`Error parsing ${key} from localStorage:`, error)
+              logger.error(`Error parsing ${key} from localStorage:`, error)
             }
           }
         }
       } catch (error) {
-        console.error(`Error loading ${key}:`, error)
+        logger.error(`Error loading ${key}:`, error)
       } finally {
         isInitialized.current = true
         setIsLoading(false)
@@ -111,7 +112,7 @@ export function usePersistentStorage<T>(key: string, defaultValue: T) {
           window.localStorage.setItem(key, JSON.stringify(dataToSave))
         }
       } catch (error) {
-        console.error(`Error saving ${key}:`, error)
+        logger.error(`Error saving ${key}:`, error)
       }
     }
 

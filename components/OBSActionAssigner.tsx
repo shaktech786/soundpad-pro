@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import logger from '../utils/logger'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
 import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
@@ -193,7 +194,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           onClose()
         }
       } catch (err) {
-        console.error('File picker error:', err)
+        logger.error('File picker error:', err)
         setError('Failed to open file picker')
       }
     } else {
@@ -257,7 +258,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               setError(null)
             }}
             disabled={!obsConnected}
-            className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+            className={`relative flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
               selectedTab === 'obs'
                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
                 : obsConnected
@@ -265,6 +266,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'
             }`}
           >
+            {currentAction?.service === 'obs' && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-400" aria-label="OBS action assigned" />
+            )}
             🎬 OBS {!obsConnected && '(Disconnected)'}
           </button>
           <button
@@ -275,7 +279,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               setError(null)
             }}
             disabled={!liveSplitConnected}
-            className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+            className={`relative flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
               selectedTab === 'livesplit'
                 ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white'
                 : liveSplitConnected
@@ -283,6 +287,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'
             }`}
           >
+            {currentAction?.service === 'livesplit' && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-400" aria-label="LiveSplit action assigned" />
+            )}
             🏁 LiveSplit {!liveSplitConnected && '(Disconnected)'}
           </button>
         </div>

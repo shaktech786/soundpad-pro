@@ -17,6 +17,7 @@ import { useProfileManager } from '../hooks/useProfileManager'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { APP_CONFIG, HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
+import logger from '../utils/logger'
 
 // --- Inline SVG icons ---
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -225,7 +226,7 @@ export default function Home() {
           try {
             await loadSound(filepath)
           } catch (err) {
-            console.error('Failed to preload:', filepath, err)
+            logger.error('Failed to preload:', filepath, err)
           }
         }
       }
@@ -251,15 +252,15 @@ export default function Home() {
     hasReloadedForAsio.current = true
 
     const reloadSounds = async () => {
-      console.log(`[AudioMode] Reloading ${soundMappings.size} sounds for ${audioMode} mode`)
+      logger.log(`[AudioMode] Reloading ${soundMappings.size} sounds for ${audioMode} mode`)
       for (const [_, filepath] of soundMappings) {
         try {
           await loadSound(filepath, true)
         } catch (err) {
-          console.error('Failed to reload on mode switch:', filepath, err)
+          logger.error('Failed to reload on mode switch:', filepath, err)
         }
       }
-      console.log(`[AudioMode] Reload complete`)
+      logger.log(`[AudioMode] Reload complete`)
     }
 
     reloadSounds()
@@ -308,18 +309,18 @@ export default function Home() {
           const key = `CommandOrControl+${numpadKeys[i]}`
           try {
             await (window as any).electronAPI.registerHotkey(key, i)
-            console.log(`Registered global hotkey ${key} for pad ${i}`)
+            logger.log(`Registered global hotkey ${key} for pad ${i}`)
           } catch (err) {
-            console.error(`Failed to register hotkey ${key}:`, err)
+            logger.error(`Failed to register hotkey ${key}:`, err)
           }
         }
 
         if (stopButton !== null) {
           try {
             await (window as any).electronAPI.registerHotkey('CommandOrControl+Escape', 999)
-            console.log('Registered global stop hotkey')
+            logger.log('Registered global stop hotkey')
           } catch (err) {
-            console.error('Failed to register stop hotkey:', err)
+            logger.error('Failed to register stop hotkey:', err)
           }
         }
       }
@@ -374,7 +375,7 @@ export default function Home() {
     if (typeof window !== 'undefined' && (window as any).electronAPI && !window.location.href.includes('localhost')) {
       return
     }
-    console.log('[Trigger] Starting trigger polling...')
+    logger.log('[Trigger] Starting trigger polling...')
     const pollTriggers = async () => {
       try {
         const response = await fetch('/api/trigger')
@@ -383,28 +384,28 @@ export default function Home() {
         }
         const data = await response.json()
         if (data.triggers && data.triggers.length > 0) {
-          console.log('[Trigger] Received triggers:', data.triggers)
+          logger.log('[Trigger] Received triggers:', data.triggers)
           const now = Date.now()
           for (const trigger of data.triggers) {
             if (trigger.type === 'play' && typeof trigger.index === 'number') {
               const lastPlay = lastPlayTime.current.get(trigger.index) || 0
               if (now - lastPlay < 150) {
-                console.log('[Trigger] Debounced button', trigger.index)
+                logger.log('[Trigger] Debounced button', trigger.index)
                 continue
               }
               lastPlayTime.current.set(trigger.index, now)
 
               const soundFile = trigger.filePath || soundMappings.get(trigger.index)
               const volume = trigger.volume !== undefined ? trigger.volume / 100 : (buttonVolumes.get(trigger.index) ?? 100) / 100
-              console.log('[Trigger] Button', trigger.index, 'soundFile:', soundFile, 'volume:', volume)
+              logger.log('[Trigger] Button', trigger.index, 'soundFile:', soundFile, 'volume:', volume)
               if (soundFile) {
                 const cleanUrl = soundFile.split('#')[0]
-                console.log('[Trigger] Playing:', cleanUrl)
+                logger.log('[Trigger] Playing:', cleanUrl)
                 playSound(cleanUrl, { restart: true, volume })
               }
             } else if (trigger.type === 'action' && typeof trigger.index === 'number') {
               const action = combinedActions.get(trigger.index)
-              console.log('[Trigger] Action for button', trigger.index, 'action:', action)
+              logger.log('[Trigger] Action for button', trigger.index, 'action:', action)
               if (action) {
                 if (action.service === 'obs' && obsConnected) {
                   executeOBSAction(action as OBSAction)
@@ -459,7 +460,7 @@ export default function Home() {
       if (isPressed && !wasPressed) {
         setStopButton(gamepadButtonIndex)
         setAssigningStopButton(false)
-        console.log('Stop button assigned to:', gamepadButtonIndex)
+        logger.log('Stop button assigned to:', gamepadButtonIndex)
       }
     })
 
@@ -620,7 +621,7 @@ export default function Home() {
           })
         }
       } catch (error) {
-        console.error('Error selecting file:', error)
+        logger.error('Error selecting file:', error)
       }
     } else {
       handleMapSoundFromUrl(index)
@@ -892,7 +893,7 @@ export default function Home() {
                         const api = (window as any).electronAPI
                         if (api?.asioTestTone) {
                           api.asioTestTone().then((r: any) => {
-                            if (!r.success) console.error('[TestTone]', r.error)
+                            if (!r.success) logger.error('[TestTone]', r.error)
                           })
                         }
                       }}
@@ -1209,12 +1210,12 @@ export default function Home() {
           obsConnected={obsConnected}
           liveSplitConnected={liveSplitConnected}
           onAssign={(action) => {
-            console.log(`Assigning action to button ${assigningAction}:`, action)
+            logger.log(`Assigning action to button ${assigningAction}:`, action)
             if (action) {
               setCombinedActions(prev => {
                 const newMap = new Map(prev)
                 newMap.set(assigningAction, action)
-                console.log(`Action saved to button ${assigningAction}`, {
+                logger.log(`Action saved to button ${assigningAction}`, {
                   service: action.service,
                   type: action.type,
                   totalActions: newMap.size
@@ -1222,7 +1223,7 @@ export default function Home() {
                 return newMap
               })
             } else {
-              console.log(`Clearing action from button ${assigningAction}`)
+              logger.log(`Clearing action from button ${assigningAction}`)
               setCombinedActions(prev => {
                 const newMap = new Map(prev)
                 newMap.delete(assigningAction)
@@ -1231,7 +1232,7 @@ export default function Home() {
             }
           }}
           onAssignSound={(url, name) => {
-            console.log(`Assigning sound to button ${assigningAction}:`, url, name)
+            logger.log(`Assigning sound to button ${assigningAction}:`, url, name)
             // Unload any cached version of this file to force a fresh read from disk
             // (handles the case where the file was modified externally)
             unloadSound(url)
@@ -1247,7 +1248,7 @@ export default function Home() {
             })
           }}
           onClearSound={() => {
-            console.log(`Clearing sound from button ${assigningAction}`)
+            logger.log(`Clearing sound from button ${assigningAction}`)
             // Unload the cached audio so re-assigning the same file reads fresh from disk
             const oldFilePath = soundMappings.get(assigningAction)
             if (oldFilePath) {
@@ -1265,7 +1266,7 @@ export default function Home() {
             })
           }}
           onSetVolume={(volume) => {
-            console.log(`Setting volume for button ${assigningAction}:`, volume)
+            logger.log(`Setting volume for button ${assigningAction}:`, volume)
             setButtonVolumes(prev => {
               const newMap = new Map(prev)
               newMap.set(assigningAction, volume)

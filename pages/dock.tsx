@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import logger from '../utils/logger'
 import Head from 'next/head'
 import { Howler } from 'howler'
 import { useAudioEngine } from '../hooks/useAudioEngine'
@@ -26,10 +27,10 @@ export default function DockMode() {
       // Resume Howler's audio context
       if (Howler.ctx && Howler.ctx.state === 'suspended') {
         await Howler.ctx.resume()
-        console.log('Audio context resumed')
+        logger.log('Audio context resumed')
       }
     } catch (err) {
-      console.error('Failed to resume audio context:', err)
+      logger.error('Failed to resume audio context:', err)
     }
   }, [])
 
@@ -60,7 +61,7 @@ export default function DockMode() {
         setButtonShape(data['soundpad-button-shape'])
       }
     } catch (error) {
-      console.error('Error fetching mappings:', error)
+      logger.error('Error fetching mappings:', error)
     } finally {
       setIsLoading(false)
     }
@@ -96,7 +97,7 @@ export default function DockMode() {
           const audioUrl = getAudioUrl(filepath)
           await loadSound(audioUrl)
         } catch (err) {
-          console.error('Failed to preload:', filepath, err)
+          logger.error('Failed to preload:', filepath, err)
         }
       }
     }
@@ -121,7 +122,7 @@ export default function DockMode() {
         body: JSON.stringify({ type, index, filePath, volume })
       })
     } catch (err) {
-      console.error('Failed to send trigger:', err)
+      logger.error('Failed to send trigger:', err)
     }
   }
 
@@ -133,12 +134,12 @@ export default function DockMode() {
     const soundFile = soundMappings.get(index)
     const action = combinedActions.get(index)
 
-    console.log('[Dock] Click index:', index, 'soundFile:', soundFile)
+    logger.log('[Dock] Click index:', index, 'soundFile:', soundFile)
 
     // Send trigger to main app to play sound (include filepath to avoid mapping mismatch)
     if (soundFile) {
       const volume = buttonVolumes.get(index) ?? 100
-      console.log('[Dock] Sending trigger for index:', index, 'file:', soundFile, 'volume:', volume)
+      logger.log('[Dock] Sending trigger for index:', index, 'file:', soundFile, 'volume:', volume)
       await sendTrigger('play', index, soundFile, volume)
     }
 

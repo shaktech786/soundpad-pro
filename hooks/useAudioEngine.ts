@@ -96,24 +96,24 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
           if (api.asioStatus) {
             const status = await api.asioStatus()
             if (status.initialized) {
-              console.log(`[AudioEngine] Engine already running: ${status.device} (${status.cachedSounds} cached sounds)`)
+              logger.log(`[AudioEngine] Engine already running: ${status.device} (${status.cachedSounds} cached sounds)`)
               setAsioReady(true)
               return
             }
           }
           // Engine not running, try to initialize
-          console.log('[AudioEngine] Engine not running, initializing...')
+          logger.log('[AudioEngine] Engine not running, initializing...')
           const result = await api.asioInitialize()
           if (result.success) {
-            console.log(`[AudioEngine] ASIO initialized: ${result.device} @ ${result.sampleRate}Hz via ${result.mode}`)
+            logger.log(`[AudioEngine] ASIO initialized: ${result.device} @ ${result.sampleRate}Hz via ${result.mode}`)
             setAsioReady(true)
           } else {
-            console.error(`[AudioEngine] ASIO init failed: ${result.error}`)
+            logger.error(`[AudioEngine] ASIO init failed: ${result.error}`)
             setAsioReady(false)
             setLoadErrors(prev => new Map(prev).set('__asio__', result.error))
           }
         } catch (err: any) {
-          console.error('[AudioEngine] ASIO init exception:', err)
+          logger.error('[AudioEngine] ASIO init exception:', err)
           setAsioReady(false)
         }
       }
@@ -136,7 +136,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
     if (api.onAsioStreamLost) {
       cleanupLost = api.onAsioStreamLost((reason: string) => {
-        console.error(`[AudioEngine] ASIO stream lost: ${reason}`)
+        logger.error(`[AudioEngine] ASIO stream lost: ${reason}`)
         setAsioReady(false)
         setLoadErrors(prev => new Map(prev).set('__asio__', `Stream lost: ${reason}`))
       })
@@ -144,7 +144,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
     if (api.onAsioStreamRecovered) {
       cleanupRecovered = api.onAsioStreamRecovered((device: string) => {
-        console.log(`[AudioEngine] ASIO stream recovered: ${device}`)
+        logger.log(`[AudioEngine] ASIO stream recovered: ${device}`)
         setAsioReady(true)
         setLoadErrors(prev => {
           const newMap = new Map(prev)
@@ -465,7 +465,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
         if (result && !result.success) {
           // If engine reports not initialized, try reconnecting once
           if (result.error?.includes('not initialized') && api.asioReconnect) {
-            console.log('[AudioEngine] Engine not initialized, attempting reconnect...')
+            logger.log('[AudioEngine] Engine not initialized, attempting reconnect...')
             const reconnResult = await api.asioReconnect()
             if (reconnResult.success) {
               setAsioReady(true)
@@ -473,7 +473,7 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
             }
           }
           if (result && !result.success) {
-            console.error(`[AudioEngine] asioPlaySound failed for ${fp}: ${result.error}`)
+            logger.error(`[AudioEngine] asioPlaySound failed for ${fp}: ${result.error}`)
           }
         }
         if (result?.success) {
@@ -483,13 +483,13 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
 
       if (!asioLoadedFiles.has(filePath)) {
         loadSound(filePath).then(() => doPlay(filePath)).catch(err => {
-          console.error(`[AudioEngine] load-then-play failed: ${err.message}`)
+          logger.error(`[AudioEngine] load-then-play failed: ${err.message}`)
         })
         return
       }
 
       doPlay(filePath).catch(err => {
-        console.error(`[AudioEngine] play error: ${err.message}`)
+        logger.error(`[AudioEngine] play error: ${err.message}`)
       })
       return
     }
