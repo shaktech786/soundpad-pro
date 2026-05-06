@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import logger from '../utils/logger'
+import { AudioFilePicker } from './AudioFilePicker'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
 import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
@@ -109,6 +110,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [volume, setVolume] = useState(currentVolume)
   const [pendingFile, setPendingFile] = useState<{ filePath: string; fileName: string } | null>(null)
+  const [showFilePicker, setShowFilePicker] = useState(false)
 
   // Preview audio state
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -234,23 +236,18 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     }
   }
 
-  const handleFilePickerClick = async () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
-      try {
-        const result = await (window as any).electronAPI.selectAudioFile()
-        if (result) {
-          const filePath = typeof result === 'string' ? result : result.filePath
-          const fileName = (typeof result === 'string' ? undefined : result.fileName) ?? filePath.split(/[\\/]/).pop() ?? filePath
-          stopPreview()
-          setPendingFile({ filePath, fileName })
-        }
-      } catch (err) {
-        logger.error('File picker error:', err)
-        setError('Failed to open file picker')
-      }
+  const handleFilePickerClick = () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.listDirectory) {
+      stopPreview()
+      setShowFilePicker(true)
     } else {
       setError('File picker only available in desktop app')
     }
+  }
+
+  const handleFilePickerSelect = (filePath: string, fileName: string) => {
+    setShowFilePicker(false)
+    setPendingFile({ filePath, fileName })
   }
 
   const handleAssignPending = () => {
@@ -268,6 +265,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-fade-in"
       role="dialog"
@@ -712,5 +710,13 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
         </div>
       </div>
     </div>
+
+    {showFilePicker && (
+      <AudioFilePicker
+        onSelect={handleFilePickerSelect}
+        onClose={() => setShowFilePicker(false)}
+      />
+    )}
+  </>
   )
 }

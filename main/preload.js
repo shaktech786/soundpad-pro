@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const result = await ipcRenderer.invoke('read-audio-file', filePath);
     return result;
   },
+  openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+  listDirectory: (dirPath) => ipcRenderer.invoke('fs:listDirectory', dirPath),
+  getDefaultAudioDir: () => ipcRenderer.invoke('fs:getDefaultAudioDir'),
 
   // Store management for persistent data
   storeGet: (key) => ipcRenderer.invoke('store:get', key),

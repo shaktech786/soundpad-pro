@@ -49,6 +49,14 @@ export function extractFilename(path: string): string {
   return filename.replace(/\.[^/.]+$/, '')
 }
 
+function labelStyle(name: string): { fontSize: string; lineClamp: string } {
+  const len = name.length
+  if (len <= 10) return { fontSize: 'text-sm',     lineClamp: 'line-clamp-2' }
+  if (len <= 16) return { fontSize: 'text-xs',     lineClamp: 'line-clamp-2' }
+  if (len <= 24) return { fontSize: 'text-[11px]', lineClamp: 'line-clamp-3' }
+  return             { fontSize: 'text-[10px]', lineClamp: 'line-clamp-3' }
+}
+
 // PadButton is defined at module level so React can reuse DOM nodes across renders
 const PadButton = memo(({
   index,
@@ -110,7 +118,7 @@ const PadButton = memo(({
     <button
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      title={fileError ? `⚠ ${fileError}` : undefined}
+      title={fileError ? `⚠ ${fileError}` : hasSound ? extractFilename(soundFile!) : undefined}
       style={{
         position: 'absolute',
         left: `${x}px`,
@@ -181,7 +189,7 @@ const PadButton = memo(({
           STOP
         </div>
       ) : hasSound ? (
-        <div className={`text-sm px-1 text-center line-clamp-2 font-medium leading-tight ${fileError ? 'text-amber-200' : 'text-white'}`}>
+        <div className={`px-1 text-center font-medium leading-tight ${labelStyle(extractFilename(soundFile!)).fontSize} ${labelStyle(extractFilename(soundFile!)).lineClamp} ${fileError ? 'text-amber-200' : 'text-white'}`}>
           {extractFilename(soundFile!)}
         </div>
       ) : (

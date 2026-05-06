@@ -288,6 +288,39 @@ ipcMain.handle('get-controllers', async () => {
 });
 
 // File dialog for audio selection
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.flac', '.aac', '.opus', '.weba'])
+
+ipcMain.handle('dialog:openDirectory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
+  if (!result.canceled && result.filePaths.length > 0) return result.filePaths[0]
+  return null
+})
+
+ipcMain.handle('fs:listDirectory', async (event, dirPath) => {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true })
+    const result = []
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        result.push({ name: entry.name, path: fullPath, isDir: true })
+      } else if (entry.isFile() && AUDIO_EXTS.has(path.extname(entry.name).toLowerCase())) {
+        result.push({ name: entry.name, path: fullPath, isDir: false })
+      }
+    }
+    result.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+    return { entries: result, error: null }
+  } catch (err) {
+    return { entries: [], error: err.message }
+  }
+})
+
+ipcMain.handle('fs:getDefaultAudioDir', () => app.getPath('music'))
+
 ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
