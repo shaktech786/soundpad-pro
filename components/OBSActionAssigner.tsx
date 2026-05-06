@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import logger from '../utils/logger'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
@@ -108,6 +108,58 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [volume, setVolume] = useState(currentVolume)
+  const [pendingFile, setPendingFile] = useState<{ filePath: string; fileName: string } | null>(null)
+
+  // Preview audio state
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const previewBlobRef = useRef<string | null>(null)
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const stopPreview = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+      audioRef.current = null
+    }
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current)
+      previewBlobRef.current = null
+    }
+    setIsPreviewPlaying(false)
+  }, [])
+
+  const playPreview = useCallback(async (filePath: string) => {
+    stopPreview()
+
+    const api = (window as any).electronAPI
+    if (!api?.readAudioFile) return
+
+    setPreviewLoading(true)
+    try {
+      const result = await api.readAudioFile(filePath)
+      if (result.error) throw new Error(result.error)
+
+      const blob = new Blob([result.buffer], { type: result.mimeType })
+      const blobUrl = URL.createObjectURL(blob)
+      previewBlobRef.current = blobUrl
+
+      const audio = new Audio(blobUrl)
+      audioRef.current = audio
+      audio.onended = () => setIsPreviewPlaying(false)
+      audio.onerror = () => { setIsPreviewPlaying(false); setPreviewLoading(false) }
+      await audio.play()
+      setIsPreviewPlaying(true)
+    } catch (err) {
+      logger.error('Preview playback error:', err)
+      stopPreview()
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [stopPreview])
+
+  // Clean up preview on unmount
+  useEffect(() => stopPreview, [stopPreview])
 
   const ACTION_TYPES = selectedTab === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
@@ -116,7 +168,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        stopPreview(); onClose()
       } else if (e.key === 'Enter') {
         if (selectedTab === 'sound' && url && !loading) {
           handleAssignSound()
@@ -128,7 +180,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedType, paramValue, selectedTab, selectedActionType, url, loading])
+  }, [selectedType, paramValue, selectedTab, selectedActionType, url, loading, stopPreview])
 
   // Prevent background scroll
   React.useEffect(() => {
@@ -186,12 +238,11 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
       try {
         const result = await (window as any).electronAPI.selectAudioFile()
-        if (result && onAssignSound) {
-          // Electron returns { filePath, fileName } - extract the path
+        if (result) {
           const filePath = typeof result === 'string' ? result : result.filePath
-          const fileName = typeof result === 'string' ? undefined : result.fileName
-          onAssignSound(filePath, fileName)
-          onClose()
+          const fileName = (typeof result === 'string' ? undefined : result.fileName) ?? filePath.split(/[\\/]/).pop() ?? filePath
+          stopPreview()
+          setPendingFile({ filePath, fileName })
         }
       } catch (err) {
         logger.error('File picker error:', err)
@@ -200,6 +251,13 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     } else {
       setError('File picker only available in desktop app')
     }
+  }
+
+  const handleAssignPending = () => {
+    if (!pendingFile || !onAssignSound) return
+    stopPreview()
+    onAssignSound(pendingFile.filePath, pendingFile.fileName)
+    onClose()
   }
 
   const handleClearSound = () => {
@@ -216,7 +274,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
       aria-modal="true"
       aria-labelledby="modal-title"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) { stopPreview(); onClose() }
       }}
     >
       <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl animate-scale-in">
@@ -225,7 +283,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
             Assign Action to Pad {buttonIndex}
           </h2>
           <button
-            onClick={onClose}
+            onClick={() => { stopPreview(); onClose() }}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
             aria-label="Close dialog"
           >
@@ -316,9 +374,59 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Current Sound Display */}
                 {currentSound && !soundError && (
-                  <div className="p-4 bg-gray-800 rounded-lg">
-                    <div className="text-sm text-gray-400 mb-2">Current Sound:</div>
-                    <div className="text-white font-medium break-all">{currentSound}</div>
+                  <div className="p-4 bg-gray-800 rounded-lg flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-400 mb-1">Current Sound:</div>
+                      <div className="text-white font-medium break-all text-sm">{currentSound}</div>
+                    </div>
+                    <button
+                      onClick={() => isPreviewPlaying && !pendingFile ? stopPreview() : playPreview(currentSound)}
+                      disabled={previewLoading || !!pendingFile}
+                      className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title={isPreviewPlaying && !pendingFile ? 'Stop preview' : 'Preview current sound'}
+                    >
+                      {previewLoading && !pendingFile ? (
+                        <span className="w-4 h-4 border-2 border-gray-400 border-t-white rounded-full animate-spin" />
+                      ) : isPreviewPlaying && !pendingFile ? (
+                        <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Pending file preview panel */}
+                {pendingFile && (
+                  <div className="p-4 bg-blue-950 border border-blue-700 rounded-lg">
+                    <div className="text-sm text-blue-300 font-semibold mb-2">Selected — preview before assigning:</div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white font-medium truncate">{pendingFile.fileName}</div>
+                        <div className="text-gray-400 text-xs truncate mt-0.5">{pendingFile.filePath}</div>
+                      </div>
+                      <button
+                        onClick={() => isPreviewPlaying ? stopPreview() : playPreview(pendingFile.filePath)}
+                        disabled={previewLoading}
+                        className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-blue-700 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        title={isPreviewPlaying ? 'Stop preview' : 'Preview'}
+                      >
+                        {previewLoading ? (
+                          <span className="w-4 h-4 border-2 border-blue-300 border-t-white rounded-full animate-spin" />
+                        ) : isPreviewPlaying ? (
+                          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                        ) : (
+                          <svg className="w-4 h-4 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => { stopPreview(); setPendingFile(null) }}
+                        className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                        title="Discard selection"
+                      >
+                        <svg className="w-4 h-4 text-gray-300" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -328,7 +436,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   className="w-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-3"
                 >
                   <span className="text-2xl">📁</span>
-                  <span>Choose Local Audio File</span>
+                  <span>{pendingFile ? 'Choose Different File' : 'Choose Local Audio File'}</span>
                 </button>
 
                 {/* Divider */}
@@ -432,13 +540,22 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Action Buttons */}
                 <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={handleAssignSound}
-                    disabled={!url || loading}
-                    className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
-                  >
-                    {loading ? 'Processing...' : 'Assign Sound'}
-                  </button>
+                  {pendingFile ? (
+                    <button
+                      onClick={handleAssignPending}
+                      className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
+                    >
+                      Assign Selected File
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleAssignSound}
+                      disabled={!url || loading}
+                      className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                    >
+                      {loading ? 'Processing...' : 'Assign Sound'}
+                    </button>
+                  )}
 
                   {currentSound && onClearSound && (
                     <button
@@ -450,7 +567,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   )}
 
                   <button
-                    onClick={onClose}
+                    onClick={() => { stopPreview(); onClose() }}
                     disabled={loading}
                     className="px-6 py-3 bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
                   >
