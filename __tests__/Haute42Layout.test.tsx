@@ -88,13 +88,13 @@ describe('Haute42Layout — file error indicators', () => {
     expect(button.querySelector('[class*="bg-amber-500"]')).not.toBeInTheDocument()
   })
 
-  test('button without error has no title attribute', () => {
+  test('button without error shows filename as title', () => {
     renderLayout({
       soundMappings: new Map([[0, 'C:\\sounds\\working.mp3']]),
     })
 
     const button = screen.getByRole('button', { name: /Play sound: working/i })
-    expect(button).not.toHaveAttribute('title')
+    expect(button).toHaveAttribute('title', 'working')
   })
 
   test('empty button (no sound) shows + and no warning', () => {
