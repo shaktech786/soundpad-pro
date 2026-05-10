@@ -140,8 +140,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     title: 'SoundPad Pro',
     ...windowBounds,
-    minWidth: 1200,
-    minHeight: 700,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
