@@ -11,7 +11,9 @@ let gp2040api = new GP2040ceApi();
 
 // Enable Chromium audio output device selection (required for AudioContext.setSinkId)
 app.commandLine.appendSwitch('enable-features', 'AudioServiceOutOfProcess,WebRtcAllowInputVolumeAdjustment');
-app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
+// AudioServiceSandbox: audio stability; CalculateNativeWinOcclusion: prevents renderer throttling
+// when another window covers SoundPad Pro (which caused audio stuttering on hotkey/gamepad trigger)
+app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox,CalculateNativeWinOcclusion');
 
 // Prevent background throttling of timers and audio when window loses focus
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
