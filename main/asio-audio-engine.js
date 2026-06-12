@@ -340,6 +340,11 @@ class AsioAudioEngine {
     return { success: true };
   }
 
+  getActiveSounds() {
+    // Skip internal voices like __test_tone__ / probe buffers
+    return [...this._activeVoices.keys()].filter(k => !k.startsWith('__'));
+  }
+
   stopAll() {
     this._activeVoices.clear();
     // Flush buffered audio immediately so playback stops without delay

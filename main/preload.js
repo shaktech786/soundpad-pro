@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   asioReconnect: () => ipcRenderer.invoke('asio:reconnect'),
   asioDiag: () => ipcRenderer.invoke('asio:diag'),
 
+  // Now-playing broadcast: renderer reports which WDM (Howler) sounds are
+  // playing so the main process can expose them on the local HTTP server
+  notifyWdmPlaying: (filePaths) => ipcRenderer.send('audio:wdm-playing', filePaths),
+
   // ASIO stream health events (returns cleanup function)
   onAsioStreamLost: (callback) => {
     const handler = (event, reason) => callback(reason);

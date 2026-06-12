@@ -69,6 +69,21 @@ export function useAudioEngine(audioMode: AudioMode = 'wdm') {
     loadingRef.current = isLoading
   }, [isLoading])
 
+  // Report WDM playback state to the main process for the now-playing
+  // broadcast (local HTTP server consumed by OBS docks). Every WDM play/stop/
+  // end path funnels through setIsPlaying, so this one effect covers them all.
+  // ASIO state is tracked in the main process directly.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : null
+    if (!api?.notifyWdmPlaying) return
+    if (audioMode !== 'wdm') {
+      api.notifyWdmPlaying([])
+      return
+    }
+    const playing = [...isPlaying.entries()].filter(([, v]) => v).map(([fp]) => fp)
+    api.notifyWdmPlaying(playing)
+  }, [isPlaying, audioMode])
+
   // Initialize ASIO engine when mode is 'asio'.
   // The engine is auto-initialized in the main process on startup,
   // so this typically just confirms it's ready.

@@ -6,6 +6,7 @@ const Store = require('electron-store');
 const { HIDGamepad, NEUTRAL: HID_NEUTRAL } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
+const { NowPlayingServer } = require('./now-playing-server');
 
 let gp2040api = new GP2040ceApi();
 
@@ -40,6 +41,12 @@ let registeredHotkeys = new Map();
 let saveWindowBoundsTimeout = null;
 let asioEngine = null;
 let asioInitializing = false;
+
+// Now-playing broadcast for external tools (prelive OBS dock).
+// ASIO state is queried live from the engine; WDM (Howler in renderer)
+// state is pushed up via the 'audio:wdm-playing' IPC event.
+let nowPlayingServer = null;
+let wdmPlaying = [];
 
 // HID stop button — dead-simple raw-byte pattern matching.
 // `hidStopSnapshot` is the 8-byte HID report taken when the user assigned
@@ -205,6 +212,13 @@ app.whenReady().then(() => {
 
   createWindow();
 
+  nowPlayingServer = new NowPlayingServer({
+    port: 3006,
+    getAsioPlaying: () => (asioEngine && asioEngine.isInitialized() ? asioEngine.getActiveSounds() : []),
+    getWdmPlaying: () => wdmPlaying,
+  });
+  nowPlayingServer.start();
+
   // Background HID gamepad polling — works even when OBS or another app has focus.
   // The Pokken Controller (GP2040-CE Switch mode) is a pure HID device, not XInput,
   // so node-hid can open it without conflict. Auto-reconnects if the controller
@@ -248,6 +262,10 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   // Unregister all shortcuts when app is closing
   globalShortcut.unregisterAll();
+  if (nowPlayingServer) {
+    nowPlayingServer.shutdown();
+    nowPlayingServer = null;
+  }
   // HID gamepad is local to app.whenReady — no explicit cleanup needed (GC handles it)
   // ASIO engine cleanup
   if (asioEngine) {
@@ -643,6 +661,12 @@ ipcMain.handle('asio:stop-all', async () => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// Renderer reports the set of WDM (Howler) sounds currently playing —
+// covers play, natural end, stop, stop-all, and unload in one signal.
+ipcMain.on('audio:wdm-playing', (event, filePaths) => {
+  wdmPlaying = Array.isArray(filePaths) ? filePaths.filter(fp => typeof fp === 'string') : [];
 });
 
 ipcMain.handle('asio:set-volume', async (event, filePath, volume) => {
