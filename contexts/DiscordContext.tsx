@@ -46,16 +46,7 @@ export interface DiscordStatus {
 }
 
 export interface DiscordPublicConfig {
-  clientId: string
-  redirectUri: string
-  hasSecret: boolean
   hasAuth: boolean
-}
-
-export interface DiscordConfigInput {
-  clientId: string
-  clientSecret: string
-  redirectUri: string
 }
 
 interface DiscordContextType {
@@ -69,7 +60,6 @@ interface DiscordContextType {
   voiceState: DiscordVoiceState | null
   connect: () => Promise<void>
   disconnect: () => Promise<void>
-  setConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig | null>
   getConfig: () => Promise<DiscordPublicConfig | null>
   // Fire a mute/deafen/toggle action on press (mirrors OBS's press-fire model).
   executeAction: (action: DiscordAction) => Promise<void>
@@ -120,11 +110,6 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     const result = await window.electronAPI.discordDisconnect()
     applyStatus(result)
   }, [applyStatus])
-
-  const setConfig = useCallback(async (config: Partial<DiscordConfigInput>) => {
-    if (typeof window === 'undefined' || !window.electronAPI?.discordSetConfig) return null
-    return window.electronAPI.discordSetConfig(config)
-  }, [])
 
   const getConfig = useCallback(async () => {
     if (typeof window === 'undefined' || !window.electronAPI?.discordGetConfig) return null
@@ -251,9 +236,9 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     }
   }, [status, getVoiceSettings])
 
-  // Auto-connect on mount only if already configured AND previously authorized,
-  // so returning users reconnect silently without re-prompting, while first-time
-  // users must click "Connect to Discord" (which pops the native consent dialog).
+  // Auto-connect on mount only if previously authorized, so returning users
+  // reconnect silently without re-prompting, while first-time users must click
+  // "Connect to Discord" (which pops the native consent dialog).
   useEffect(() => {
     if (autoConnectAttempted.current) return
     autoConnectAttempted.current = true
@@ -263,7 +248,7 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     const tryAutoConnect = async () => {
       const config = await getConfig()
       if (cancelled || !config) return
-      if (config.clientId && config.hasAuth) {
+      if (config.hasAuth) {
         await connect().catch(() => {})
       }
     }
@@ -286,7 +271,6 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     voiceState,
     connect,
     disconnect,
-    setConfig,
     getConfig,
     executeAction,
     setPushToTalk,

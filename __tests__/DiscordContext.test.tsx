@@ -33,7 +33,7 @@ function setupApi(overrides: Partial<Api> = {}): Api {
         voiceStatePush = null
       }
     }),
-    discordGetConfig: vi.fn().mockResolvedValue({ clientId: '', redirectUri: '', hasSecret: false, hasAuth: false }),
+    discordGetConfig: vi.fn().mockResolvedValue({ hasAuth: false }),
     discordConnect: vi.fn().mockResolvedValue({ status: 'connected', error: null, user: null }),
     discordSetVoiceSettings: vi.fn().mockResolvedValue({}),
     discordGetVoiceSettings: vi.fn().mockResolvedValue({ mute: false, deaf: false }),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { useDiscord } from '../contexts/DiscordContext'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 
@@ -15,15 +15,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
     user,
     connect,
     disconnect,
-    setConfig,
-    getConfig,
   } = useDiscord()
-
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
-  const [redirectUri, setRedirectUri] = useState('http://localhost')
-  const [hasSecret, setHasSecret] = useState(false)
-  const [saving, setSaving] = useState(false)
 
   // App-level toggle (not profile-scoped) for showing the currently playing
   // sound as Discord Rich Presence. Persisted alongside other integration
@@ -41,36 +33,8 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
     void window.electronAPI?.discordRefreshActivity?.(next)
   }
 
-  // Prefill from persisted config (secret is never returned — we only learn
-  // whether one is already stored).
-  useEffect(() => {
-    const load = async () => {
-      const config = await getConfig()
-      if (config) {
-        setClientId(config.clientId || '')
-        setRedirectUri(config.redirectUri || 'http://localhost')
-        setHasSecret(config.hasSecret)
-      }
-    }
-    load()
-  }, [getConfig])
-
   const handleConnect = async () => {
-    setSaving(true)
-    try {
-      await setConfig({
-        clientId,
-        // Empty string leaves the stored secret untouched (so users don't have
-        // to re-paste it every time they open this panel).
-        clientSecret,
-        redirectUri,
-      })
-      if (clientSecret) setHasSecret(true)
-      setClientSecret('')
-      await connect()
-    } finally {
-      setSaving(false)
-    }
+    await connect()
   }
 
   const handleDisconnect = async () => {
@@ -84,8 +48,6 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
       : connecting
         ? 'Connecting…'
         : 'Not Connected'
-
-  const canConnect = clientId.trim().length > 0 && (hasSecret || clientSecret.trim().length > 0)
 
   return (
     <div className="bg-gray-900 rounded-xl p-6 shadow-2xl">
@@ -137,59 +99,9 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
 
       {!connected && (
         <div className="space-y-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
-              Discord Client ID
-            </label>
-            <input
-              type="text"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="Application (client) ID"
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-indigo-500 focus:outline-none"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Get this from your prelive Discord app config (Discord Developer
-              Portal → your application → OAuth2 → Client ID).
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
-              Discord Client Secret
-            </label>
-            <input
-              type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              placeholder={hasSecret ? '•••••••• (saved — leave blank to keep)' : 'Client secret'}
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-indigo-500 focus:outline-none"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Same application as the prelive web app (OAuth2 → Client Secret).
-              Stored locally; used once to exchange the authorization code.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
-              Redirect URI
-            </label>
-            <input
-              type="text"
-              value={redirectUri}
-              onChange={(e) => setRedirectUri(e.target.value)}
-              placeholder="http://localhost"
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-indigo-500 focus:outline-none"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Must match a redirect registered under OAuth2 in the Discord app.
-            </p>
-          </div>
-
           <button
             onClick={handleConnect}
-            disabled={connecting || saving || !canConnect}
+            disabled={connecting}
             className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
           >
             {connecting ? 'Connecting…' : 'Connect to Discord'}
@@ -201,9 +113,8 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
               <div className="font-bold text-white mb-2">Setup Instructions:</div>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Make sure the Discord desktop app is running and you are signed in</li>
-                <li>Paste the Client ID and Client Secret from your prelive Discord app</li>
                 <li>Click <span className="text-white font-semibold">Connect to Discord</span></li>
-                <li>On first connect, approve the authorization popup in Discord</li>
+                <li>Approve the authorization popup in Discord</li>
                 <li>The token is saved — later launches reconnect without prompting</li>
               </ol>
             </div>

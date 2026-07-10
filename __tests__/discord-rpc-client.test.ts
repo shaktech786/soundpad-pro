@@ -12,6 +12,9 @@ import {
 const OP_HANDSHAKE = 0
 const OP_FRAME = 1
 
+// Mirrors the hardcoded prelive Public Client ID in discord-rpc-client.js.
+const DEFAULT_CLIENT_ID = '1523146707725058048'
+
 // A stand-in for a net.Socket: an EventEmitter that records writes and lets the
 // test drive the connect/error/data lifecycle by hand.
 class FakeSocket extends EventEmitter {
@@ -93,13 +96,13 @@ describe('DiscordRpcClient connection/handshake', () => {
     vi.useRealTimers()
   })
 
-  test('sends a HANDSHAKE frame with the configured client_id on connect', async () => {
+  test('sends a HANDSHAKE frame with the hardcoded client_id on connect', async () => {
     const socket = new FakeSocket()
     createConnectionSpy = vi
       .spyOn(net, 'createConnection')
       .mockImplementation(() => socket as any)
 
-    const store = makeStore({ 'discord-client-config': { clientId: 'client-123', clientSecret: 's' } })
+    const store = makeStore()
     const client = new DiscordRpcClient({ store })
 
     client.connect()
@@ -109,7 +112,7 @@ describe('DiscordRpcClient connection/handshake', () => {
     const frames = writtenFrames(socket)
     expect(frames).toHaveLength(1)
     expect(frames[0].op).toBe(OP_HANDSHAKE)
-    expect(frames[0].data).toEqual({ v: 1, client_id: 'client-123' })
+    expect(frames[0].data).toEqual({ v: 1, client_id: DEFAULT_CLIENT_ID })
   })
 
   test('falls through pipe indices until one connects', async () => {
@@ -120,7 +123,7 @@ describe('DiscordRpcClient connection/handshake', () => {
       return s as any
     })
 
-    const store = makeStore({ 'discord-client-config': { clientId: 'cid', clientSecret: 's' } })
+    const store = makeStore()
     const client = new DiscordRpcClient({ store })
 
     client.connect()
@@ -139,25 +142,6 @@ describe('DiscordRpcClient connection/handshake', () => {
     expect(frames[0].op).toBe(OP_HANDSHAKE)
   })
 
-  test('refuses to connect without a client ID and reports error status', async () => {
-    createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => {
-      throw new Error('should not attempt a pipe connection')
-    })
-
-    const store = makeStore()
-    const client = new DiscordRpcClient({ store })
-
-    const statuses: string[] = []
-    client.on('status', (s: any) => statuses.push(s.status))
-
-    const result = await client.connect()
-
-    expect(result.status).toBe('error')
-    expect(result.error).toMatch(/client id/i)
-    expect(createConnectionSpy).not.toHaveBeenCalled()
-    expect(statuses).toContain('error')
-  })
-
   test('emits connecting status and schedules a reconnect when no pipe answers', async () => {
     createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => {
       const s = new FakeSocket()
@@ -166,7 +150,7 @@ describe('DiscordRpcClient connection/handshake', () => {
       return s as any
     })
 
-    const store = makeStore({ 'discord-client-config': { clientId: 'cid', clientSecret: 's' } })
+    const store = makeStore()
     const client = new DiscordRpcClient({ store })
 
     const statuses: string[] = []
@@ -191,7 +175,6 @@ describe('DiscordRpcClient connection/handshake', () => {
       .mockImplementation(() => socket as any)
 
     const store = makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'secret' },
       'discord-rpc-auth': {
         access_token: 'stored-token',
         refresh_token: 'refresh',
@@ -232,29 +215,56 @@ describe('DiscordRpcClient connection/handshake', () => {
     expect(result.user).toEqual({ id: '1', username: 'tester' })
   })
 
-  test('getPublicConfig never leaks the stored secret', () => {
-    const store = makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'super-secret', redirectUri: 'http://localhost' },
+  test('hasStoredAuth reflects whether an access token is persisted', () => {
+    const withToken = new DiscordRpcClient({
+      store: makeStore({ 'discord-rpc-auth': { access_token: 'tok', refresh_token: 'r' } }),
     })
-    const client = new DiscordRpcClient({ store })
-    const pub = client.getPublicConfig()
-    expect(pub).toEqual({
-      clientId: 'cid',
-      redirectUri: 'http://localhost',
-      hasSecret: true,
-      hasAuth: false,
+    expect(withToken.hasStoredAuth()).toBe(true)
+
+    const withoutToken = new DiscordRpcClient({ store: makeStore() })
+    expect(withoutToken.hasStoredAuth()).toBe(false)
+
+    const emptyToken = new DiscordRpcClient({
+      store: makeStore({ 'discord-rpc-auth': { access_token: '' } }),
     })
-    expect(JSON.stringify(pub)).not.toContain('super-secret')
+    expect(emptyToken.hasStoredAuth()).toBe(false)
   })
 
-  test('setConfig preserves an existing secret when passed a blank one', () => {
-    const store = makeStore({
-      'discord-client-config': { clientId: 'old', clientSecret: 'keep-me', redirectUri: 'http://localhost' },
+  test('_exchangeCode posts the hardcoded client_id and no client_secret', async () => {
+    const client = new DiscordRpcClient({ store: makeStore() })
+    const tokenSpy = vi
+      .spyOn(client as any, '_tokenRequest')
+      .mockResolvedValue({ access_token: 't', refresh_token: 'r', expires_in: 3600 })
+
+    await (client as any)._exchangeCode('auth-code')
+
+    expect(tokenSpy).toHaveBeenCalledTimes(1)
+    const params = tokenSpy.mock.calls[0][0]
+    expect(params).toEqual({
+      client_id: DEFAULT_CLIENT_ID,
+      grant_type: 'authorization_code',
+      code: 'auth-code',
+      redirect_uri: 'http://localhost',
     })
-    const client = new DiscordRpcClient({ store })
-    client.setConfig({ clientId: 'new', clientSecret: '' })
-    expect(store._data['discord-client-config'].clientId).toBe('new')
-    expect(store._data['discord-client-config'].clientSecret).toBe('keep-me')
+    expect(params).not.toHaveProperty('client_secret')
+  })
+
+  test('_refreshToken posts the hardcoded client_id and no client_secret', async () => {
+    const client = new DiscordRpcClient({ store: makeStore() })
+    const tokenSpy = vi
+      .spyOn(client as any, '_tokenRequest')
+      .mockResolvedValue({ access_token: 't2', refresh_token: 'r2', expires_in: 3600 })
+
+    await (client as any)._refreshToken('old-refresh')
+
+    expect(tokenSpy).toHaveBeenCalledTimes(1)
+    const params = tokenSpy.mock.calls[0][0]
+    expect(params).toEqual({
+      client_id: DEFAULT_CLIENT_ID,
+      grant_type: 'refresh_token',
+      refresh_token: 'old-refresh',
+    })
+    expect(params).not.toHaveProperty('client_secret')
   })
 })
 
@@ -294,7 +304,6 @@ describe('DiscordRpcClient voice control', () => {
 
   function authedStore() {
     return makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
       'discord-rpc-auth': {
         access_token: 'tok',
         refresh_token: 'r',
@@ -306,9 +315,7 @@ describe('DiscordRpcClient voice control', () => {
   test('AUTHORIZE requests the rpc.voice.write scope', async () => {
     const socket = new FakeSocket()
     createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => socket as any)
-    const store = makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
-    })
+    const store = makeStore()
     const client = new DiscordRpcClient({ store })
     vi.spyOn(client as any, '_exchangeCode').mockResolvedValue({
       access_token: 't',
@@ -486,7 +493,6 @@ describe('DiscordRpcClient rich presence', () => {
 
   function authedStore() {
     return makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
       'discord-rpc-auth': { access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600_000 },
     })
   }
@@ -585,7 +591,6 @@ describe('DiscordRpcClient voice-state subscription', () => {
 
   function authedStore() {
     return makeStore({
-      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
       'discord-rpc-auth': { access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600_000 },
     })
   }

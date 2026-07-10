@@ -848,11 +848,7 @@ ipcMain.handle('discord:status', async () => {
 });
 
 ipcMain.handle('discord:get-config', async () => {
-  return discordRpc.getPublicConfig();
-});
-
-ipcMain.handle('discord:set-config', async (event, config) => {
-  return discordRpc.setConfig(config || {});
+  return { hasAuth: discordRpc.hasStoredAuth() };
 });
 
 ipcMain.handle('discord:set-voice-settings', async (event, settings) => {

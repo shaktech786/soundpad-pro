@@ -75,7 +75,6 @@ interface ElectronAPI {
   discordDisconnect: () => Promise<DiscordStatus>
   discordStatus: () => Promise<DiscordStatus>
   discordGetConfig: () => Promise<DiscordPublicConfig>
-  discordSetConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig>
   discordSetVoiceSettings: (settings: DiscordVoiceSettingsInput) => Promise<DiscordVoiceSettings>
   discordGetVoiceSettings: () => Promise<DiscordVoiceSettings>
   discordSetActivity: (activity: DiscordActivityInput | null) => Promise<unknown>
@@ -112,16 +111,7 @@ interface DiscordStatus {
 }
 
 interface DiscordPublicConfig {
-  clientId: string
-  redirectUri: string
-  hasSecret: boolean
   hasAuth: boolean
-}
-
-interface DiscordConfigInput {
-  clientId: string
-  clientSecret: string
-  redirectUri: string
 }
 
 interface DiscordVoiceSettingsInput {
