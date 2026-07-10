@@ -1,9 +1,9 @@
 # Discord Integration
 
 SoundPad Pro connects to your locally running Discord desktop app over Discord's
-RPC protocol. This first release establishes the **connection and one-time
-authorization** — the foundation later features (mute/deafen toggles, Rich
-Presence) build on. No voice or presence commands are sent yet.
+RPC protocol. It establishes a **connection and one-time authorization**, then
+lets you map controller pads to **mute / deafen / push-to-talk** actions that
+change your live Discord voice state.
 
 ## How It Works
 
@@ -11,7 +11,9 @@ Presence) build on. No voice or presence commands are sent yet.
   (`\\?\pipe\discord-ipc-0` … `-9`) using a direct Node implementation of the
   Discord RPC handshake — no browser, no external service.
 - On first connect, Discord shows its **native authorization popup** asking you
-  to approve SoundPad Pro (scopes: `rpc`, `identify`).
+  to approve SoundPad Pro (scopes: `rpc`, `identify`, `rpc.voice.write`). The
+  `rpc.voice.write` scope is what allows SoundPad Pro to set your mute/deafen
+  state.
 - The resulting access token is stored locally so future launches reconnect
   **silently** (the token is refreshed automatically when it expires).
 - If Discord isn't running, SoundPad Pro retries every 10 seconds in the
@@ -54,6 +56,39 @@ credentials in once and they're stored locally.
 
 That's it. On later launches SoundPad Pro reconnects automatically without
 prompting again.
+
+## Voice Actions
+
+Once connected, open the **action assigner** on any pad (right-click a pad, or
+Alt-click), pick the **🎙️ Discord** tab, and choose an action:
+
+| Action | What it does |
+| --- | --- |
+| 🔇 Toggle Mute | Reads your current mute state and flips it |
+| 🔇 Mute | Force mute on |
+| 🎤 Unmute | Force mute off |
+| 🔈 Toggle Deafen | Reads your current deafen state and flips it |
+| 🔇 Deafen | Force deafen on |
+| 🔊 Undeafen | Force deafen off |
+| 🎙️ Push-to-Talk | Unmutes **while the pad is held**, remutes on release |
+
+Mute / unmute / toggle / deafen actions fire on **press**. Push-to-talk is the
+one action that uses both edges: it unmutes when you press the pad and remutes
+when you let go — hold it exactly as long as you want to talk. A pad with a
+Discord action shows a **🎙️ badge**.
+
+Clicking a Discord-mapped pad in the app triggers the action for testing;
+push-to-talk registers as a momentary unmute→remute when clicked (hold the real
+controller button for a sustained talk).
+
+## Re-authorization for the voice scope
+
+Voice control needs the `rpc.voice.write` OAuth scope. If you authorized SoundPad
+Pro **before** this scope existed, your stored token lacks it. The first time you
+trigger a mute/deafen/push-to-talk action, Discord rejects the command with a
+permissions error and SoundPad Pro **automatically re-opens the authorization
+popup** so you can grant the new scope. Approve it once; the refreshed token is
+saved and subsequent actions work without prompting.
 
 ## Connection Status
 
@@ -113,7 +148,8 @@ renderer** — the settings UI only learns whether a secret is already saved.
 **Transport**: Node `net` (named pipe) — no native dependency
 **Frame format**: `[opcode int32 LE][length int32 LE][UTF-8 JSON]`
 **Auth**: OAuth2 authorization-code grant via `https://discord.com/api/oauth2/token`
-**Scopes**: `rpc`, `identify`
+**Scopes**: `rpc`, `identify`, `rpc.voice.write`
+**Voice commands**: `SET_VOICE_SETTINGS` / `GET_VOICE_SETTINGS` (opcode 1 FRAME)
 **Storage**: `electron-store` (`discord-client-config`, `discord-rpc-auth`)
 
 ## Privacy & Security
@@ -125,10 +161,8 @@ renderer** — the settings UI only learns whether a secret is already saved.
 
 ## Not Yet Implemented
 
-This story is **connection + authorization only**. The following are planned for
-later stories and are intentionally not wired up yet:
+The following is planned for a later story and is intentionally not wired up yet:
 
-- Mute / deafen control (`SET_VOICE_SETTINGS`)
 - Rich Presence / activity (`SET_ACTIVITY`)
 
 ---

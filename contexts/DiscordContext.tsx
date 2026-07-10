@@ -15,6 +15,23 @@ export interface DiscordUser {
   avatar?: string | null
 }
 
+export interface DiscordAction {
+  type:
+    | 'mute'
+    | 'unmute'
+    | 'toggle_mute'
+    | 'deafen'
+    | 'undeafen'
+    | 'toggle_deafen'
+    | 'push_to_talk'
+}
+
+export interface DiscordVoiceSettings {
+  mute?: boolean
+  deaf?: boolean
+  [key: string]: unknown
+}
+
 export interface DiscordStatus {
   status: DiscordConnectionStatus
   error: string | null
@@ -45,6 +62,10 @@ interface DiscordContextType {
   disconnect: () => Promise<void>
   setConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig | null>
   getConfig: () => Promise<DiscordPublicConfig | null>
+  // Fire a mute/deafen/toggle action on press (mirrors OBS's press-fire model).
+  executeAction: (action: DiscordAction) => Promise<void>
+  // Push-to-talk: active=true unmutes (on press), active=false remutes (on release).
+  setPushToTalk: (active: boolean) => Promise<void>
 }
 
 const DiscordContext = createContext<DiscordContextType | undefined>(undefined)
@@ -100,6 +121,82 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     return window.electronAPI.discordGetConfig()
   }, [])
 
+  // Keep a ref of the live connection state so the action helpers (called from
+  // the dispatch loop) never fire IPC against a dead connection via a stale
+  // closure — same pattern the audio engine uses for its mode flag.
+  const connectedRef = useRef(false)
+  useEffect(() => {
+    connectedRef.current = status === 'connected'
+  }, [status])
+
+  const setVoiceSettings = useCallback(
+    async (settings: DiscordVoiceSettings): Promise<DiscordVoiceSettings | null> => {
+      if (typeof window === 'undefined' || !window.electronAPI?.discordSetVoiceSettings) return null
+      if (!connectedRef.current) return null
+      try {
+        return await window.electronAPI.discordSetVoiceSettings(settings)
+      } catch (err) {
+        console.warn('Discord setVoiceSettings failed:', err)
+        return null
+      }
+    },
+    [],
+  )
+
+  const getVoiceSettings = useCallback(async (): Promise<DiscordVoiceSettings | null> => {
+    if (typeof window === 'undefined' || !window.electronAPI?.discordGetVoiceSettings) return null
+    if (!connectedRef.current) return null
+    try {
+      return await window.electronAPI.discordGetVoiceSettings()
+    } catch (err) {
+      console.warn('Discord getVoiceSettings failed:', err)
+      return null
+    }
+  }, [])
+
+  const setPushToTalk = useCallback(
+    async (active: boolean) => {
+      // Press unmutes; release remutes.
+      await setVoiceSettings({ mute: !active })
+    },
+    [setVoiceSettings],
+  )
+
+  const executeAction = useCallback(
+    async (action: DiscordAction) => {
+      switch (action.type) {
+        case 'mute':
+          await setVoiceSettings({ mute: true })
+          break
+        case 'unmute':
+          await setVoiceSettings({ mute: false })
+          break
+        case 'deafen':
+          await setVoiceSettings({ deaf: true })
+          break
+        case 'undeafen':
+          await setVoiceSettings({ deaf: false })
+          break
+        case 'toggle_mute': {
+          const current = await getVoiceSettings()
+          await setVoiceSettings({ mute: !(current?.mute ?? false) })
+          break
+        }
+        case 'toggle_deafen': {
+          const current = await getVoiceSettings()
+          await setVoiceSettings({ deaf: !(current?.deaf ?? false) })
+          break
+        }
+        case 'push_to_talk':
+          // Click-to-test only: a momentary unmute then remute.
+          await setPushToTalk(true)
+          await setPushToTalk(false)
+          break
+      }
+    },
+    [setVoiceSettings, getVoiceSettings, setPushToTalk],
+  )
+
   // Subscribe to pushed status changes and sync the initial status.
   useEffect(() => {
     if (typeof window === 'undefined' || !window.electronAPI?.onDiscordStatusChanged) return
@@ -149,6 +246,8 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     disconnect,
     setConfig,
     getConfig,
+    executeAction,
+    setPushToTalk,
   }
 
   return (

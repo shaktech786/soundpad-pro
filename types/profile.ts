@@ -1,5 +1,6 @@
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
+import { DiscordAction } from '../contexts/DiscordContext'
 
 export interface ButtonPosition {
   id: number
@@ -12,6 +13,7 @@ export type ButtonShape = 'circle' | 'square'
 export type CombinedAction =
   | (OBSAction & { service: 'obs' })
   | (LiveSplitAction & { service: 'livesplit' })
+  | (DiscordAction & { service: 'discord' })
 
 export interface BoardProfile {
   id: string

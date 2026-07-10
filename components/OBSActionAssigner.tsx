@@ -23,6 +23,7 @@ interface OBSActionAssignerProps {
   onClose: () => void
   obsConnected: boolean
   liveSplitConnected: boolean
+  discordConnected: boolean
 }
 
 const OBS_ACTION_TYPES = [
@@ -73,6 +74,21 @@ const LIVESPLIT_ACTION_TYPES = [
   { value: 'init_game_time', label: '🎮 Init Game Time', needsParams: false, category: 'Advanced', service: 'livesplit' }
 ]
 
+const DISCORD_ACTION_TYPES = [
+  // Mute
+  { value: 'toggle_mute', label: '🔇 Toggle Mute', needsParams: false, category: 'Mute', service: 'discord' },
+  { value: 'mute', label: '🔇 Mute', needsParams: false, category: 'Mute', service: 'discord' },
+  { value: 'unmute', label: '🎤 Unmute', needsParams: false, category: 'Mute', service: 'discord' },
+
+  // Deafen
+  { value: 'toggle_deafen', label: '🔈 Toggle Deafen', needsParams: false, category: 'Deafen', service: 'discord' },
+  { value: 'deafen', label: '🔇 Deafen', needsParams: false, category: 'Deafen', service: 'discord' },
+  { value: 'undeafen', label: '🔊 Undeafen', needsParams: false, category: 'Deafen', service: 'discord' },
+
+  // Voice
+  { value: 'push_to_talk', label: '🎙️ Push-to-Talk', needsParams: false, category: 'Voice', service: 'discord' }
+]
+
 export function formatSoundError(error: string): string {
   if (/ENOENT|no such file/i.test(error)) return 'File not found — it may have been moved or deleted.'
   if (/EACCES|permission/i.test(error)) return 'Permission denied — cannot read this file.'
@@ -96,9 +112,10 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   onSetVolume,
   onClose,
   obsConnected,
-  liveSplitConnected
+  liveSplitConnected,
+  discordConnected
 }) => {
-  const [selectedTab, setSelectedTab] = useState<'sound' | 'obs' | 'livesplit'>(
+  const [selectedTab, setSelectedTab] = useState<'sound' | 'obs' | 'livesplit' | 'discord'>(
     currentSound ? 'sound' : currentAction?.service || 'sound'
   )
   const [selectedType, setSelectedType] = useState<string>(currentAction?.type || '')
@@ -163,7 +180,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   // Clean up preview on unmount
   useEffect(() => stopPreview, [stopPreview])
 
-  const ACTION_TYPES = selectedTab === 'obs' ? OBS_ACTION_TYPES : LIVESPLIT_ACTION_TYPES
+  const ACTION_TYPES =
+    selectedTab === 'obs'
+      ? OBS_ACTION_TYPES
+      : selectedTab === 'discord'
+        ? DISCORD_ACTION_TYPES
+        : LIVESPLIT_ACTION_TYPES
   const selectedActionType = ACTION_TYPES.find(a => a.value === selectedType)
 
   // Keyboard support: Escape to close, Enter to submit
@@ -197,7 +219,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
     const action: any = {
       type: selectedType as any,
-      service: selectedTab as 'obs' | 'livesplit'
+      service: selectedTab as 'obs' | 'livesplit' | 'discord'
     }
 
     if (selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && selectedActionType.param) {
@@ -347,6 +369,27 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-400" aria-label="LiveSplit action assigned" />
             )}
             🏁 LiveSplit {!liveSplitConnected && '(Disconnected)'}
+          </button>
+          <button
+            onClick={() => {
+              setSelectedTab('discord')
+              setSelectedType('')
+              setParamValue('')
+              setError(null)
+            }}
+            disabled={!discordConnected}
+            className={`relative flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
+              selectedTab === 'discord'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                : discordConnected
+                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            {currentAction?.service === 'discord' && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-400" aria-label="Discord action assigned" />
+            )}
+            🎙️ Discord {!discordConnected && '(Disconnected)'}
           </button>
         </div>
 
@@ -576,12 +619,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
             </>
           )}
 
-          {/* OBS/LiveSplit Action Type Selection */}
-          {(selectedTab === 'obs' || selectedTab === 'livesplit') && (
+          {/* OBS/LiveSplit/Discord Action Type Selection */}
+          {(selectedTab === 'obs' || selectedTab === 'livesplit' || selectedTab === 'discord') && (
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-3">
-                  Select {selectedTab === 'obs' ? 'OBS' : 'LiveSplit'} Action
+                  Select {selectedTab === 'obs' ? 'OBS' : selectedTab === 'discord' ? 'Discord' : 'LiveSplit'} Action
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {ACTION_TYPES.map(action => (

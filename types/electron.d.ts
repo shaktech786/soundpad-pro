@@ -76,6 +76,8 @@ interface ElectronAPI {
   discordStatus: () => Promise<DiscordStatus>
   discordGetConfig: () => Promise<DiscordPublicConfig>
   discordSetConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig>
+  discordSetVoiceSettings: (settings: DiscordVoiceSettingsInput) => Promise<DiscordVoiceSettings>
+  discordGetVoiceSettings: () => Promise<DiscordVoiceSettings>
   onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
 
   // Cleanup
@@ -117,6 +119,17 @@ interface DiscordConfigInput {
   clientId: string
   clientSecret: string
   redirectUri: string
+}
+
+interface DiscordVoiceSettingsInput {
+  mute?: boolean
+  deaf?: boolean
+}
+
+interface DiscordVoiceSettings {
+  mute?: boolean
+  deaf?: boolean
+  [key: string]: unknown
 }
 
 declare global {

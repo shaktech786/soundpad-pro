@@ -157,11 +157,13 @@ const PadButton = memo(({
         <div className={`absolute -top-1 -right-1 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
           theme === 'light' ? 'border-white' : 'border-gray-900'
         } ${
-          obsAction?.service === 'livesplit'
-            ? 'bg-gradient-to-br from-green-500 to-blue-500'
-            : 'bg-gradient-to-br from-purple-500 to-pink-500'
+          obsAction?.service === 'discord'
+            ? 'bg-gradient-to-br from-indigo-500 to-purple-500'
+            : obsAction?.service === 'livesplit'
+              ? 'bg-gradient-to-br from-green-500 to-blue-500'
+              : 'bg-gradient-to-br from-purple-500 to-pink-500'
         }`}>
-          <span className="text-xs">{obsAction?.service === 'livesplit' ? '🏁' : '🎬'}</span>
+          <span className="text-xs">{obsAction?.service === 'discord' ? '🎙️' : obsAction?.service === 'livesplit' ? '🏁' : '🎬'}</span>
         </div>
       )}
       {isDrumPad && (
