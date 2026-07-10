@@ -79,6 +79,7 @@ interface ElectronAPI {
   discordSetVoiceSettings: (settings: DiscordVoiceSettingsInput) => Promise<DiscordVoiceSettings>
   discordGetVoiceSettings: () => Promise<DiscordVoiceSettings>
   onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
+  onDiscordVoiceStateChanged: (callback: (state: DiscordVoiceState) => void) => (() => void)
 
   // Cleanup
   removeAllListeners: () => void
@@ -130,6 +131,11 @@ interface DiscordVoiceSettings {
   mute?: boolean
   deaf?: boolean
   [key: string]: unknown
+}
+
+interface DiscordVoiceState {
+  muted: boolean
+  deafened: boolean
 }
 
 declare global {

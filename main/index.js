@@ -58,6 +58,13 @@ discordRpc.on('status', (status) => {
     mainWindow.webContents.send('discord:status-changed', status);
   }
 });
+// Live mute/deafen state pushed from Discord's VOICE_SETTINGS_UPDATE
+// subscription — keeps the UI in sync when the user mutes inside Discord.
+discordRpc.on('voice-state', (state) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('discord:voice-state-changed', state);
+  }
+});
 
 // HID stop button — dead-simple raw-byte pattern matching.
 // `hidStopSnapshot` is the 8-byte HID report taken when the user assigned

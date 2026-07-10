@@ -115,6 +115,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('discord:status-changed', handler);
     return () => ipcRenderer.removeListener('discord:status-changed', handler);
   },
+  onDiscordVoiceStateChanged: (callback) => {
+    const handler = (event, state) => callback(state);
+    ipcRenderer.on('discord:voice-state-changed', handler);
+    return () => ipcRenderer.removeListener('discord:voice-state-changed', handler);
+  },
 
   // Logging
   logError: (error) => ipcRenderer.invoke('log-error', error),
@@ -127,5 +132,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('asio:stream-lost');
     ipcRenderer.removeAllListeners('asio:stream-recovered');
     ipcRenderer.removeAllListeners('discord:status-changed');
+    ipcRenderer.removeAllListeners('discord:voice-state-changed');
   }
 });

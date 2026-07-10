@@ -11,16 +11,28 @@ import { DiscordProvider, useDiscord, DiscordAction } from '../contexts/DiscordC
 type Api = {
   discordStatus: ReturnType<typeof vi.fn>
   onDiscordStatusChanged: ReturnType<typeof vi.fn>
+  onDiscordVoiceStateChanged: ReturnType<typeof vi.fn>
   discordGetConfig: ReturnType<typeof vi.fn>
   discordConnect: ReturnType<typeof vi.fn>
   discordSetVoiceSettings: ReturnType<typeof vi.fn>
   discordGetVoiceSettings: ReturnType<typeof vi.fn>
 }
 
+// Capture the voice-state push callback so tests can drive it like the main
+// process would when Discord reports a manual mute/deafen change.
+let voiceStatePush: ((state: { muted: boolean; deafened: boolean } | null) => void) | null = null
+
 function setupApi(overrides: Partial<Api> = {}): Api {
+  voiceStatePush = null
   const api: Api = {
     discordStatus: vi.fn().mockResolvedValue({ status: 'connected', error: null, user: null }),
     onDiscordStatusChanged: vi.fn().mockReturnValue(() => {}),
+    onDiscordVoiceStateChanged: vi.fn((cb: (state: any) => void) => {
+      voiceStatePush = cb
+      return () => {
+        voiceStatePush = null
+      }
+    }),
     discordGetConfig: vi.fn().mockResolvedValue({ clientId: '', redirectUri: '', hasSecret: false, hasAuth: false }),
     discordConnect: vi.fn().mockResolvedValue({ status: 'connected', error: null, user: null }),
     discordSetVoiceSettings: vi.fn().mockResolvedValue({}),
@@ -111,6 +123,39 @@ describe('DiscordContext executeAction mapping', () => {
       await result.current.executeAction({ type: 'mute' })
     })
     expect(api.discordSetVoiceSettings).not.toHaveBeenCalled()
+  })
+})
+
+describe('DiscordContext voice-state sync', () => {
+  test('seeds voiceState from getVoiceSettings once connected', async () => {
+    const api = setupApi({ discordGetVoiceSettings: vi.fn().mockResolvedValue({ mute: true, deaf: false }) })
+    const { result } = await renderConnected(api)
+    await waitFor(() => expect(result.current.voiceState).toEqual({ muted: true, deafened: false }))
+  })
+
+  test('updates voiceState from a pushed VOICE_SETTINGS_UPDATE', async () => {
+    const api = setupApi()
+    const { result } = await renderConnected(api)
+    await waitFor(() => expect(result.current.voiceState).toEqual({ muted: false, deafened: false }))
+
+    act(() => {
+      voiceStatePush?.({ muted: true, deafened: true })
+    })
+    expect(result.current.voiceState).toEqual({ muted: true, deafened: true })
+  })
+
+  test('clears voiceState when the connection drops', async () => {
+    const api = setupApi({ discordGetVoiceSettings: vi.fn().mockResolvedValue({ mute: true, deaf: true }) })
+    const { result } = await renderConnected(api)
+    await waitFor(() => expect(result.current.voiceState).toEqual({ muted: true, deafened: true }))
+
+    // Simulate a pushed disconnect status.
+    const statusCb = api.onDiscordStatusChanged.mock.calls[0][0] as (s: any) => void
+    act(() => {
+      statusCb({ status: 'disconnected', error: null, user: null })
+    })
+    expect(result.current.connected).toBe(false)
+    expect(result.current.voiceState).toBeNull()
   })
 })
 

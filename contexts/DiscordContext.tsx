@@ -32,6 +32,13 @@ export interface DiscordVoiceSettings {
   [key: string]: unknown
 }
 
+// Live mute/deafen state, mirrored from Discord's VOICE_SETTINGS_UPDATE push so
+// the UI reflects changes made inside Discord itself, not just our own commands.
+export interface DiscordVoiceState {
+  muted: boolean
+  deafened: boolean
+}
+
 export interface DiscordStatus {
   status: DiscordConnectionStatus
   error: string | null
@@ -58,6 +65,8 @@ interface DiscordContextType {
   status: DiscordConnectionStatus
   error: string | null
   user: DiscordUser | null
+  // Live mute/deafen state (null until known), synced from Discord's push events.
+  voiceState: DiscordVoiceState | null
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   setConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig | null>
@@ -89,6 +98,7 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
   const [status, setStatus] = useState<DiscordConnectionStatus>('disconnected')
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<DiscordUser | null>(null)
+  const [voiceState, setVoiceState] = useState<DiscordVoiceState | null>(null)
   const autoConnectAttempted = useRef(false)
 
   const applyStatus = useCallback((s: DiscordStatus | null | undefined) => {
@@ -210,6 +220,37 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     }
   }, [applyStatus])
 
+  // Subscribe to pushed mute/deafen changes (fired by Discord when the user
+  // mutes manually inside Discord or via another tool).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI?.onDiscordVoiceStateChanged) return
+    const cleanup = window.electronAPI.onDiscordVoiceStateChanged((state) => {
+      setVoiceState(state ?? null)
+    })
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // Seed the initial mute/deafen state once connected (the push only fires on
+  // change), and clear it whenever the connection drops.
+  useEffect(() => {
+    if (status !== 'connected') {
+      setVoiceState(null)
+      return
+    }
+    let cancelled = false
+    getVoiceSettings()
+      .then((settings) => {
+        if (cancelled || !settings) return
+        setVoiceState({ muted: !!settings.mute, deafened: !!settings.deaf })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [status, getVoiceSettings])
+
   // Auto-connect on mount only if already configured AND previously authorized,
   // so returning users reconnect silently without re-prompting, while first-time
   // users must click "Connect to Discord" (which pops the native consent dialog).
@@ -242,6 +283,7 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     status,
     error,
     user,
+    voiceState,
     connect,
     disconnect,
     setConfig,
