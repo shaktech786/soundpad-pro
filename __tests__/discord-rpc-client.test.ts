@@ -452,6 +452,105 @@ describe('DiscordRpcClient voice control', () => {
   })
 })
 
+describe('DiscordRpcClient rich presence', () => {
+  let createConnectionSpy: ReturnType<typeof vi.spyOn>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function connectAuthedClient(store: ReturnType<typeof makeStore>) {
+    const socket = new FakeSocket()
+    createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => socket as any)
+    const client = new DiscordRpcClient({ store })
+
+    const connected = client.connect()
+    socket.emit('connect')
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'DISPATCH', evt: 'READY', data: {} }))
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHENTICATE')).toBe(true)
+    })
+    const authFrame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHENTICATE')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'AUTHENTICATE',
+        nonce: authFrame.data.nonce,
+        data: { user: { id: '1', username: 'tester' } },
+      }),
+    )
+    await connected
+    return { client, socket }
+  }
+
+  function authedStore() {
+    return makeStore({
+      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
+      'discord-rpc-auth': { access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600_000 },
+    })
+  }
+
+  test('setActivity sends a SET_ACTIVITY frame carrying pid and the mapped activity', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.setActivity({
+      details: 'Playing Airhorn',
+      state: 'by Scott Buckley',
+      startTimestamp: 1_700_000_000_000,
+      largeImageKey: 'soundpad_pro',
+    })
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_ACTIVITY')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_ACTIVITY')!
+    expect(frame.data.args.pid).toBe(process.pid)
+    expect(frame.data.args.activity).toEqual({
+      details: 'Playing Airhorn',
+      state: 'by Scott Buckley',
+      timestamps: { start: 1_700_000_000_000 },
+      assets: { large_image: 'soundpad_pro' },
+    })
+
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'SET_ACTIVITY', nonce: frame.data.nonce, data: {} }))
+    await expect(pending).resolves.toEqual({})
+  })
+
+  test('setActivity omits fields the caller left undefined', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.setActivity({ details: 'Playing Airhorn', startTimestamp: 1000 })
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_ACTIVITY')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_ACTIVITY')!
+    expect(frame.data.args.activity).toEqual({ details: 'Playing Airhorn', timestamps: { start: 1000 } })
+    expect(frame.data.args.activity.state).toBeUndefined()
+    expect(frame.data.args.activity.assets).toBeUndefined()
+
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'SET_ACTIVITY', nonce: frame.data.nonce, data: {} }))
+    await pending
+  })
+
+  test('setActivity(null) clears the presence by sending activity: null', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.setActivity(null)
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_ACTIVITY')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_ACTIVITY')!
+    expect(frame.data.args.pid).toBe(process.pid)
+    expect(frame.data.args.activity).toBeNull()
+
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'SET_ACTIVITY', nonce: frame.data.nonce, data: {} }))
+    await pending
+  })
+})
+
 describe('DiscordRpcClient voice-state subscription', () => {
   let createConnectionSpy: ReturnType<typeof vi.spyOn>
 

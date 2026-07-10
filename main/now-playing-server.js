@@ -11,14 +11,28 @@ const path = require('path');
 //   { "tracks": { "<filename>": { "title", "artist", "license",
 //                                 "requiresAttribution", "credit", "url" } } }
 class NowPlayingServer {
-  constructor({ port = 3006, getAsioPlaying, getWdmPlaying, getCurrentGame } = {}) {
+  constructor({
+    port = 3006,
+    getAsioPlaying,
+    getWdmPlaying,
+    getCurrentGame,
+    onNowPlayingChange,
+    pollIntervalMs = 2000,
+  } = {}) {
     this.port = port;
     this.getAsioPlaying = getAsioPlaying || (() => []);
     this.getWdmPlaying = getWdmPlaying || (() => []);
     this.getCurrentGame = getCurrentGame || (() => null);
+    // Fired when the primary now-playing sound changes (or stops → null), so
+    // consumers like Discord Rich Presence can react without polling the HTTP
+    // endpoint themselves.
+    this.onNowPlayingChange = onNowPlayingChange || null;
+    this.pollIntervalMs = pollIntervalMs;
     this.server = null;
     this._startedAt = new Map(); // filePath -> epoch ms when first seen playing
     this._manifestCache = new Map(); // dir -> { mtimeMs, tracks }
+    this._pollTimer = null;
+    this._lastPrimaryKey = null; // `${filePath}:${startedAt}` of last broadcast primary
   }
 
   start() {
@@ -30,13 +44,49 @@ class NowPlayingServer {
     this.server.listen(this.port, '127.0.0.1', () => {
       console.log(`[NowPlaying] Listening on http://127.0.0.1:${this.port}`);
     });
+    if (this.onNowPlayingChange && !this._pollTimer) {
+      this._pollTimer = setInterval(() => this._pollNowPlaying(), this.pollIntervalMs);
+      // Don't let the poll timer keep the process (or a test worker) alive.
+      if (this._pollTimer.unref) this._pollTimer.unref();
+    }
   }
 
   shutdown() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
     if (this.server) {
       this.server.close();
       this.server = null;
     }
+  }
+
+  /** Recompute the current now-playing set and, if the primary track changed
+   * (including a replay of the same file, or a stop → null), notify the
+   * onNowPlayingChange listener exactly once per transition. */
+  _pollNowPlaying() {
+    const primary = this._pickPrimary(this._playingTracks());
+    const key = primary ? `${primary.filePath}:${primary.startedAt}` : null;
+    if (key === this._lastPrimaryKey) return;
+    this._lastPrimaryKey = key;
+    if (this.onNowPlayingChange) {
+      try {
+        this.onNowPlayingChange(primary);
+      } catch (err) {
+        console.error(`[NowPlaying] onNowPlayingChange listener failed: ${err.message}`);
+      }
+    }
+  }
+
+  /** The most-recently-started track is treated as the primary one to surface
+   * (a newly triggered sound takes over the presence). */
+  _pickPrimary(tracks) {
+    let primary = null;
+    for (const track of tracks) {
+      if (!primary || track.startedAt > primary.startedAt) primary = track;
+    }
+    return primary;
   }
 
   _handle(req, res) {
@@ -70,6 +120,13 @@ class NowPlayingServer {
   }
 
   _snapshot() {
+    return { nowPlaying: this._playingTracks(), timestamp: Date.now() };
+  }
+
+  /** Merge the ASIO + WDM playing sets, maintain per-file start timestamps, and
+   * return the enriched track list. Shared by the HTTP snapshot and the poll
+   * loop so both see identical state. */
+  _playingTracks() {
     const playing = new Set();
     let asio = [];
     let wdm = [];
@@ -87,16 +144,13 @@ class NowPlayingServer {
     }
 
     const modeOf = (fp) => (asio.includes(fp) ? 'asio' : 'wdm');
-    return {
-      nowPlaying: [...playing].map((filePath) => ({
-        filePath,
-        fileName: path.basename(filePath),
-        mode: modeOf(filePath),
-        startedAt: this._startedAt.get(filePath),
-        attribution: this._lookupAttribution(filePath),
-      })),
-      timestamp: now,
-    };
+    return [...playing].map((filePath) => ({
+      filePath,
+      fileName: path.basename(filePath),
+      mode: modeOf(filePath),
+      startedAt: this._startedAt.get(filePath),
+      attribution: this._lookupAttribution(filePath),
+    }));
   }
 
   _currentGame() {
