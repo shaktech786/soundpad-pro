@@ -7,8 +7,10 @@ import { useAudioEngine, AudioMode } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
 import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
+import { useDiscord } from '../contexts/DiscordContext'
 import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
+import { DiscordSettings } from '../components/DiscordSettings'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
 import { ProfileSelector } from '../components/ProfileSelector'
@@ -111,6 +113,7 @@ export default function Home() {
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
+  const { connected: discordConnected } = useDiscord()
   const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
@@ -166,6 +169,7 @@ export default function Home() {
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
+  const [showDiscordSettings, setShowDiscordSettings] = useState(false)
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
   const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -741,6 +745,19 @@ export default function Home() {
               LiveSplit
             </button>
 
+            {/* Discord badge */}
+            <button
+              onClick={() => setShowDiscordSettings(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                discordConnected
+                  ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50'
+                  : theme === 'light' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+              }`}
+            >
+              <StatusDot active={discordConnected} />
+              Discord
+            </button>
+
             {/* Settings gear */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1116,6 +1133,24 @@ export default function Home() {
                     {liveSplitConnected ? 'Connected' : 'Not connected'}
                   </span>
                 </button>
+
+                {/* Discord */}
+                <button
+                  onClick={() => setShowDiscordSettings(true)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                    discordConnected
+                      ? 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30'
+                      : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  <StatusDot active={discordConnected} />
+                  <span className="flex-1 text-left">Discord</span>
+                  <span className={`text-[10px] font-normal ${
+                    discordConnected ? 'text-indigo-400/70' : theme === 'light' ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
+                    {discordConnected ? 'Connected' : 'Not connected'}
+                  </span>
+                </button>
               </SidebarSection>
 
               {/* Section 4: Layout & Profile */}
@@ -1182,6 +1217,14 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="max-w-4xl w-full">
             <LiveSplitSettings onClose={() => setShowLiveSplitSettings(false)} />
+          </div>
+        </div>
+      )}
+
+      {showDiscordSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="max-w-4xl w-full">
+            <DiscordSettings onClose={() => setShowDiscordSettings(false)} />
           </div>
         </div>
       )}

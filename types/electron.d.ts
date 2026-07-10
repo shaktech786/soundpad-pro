@@ -70,11 +70,53 @@ interface ElectronAPI {
   gp2040GetAddonsOptions: () => Promise<{ success: boolean; options?: any; error?: string }>
   gp2040AnalyzeMappings: (mappings: Record<string, any>) => Promise<any>
 
+  // Discord RPC (connection + OAuth handshake)
+  discordConnect: () => Promise<DiscordStatus>
+  discordDisconnect: () => Promise<DiscordStatus>
+  discordStatus: () => Promise<DiscordStatus>
+  discordGetConfig: () => Promise<DiscordPublicConfig>
+  discordSetConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig>
+  onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
+
   // Cleanup
   removeAllListeners: () => void
 
   // Logging
   logError: (error: { message: string; stack?: string; details?: any; componentStack?: string }) => void
+}
+
+type DiscordConnectionStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'awaiting-authorization'
+  | 'connected'
+  | 'error'
+
+interface DiscordUser {
+  id: string
+  username: string
+  discriminator?: string
+  global_name?: string | null
+  avatar?: string | null
+}
+
+interface DiscordStatus {
+  status: DiscordConnectionStatus
+  error: string | null
+  user: DiscordUser | null
+}
+
+interface DiscordPublicConfig {
+  clientId: string
+  redirectUri: string
+  hasSecret: boolean
+  hasAuth: boolean
+}
+
+interface DiscordConfigInput {
+  clientId: string
+  clientSecret: string
+  redirectUri: string
 }
 
 declare global {

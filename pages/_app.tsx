@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { OBSProvider } from '../contexts/OBSContext'
 import { LiveSplitProvider } from '../contexts/LiveSplitContext'
+import { DiscordProvider } from '../contexts/DiscordContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 
 // Polyfill process for client-side
@@ -51,7 +52,9 @@ function MyApp({ Component, pageProps }: AppProps) {
       <ThemeProvider>
         <OBSProvider>
           <LiveSplitProvider>
-            <Component {...pageProps} />
+            <DiscordProvider>
+              <Component {...pageProps} />
+            </DiscordProvider>
           </LiveSplitProvider>
         </OBSProvider>
       </ThemeProvider>

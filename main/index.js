@@ -7,6 +7,7 @@ const { HIDGamepad, NEUTRAL: HID_NEUTRAL } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
 const { NowPlayingServer } = require('./now-playing-server');
+const { DiscordRpcClient } = require('./discord-rpc-client');
 
 let gp2040api = new GP2040ceApi();
 
@@ -47,6 +48,16 @@ let asioInitializing = false;
 // state is pushed up via the 'audio:wdm-playing' IPC event.
 let nowPlayingServer = null;
 let wdmPlaying = [];
+
+// Discord RPC client (connection + OAuth handshake only). Talks to the local
+// Discord IPC named pipe; pushes status changes to the renderer. Never blocks
+// startup — it only connects when the renderer asks (DiscordContext).
+const discordRpc = new DiscordRpcClient({ store });
+discordRpc.on('status', (status) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('discord:status-changed', status);
+  }
+});
 
 // HID stop button — dead-simple raw-byte pattern matching.
 // `hidStopSnapshot` is the 8-byte HID report taken when the user assigned
@@ -267,6 +278,8 @@ app.on('window-all-closed', () => {
     nowPlayingServer = null;
   }
   // HID gamepad is local to app.whenReady — no explicit cleanup needed (GC handles it)
+  // Discord RPC cleanup
+  discordRpc.disconnect();
   // ASIO engine cleanup
   if (asioEngine) {
     asioEngine.shutdown();
@@ -751,6 +764,28 @@ ipcMain.handle('gp2040:get-addons-options', async () => {
 // Analyze controller mappings (placeholder — returns the mappings unchanged)
 ipcMain.handle('gp2040:analyze-mappings', async (event, mappings) => {
   return { success: true, mappings };
+});
+
+// --- Discord RPC IPC Handlers ---
+
+ipcMain.handle('discord:connect', async () => {
+  return discordRpc.connect();
+});
+
+ipcMain.handle('discord:disconnect', async () => {
+  return discordRpc.disconnect();
+});
+
+ipcMain.handle('discord:status', async () => {
+  return discordRpc.getStatus();
+});
+
+ipcMain.handle('discord:get-config', async () => {
+  return discordRpc.getPublicConfig();
+});
+
+ipcMain.handle('discord:set-config', async (event, config) => {
+  return discordRpc.setConfig(config || {});
 });
 
 // Log errors from renderer process
