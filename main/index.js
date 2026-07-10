@@ -788,6 +788,14 @@ ipcMain.handle('discord:set-config', async (event, config) => {
   return discordRpc.setConfig(config || {});
 });
 
+ipcMain.handle('discord:set-voice-settings', async (event, settings) => {
+  return discordRpc.setVoiceSettings(settings || {});
+});
+
+ipcMain.handle('discord:get-voice-settings', async () => {
+  return discordRpc.getVoiceSettings();
+});
+
 // Log errors from renderer process
 ipcMain.handle('log-error', async (event, errorData) => {
   const timestamp = new Date().toISOString();

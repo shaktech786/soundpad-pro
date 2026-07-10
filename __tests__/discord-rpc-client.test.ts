@@ -257,3 +257,197 @@ describe('DiscordRpcClient connection/handshake', () => {
     expect(store._data['discord-client-config'].clientSecret).toBe('keep-me')
   })
 })
+
+describe('DiscordRpcClient voice control', () => {
+  let createConnectionSpy: ReturnType<typeof vi.spyOn>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** Drive a client through handshake + AUTHENTICATE (using a stored token) to
+   * a settled 'connected' state, returning the client and its fake socket. */
+  async function connectAuthedClient(store: ReturnType<typeof makeStore>) {
+    const socket = new FakeSocket()
+    createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => socket as any)
+    const client = new DiscordRpcClient({ store })
+
+    const connected = client.connect()
+    socket.emit('connect')
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'DISPATCH', evt: 'READY', data: {} }))
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHENTICATE')).toBe(true)
+    })
+    const authFrame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHENTICATE')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'AUTHENTICATE',
+        nonce: authFrame.data.nonce,
+        data: { user: { id: '1', username: 'tester' } },
+      }),
+    )
+    await connected
+    return { client, socket }
+  }
+
+  function authedStore() {
+    return makeStore({
+      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
+      'discord-rpc-auth': {
+        access_token: 'tok',
+        refresh_token: 'r',
+        expires_at: Date.now() + 3600_000,
+      },
+    })
+  }
+
+  test('AUTHORIZE requests the rpc.voice.write scope', async () => {
+    const socket = new FakeSocket()
+    createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => socket as any)
+    const store = makeStore({
+      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
+    })
+    const client = new DiscordRpcClient({ store })
+    vi.spyOn(client as any, '_exchangeCode').mockResolvedValue({
+      access_token: 't',
+      refresh_token: 'r',
+      expires_in: 3600,
+    })
+
+    const connected = client.connect()
+    socket.emit('connect')
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'DISPATCH', evt: 'READY', data: {} }))
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHORIZE')).toBe(true)
+    })
+    const authorize = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHORIZE')!
+    expect(authorize.data.args.scopes).toEqual(['rpc', 'identify', 'rpc.voice.write'])
+
+    // Settle so the client doesn't leak a pending connection.
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'AUTHORIZE', nonce: authorize.data.nonce, data: { code: 'c' } }))
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHENTICATE')).toBe(true)
+    })
+    const auth = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHENTICATE')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, { cmd: 'AUTHENTICATE', nonce: auth.data.nonce, data: { user: { id: '1', username: 't' } } }),
+    )
+    await connected
+  })
+
+  test('setVoiceSettings sends a SET_VOICE_SETTINGS frame with only boolean mute/deaf args', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.setVoiceSettings({ mute: true, deaf: false, bogus: 'ignored' } as any)
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')!
+    expect(frame.data.args).toEqual({ mute: true, deaf: false })
+
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, { cmd: 'SET_VOICE_SETTINGS', nonce: frame.data.nonce, data: { mute: true, deaf: false } }),
+    )
+    await expect(pending).resolves.toEqual({ mute: true, deaf: false })
+  })
+
+  test('getVoiceSettings sends a GET_VOICE_SETTINGS frame and resolves Discord state', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.getVoiceSettings()
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'GET_VOICE_SETTINGS')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'GET_VOICE_SETTINGS')!
+
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, { cmd: 'GET_VOICE_SETTINGS', nonce: frame.data.nonce, data: { mute: true, deaf: false } }),
+    )
+    await expect(pending).resolves.toEqual({ mute: true, deaf: false })
+  })
+
+  test('re-authorizes and retries when a voice command fails for missing scope', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+    const exchangeSpy = vi.spyOn(client as any, '_exchangeCode').mockResolvedValue({
+      access_token: 'new-token',
+      refresh_token: 'r2',
+      expires_in: 3600,
+    })
+
+    const pending = client.setVoiceSettings({ mute: true })
+
+    // First attempt is rejected by Discord with a permissions error.
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')).toBe(true)
+    })
+    const firstSet = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'SET_VOICE_SETTINGS',
+        evt: 'ERROR',
+        nonce: firstSet.data.nonce,
+        data: { code: 4006, message: 'Insufficient permissions' },
+      }),
+    )
+
+    // The client re-consents with the new scope list.
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHORIZE')).toBe(true)
+    })
+    const authorize = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHORIZE')!
+    expect(authorize.data.args.scopes).toContain('rpc.voice.write')
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'AUTHORIZE', nonce: authorize.data.nonce, data: { code: 'auth-code' } }))
+
+    // Then AUTHENTICATE with the freshly exchanged token.
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).filter((f) => f.data && f.data.cmd === 'AUTHENTICATE').length).toBeGreaterThanOrEqual(2)
+    })
+    const reauth = writtenFrames(socket).filter((f) => f.data && f.data.cmd === 'AUTHENTICATE').pop()!
+    expect(reauth.data.args).toEqual({ access_token: 'new-token' })
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, { cmd: 'AUTHENTICATE', nonce: reauth.data.nonce, data: { user: { id: '1', username: 'tester' } } }),
+    )
+
+    // Finally the original command is retried and succeeds.
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).filter((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS').length).toBeGreaterThanOrEqual(2)
+    })
+    const retrySet = writtenFrames(socket).filter((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS').pop()!
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'SET_VOICE_SETTINGS', nonce: retrySet.data.nonce, data: { mute: true } }))
+
+    await expect(pending).resolves.toEqual({ mute: true })
+    expect(exchangeSpy).toHaveBeenCalledWith('auth-code')
+  })
+
+  test('propagates a non-permission voice error without re-authorizing', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const pending = client.setVoiceSettings({ mute: true })
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')).toBe(true)
+    })
+    const frame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SET_VOICE_SETTINGS')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'SET_VOICE_SETTINGS',
+        evt: 'ERROR',
+        nonce: frame.data.nonce,
+        data: { code: 1000, message: 'Something else' },
+      }),
+    )
+
+    await expect(pending).rejects.toThrow(/Something else/)
+    expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHORIZE')).toBe(false)
+  })
+})

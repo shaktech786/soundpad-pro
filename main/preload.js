@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   discordStatus: () => ipcRenderer.invoke('discord:status'),
   discordGetConfig: () => ipcRenderer.invoke('discord:get-config'),
   discordSetConfig: (config) => ipcRenderer.invoke('discord:set-config', config),
+  discordSetVoiceSettings: (settings) => ipcRenderer.invoke('discord:set-voice-settings', settings),
+  discordGetVoiceSettings: () => ipcRenderer.invoke('discord:get-voice-settings'),
   onDiscordStatusChanged: (callback) => {
     const handler = (event, status) => callback(status);
     ipcRenderer.on('discord:status-changed', handler);

@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 
 vi.mock('obs-websocket-js', () => ({ default: class OBSWebSocket {} }))
@@ -14,6 +14,7 @@ const baseProps = {
   onClose: vi.fn(),
   obsConnected: true,
   liveSplitConnected: true,
+  discordConnected: true,
 }
 
 describe('OBSActionAssigner', () => {
@@ -80,10 +81,49 @@ describe('OBSActionAssigner', () => {
     render(<OBSActionAssigner {...baseProps} />)
     expect(screen.queryByLabelText('OBS action assigned')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('LiveSplit action assigned')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Discord action assigned')).not.toBeInTheDocument()
   })
 
   test('shows OBS disconnected state', () => {
     render(<OBSActionAssigner {...baseProps} obsConnected={false} />)
     expect(screen.getByText(/OBS.*Disconnected/i)).toBeInTheDocument()
+  })
+
+  test('shows Discord dot indicator when currentAction is a Discord action', () => {
+    render(
+      <OBSActionAssigner
+        {...baseProps}
+        currentAction={{ type: 'toggle_mute', service: 'discord' }}
+      />
+    )
+    expect(screen.getByLabelText('Discord action assigned')).toBeInTheDocument()
+  })
+
+  test('shows Discord disconnected state', () => {
+    render(<OBSActionAssigner {...baseProps} discordConnected={false} />)
+    expect(screen.getByText(/Discord.*Disconnected/i)).toBeInTheDocument()
+  })
+
+  test('Discord tab lists mute/deafen/push-to-talk action types', () => {
+    render(<OBSActionAssigner {...baseProps} />)
+    fireEvent.click(screen.getByText(/🎙️ Discord/))
+
+    expect(screen.getByText('🔇 Toggle Mute')).toBeInTheDocument()
+    expect(screen.getByText('🔇 Mute')).toBeInTheDocument()
+    expect(screen.getByText('🎤 Unmute')).toBeInTheDocument()
+    expect(screen.getByText('🔈 Toggle Deafen')).toBeInTheDocument()
+    expect(screen.getByText('🔊 Undeafen')).toBeInTheDocument()
+    expect(screen.getByText('🎙️ Push-to-Talk')).toBeInTheDocument()
+  })
+
+  test('assigns a Discord action with the discord service tag', () => {
+    const onAssign = vi.fn()
+    render(<OBSActionAssigner {...baseProps} onAssign={onAssign} />)
+
+    fireEvent.click(screen.getByText(/🎙️ Discord/))
+    fireEvent.click(screen.getByText('🎙️ Push-to-Talk'))
+    fireEvent.click(screen.getByText('Assign Action'))
+
+    expect(onAssign).toHaveBeenCalledWith({ type: 'push_to_talk', service: 'discord' })
   })
 })

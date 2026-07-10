@@ -7,7 +7,7 @@ import { useAudioEngine, AudioMode } from '../hooks/useAudioEngine'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
 import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
-import { useDiscord } from '../contexts/DiscordContext'
+import { useDiscord, DiscordAction } from '../contexts/DiscordContext'
 import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { DiscordSettings } from '../components/DiscordSettings'
@@ -113,7 +113,7 @@ export default function Home() {
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
-  const { connected: discordConnected } = useDiscord()
+  const { connected: discordConnected, executeAction: executeDiscordAction, setPushToTalk: setDiscordPushToTalk } = useDiscord()
   const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
@@ -415,6 +415,8 @@ export default function Home() {
                   executeOBSAction(action as OBSAction)
                 } else if (action.service === 'livesplit' && liveSplitConnected) {
                   executeLiveSplitAction(action as LiveSplitAction, false)
+                } else if (action.service === 'discord' && discordConnected) {
+                  executeDiscordAction(action as DiscordAction)
                 }
               }
             } else if (trigger.type === 'stop') {
@@ -570,6 +572,14 @@ export default function Home() {
         if (combinedAction) {
           if (combinedAction.service === 'obs' && obsConnected) {
             executeOBSAction(combinedAction as OBSAction)
+          } else if (combinedAction.service === 'discord' && discordConnected) {
+            // Push-to-talk unmutes on press (remutes on release below); every
+            // other Discord action fires immediately on press like OBS.
+            if (combinedAction.type === 'push_to_talk') {
+              setDiscordPushToTalk(true)
+            } else {
+              executeDiscordAction(combinedAction as DiscordAction)
+            }
           }
         }
       }
@@ -586,12 +596,19 @@ export default function Home() {
             executeLiveSplitAction(combinedAction as LiveSplitAction, isLongPress)
             buttonPressStart.current.delete(gamepadButtonIndex)
           }
+        } else if (
+          combinedAction?.service === 'discord' &&
+          combinedAction.type === 'push_to_talk' &&
+          discordConnected
+        ) {
+          // Release the hold: remute.
+          setDiscordPushToTalk(false)
         }
       }
     })
 
     prevButtonStates.current = new Map(buttonStates)
-  }, [buttonStates, soundMappings, buttonVolumes, drumPadButtons, playSound, reverseButtonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction, buttonMappingLoading, soundMappingsLoading])
+  }, [buttonStates, soundMappings, buttonVolumes, drumPadButtons, playSound, reverseButtonMapping, stopButton, stopAll, assigningStopButton, configuringLinkedButtons, linkedButtons, combinedActions, obsConnected, liveSplitConnected, discordConnected, executeOBSAction, executeLiveSplitAction, executeDiscordAction, setDiscordPushToTalk, buttonMappingLoading, soundMappingsLoading])
 
   const handlePlaySound = useCallback((url: string, buttonIndex?: number) => {
     const cleanUrl = url.split('#')[0]
@@ -657,8 +674,12 @@ export default function Home() {
       executeOBSAction(action as OBSAction)
     } else if (action.service === 'livesplit' && liveSplitConnected) {
       executeLiveSplitAction(action as LiveSplitAction, false)
+    } else if (action.service === 'discord' && discordConnected) {
+      // A click is a momentary press+release; executeAction models push_to_talk
+      // as a brief unmute→remute, so click-to-test works for every Discord action.
+      executeDiscordAction(action as DiscordAction)
     }
-  }, [obsConnected, liveSplitConnected, executeOBSAction, executeLiveSplitAction])
+  }, [obsConnected, liveSplitConnected, discordConnected, executeOBSAction, executeLiveSplitAction, executeDiscordAction])
 
   // --- Format stop button label ---
   const stopButtonLabel = stopButton !== null
@@ -1252,6 +1273,7 @@ export default function Home() {
           sources={obsState.sources}
           obsConnected={obsConnected}
           liveSplitConnected={liveSplitConnected}
+          discordConnected={discordConnected}
           onAssign={(action) => {
             logger.log(`Assigning action to button ${assigningAction}:`, action)
             if (action) {

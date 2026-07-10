@@ -18,8 +18,9 @@
  *   4. Persist the token so later launches skip re-authorization (refreshing
  *      silently via the refresh_token grant when expired).
  *
- * This module does NOT implement SET_VOICE_SETTINGS / SET_ACTIVITY — later
- * stories add those. Connection + auth only.
+ * This module implements the connection + auth handshake and voice control
+ * (SET_VOICE_SETTINGS / GET_VOICE_SETTINGS for mute/deafen). SET_ACTIVITY is
+ * added by a later story.
  */
 const net = require('net');
 const https = require('https');
@@ -32,7 +33,10 @@ const OP_CLOSE = 2;
 const OP_PING = 3;
 const OP_PONG = 4;
 
-const SCOPES = ['rpc', 'identify'];
+// 'rpc.voice.write' is required for SET_VOICE_SETTINGS (mute/deafen control).
+// Users who authorized before this scope was added are transparently
+// re-authorized the first time a voice command hits a permissions error.
+const SCOPES = ['rpc', 'identify', 'rpc.voice.write'];
 const RECONNECT_INTERVAL_MS = 10000;
 const REQUEST_TIMEOUT_MS = 15000;
 const AUTHORIZE_TIMEOUT_MS = 120000; // user has to click "Authorize" in Discord
@@ -170,6 +174,66 @@ class DiscordRpcClient extends EventEmitter {
     this.user = null;
     this._setStatus('disconnected');
     return this.getStatus();
+  }
+
+  // --- voice control ------------------------------------------------------
+
+  /**
+   * Apply mute/deafen state via Discord's SET_VOICE_SETTINGS command. Pass any
+   * subset of { mute, deaf } — only the boolean keys provided are sent.
+   * Returns Discord's resulting voice-settings object.
+   */
+  async setVoiceSettings(settings = {}) {
+    return this._voiceCommand('SET_VOICE_SETTINGS', this._voiceArgs(settings));
+  }
+
+  /** Read Discord's current voice settings (mute, deaf, and more). */
+  async getVoiceSettings() {
+    return this._voiceCommand('GET_VOICE_SETTINGS', {});
+  }
+
+  /** Keep only the boolean mute/deaf keys Discord accepts. */
+  _voiceArgs(settings) {
+    const args = {};
+    if (settings && typeof settings.mute === 'boolean') args.mute = settings.mute;
+    if (settings && typeof settings.deaf === 'boolean') args.deaf = settings.deaf;
+    return args;
+  }
+
+  /**
+   * Run a voice RPC command, transparently re-authorizing once if it fails
+   * because the stored token lacks the rpc.voice.write scope (older tokens).
+   */
+  async _voiceCommand(cmd, args) {
+    try {
+      return await this._request(cmd, args);
+    } catch (err) {
+      if (this._isPermissionError(err)) {
+        await this._reauthorize();
+        return this._request(cmd, args);
+      }
+      throw err;
+    }
+  }
+
+  _isPermissionError(err) {
+    if (!err) return false;
+    // 4006 = insufficient permissions, 4007 = OAuth2 scope error.
+    if (err.code === 4006 || err.code === 4007) return true;
+    return /permission|scope|unauthor/i.test(err.message || '');
+  }
+
+  /**
+   * Drop the stored token and run a fresh AUTHORIZE + AUTHENTICATE on the live
+   * connection. Pops Discord's consent dialog so the user can grant the new
+   * scope; on success the connection returns to 'connected'.
+   */
+  async _reauthorize() {
+    this._clearAuth();
+    const freshToken = await this._authorize();
+    const result = await this._request('AUTHENTICATE', { access_token: freshToken });
+    this.user = (result && result.user) || null;
+    this._setStatus('connected');
   }
 
   // --- connection lifecycle ----------------------------------------------
@@ -323,7 +387,7 @@ class DiscordRpcClient extends EventEmitter {
       const pending = this._pending.get(msg.nonce);
       this._pending.delete(msg.nonce);
       if (msg.evt === 'ERROR') {
-        pending.reject(new Error(this._frameErrorMessage(msg)));
+        pending.reject(this._frameError(msg));
       } else {
         pending.resolve(msg.data);
       }
@@ -337,6 +401,14 @@ class DiscordRpcClient extends EventEmitter {
 
   _frameErrorMessage(msg) {
     return (msg.data && msg.data.message) || 'Discord RPC error';
+  }
+
+  /** Build an Error carrying Discord's numeric error code (used to detect
+   * missing-scope/permission failures for transparent re-authorization). */
+  _frameError(msg) {
+    const err = new Error(this._frameErrorMessage(msg));
+    if (msg.data && typeof msg.data.code === 'number') err.code = msg.data.code;
+    return err;
   }
 
   _resolveReady(data) {
