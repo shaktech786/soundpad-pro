@@ -113,7 +113,11 @@ export default function Home() {
   const [masterVolume, setMasterVolumeState, masterVolumeLoading] = usePersistentStorage<number>('master-volume', 100)
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
-  const { connected: discordConnected, executeAction: executeDiscordAction, setPushToTalk: setDiscordPushToTalk } = useDiscord()
+  const { connected: discordConnected, voiceState: discordVoiceState, executeAction: executeDiscordAction, setPushToTalk: setDiscordPushToTalk } = useDiscord()
+  const discordDeafened = discordConnected && !!discordVoiceState?.deafened
+  const discordMuted = discordConnected && !!discordVoiceState?.muted
+  // Deafen implies mute in Discord, so it takes visual precedence.
+  const discordStateLabel = discordDeafened ? 'Deafened' : discordMuted ? 'Muted' : discordConnected ? 'Connected' : 'Not connected'
   const [soundMappings, setSoundMappings, soundMappingsLoading] = usePersistentStorage<Map<number, string>>(
     'soundpad-mappings',
     new Map()
@@ -766,17 +770,22 @@ export default function Home() {
               LiveSplit
             </button>
 
-            {/* Discord badge */}
+            {/* Discord badge — reflects live mute/deafen state, not just connected */}
             <button
               onClick={() => setShowDiscordSettings(true)}
+              title={discordConnected ? `Discord — ${discordStateLabel}` : 'Discord — Not connected'}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                discordConnected
-                  ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50'
-                  : theme === 'light' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                discordDeafened
+                  ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50'
+                  : discordMuted
+                    ? 'bg-amber-900/30 text-amber-400 hover:bg-amber-900/50'
+                    : discordConnected
+                      ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50'
+                      : theme === 'light' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
               }`}
             >
               <StatusDot active={discordConnected} />
-              Discord
+              {discordDeafened ? '🔇 Deafened' : discordMuted ? '🎙️ Muted' : 'Discord'}
             </button>
 
             {/* Settings gear */}
@@ -1159,17 +1168,21 @@ export default function Home() {
                 <button
                   onClick={() => setShowDiscordSettings(true)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                    discordConnected
-                      ? 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30'
-                      : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                    discordDeafened
+                      ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30'
+                      : discordMuted
+                        ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30'
+                        : discordConnected
+                          ? 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30'
+                          : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
                   }`}
                 >
                   <StatusDot active={discordConnected} />
                   <span className="flex-1 text-left">Discord</span>
                   <span className={`text-[10px] font-normal ${
-                    discordConnected ? 'text-indigo-400/70' : theme === 'light' ? 'text-gray-400' : 'text-gray-600'
+                    discordDeafened ? 'text-red-400/70' : discordMuted ? 'text-amber-400/70' : discordConnected ? 'text-indigo-400/70' : theme === 'light' ? 'text-gray-400' : 'text-gray-600'
                   }`}>
-                    {discordConnected ? 'Connected' : 'Not connected'}
+                    {discordStateLabel}
                   </span>
                 </button>
               </SidebarSection>

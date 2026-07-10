@@ -451,3 +451,114 @@ describe('DiscordRpcClient voice control', () => {
     expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHORIZE')).toBe(false)
   })
 })
+
+describe('DiscordRpcClient voice-state subscription', () => {
+  let createConnectionSpy: ReturnType<typeof vi.spyOn>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function connectAuthedClient(store: ReturnType<typeof makeStore>) {
+    const socket = new FakeSocket()
+    createConnectionSpy = vi.spyOn(net, 'createConnection').mockImplementation(() => socket as any)
+    const client = new DiscordRpcClient({ store })
+
+    const connected = client.connect()
+    socket.emit('connect')
+    socket.emit('data', encodeFrame(OP_FRAME, { cmd: 'DISPATCH', evt: 'READY', data: {} }))
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'AUTHENTICATE')).toBe(true)
+    })
+    const authFrame = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'AUTHENTICATE')!
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'AUTHENTICATE',
+        nonce: authFrame.data.nonce,
+        data: { user: { id: '1', username: 'tester' } },
+      }),
+    )
+    await connected
+    return { client, socket }
+  }
+
+  function authedStore() {
+    return makeStore({
+      'discord-client-config': { clientId: 'cid', clientSecret: 'secret', redirectUri: 'http://localhost' },
+      'discord-rpc-auth': { access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600_000 },
+    })
+  }
+
+  test('subscribes to VOICE_SETTINGS_UPDATE after authenticating', async () => {
+    const { socket } = await connectAuthedClient(authedStore())
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SUBSCRIBE')).toBe(true)
+    })
+    const sub = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SUBSCRIBE')!
+    expect(sub.data.evt).toBe('VOICE_SETTINGS_UPDATE')
+    expect(typeof sub.data.nonce).toBe('string')
+  })
+
+  test('forwards a VOICE_SETTINGS_UPDATE push frame as a mapped voice-state event', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const events: Array<{ muted: boolean; deafened: boolean }> = []
+    client.on('voice-state', (state: any) => events.push(state))
+
+    // Unsolicited push event Discord sends when the user mutes+deafens manually.
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'DISPATCH',
+        evt: 'VOICE_SETTINGS_UPDATE',
+        data: { mute: true, deaf: true },
+      }),
+    )
+
+    await vi.waitFor(() => expect(events).toHaveLength(1))
+    expect(events[0]).toEqual({ muted: true, deafened: true })
+    expect(client.voiceState).toEqual({ muted: true, deafened: true })
+
+    // A later push (unmute, still deafened) updates state again.
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'DISPATCH',
+        evt: 'VOICE_SETTINGS_UPDATE',
+        data: { mute: false, deaf: true },
+      }),
+    )
+    await vi.waitFor(() => expect(events).toHaveLength(2))
+    expect(events[1]).toEqual({ muted: false, deafened: true })
+  })
+
+  test('a SUBSCRIBE acknowledgement is not mistaken for a push event', async () => {
+    const { client, socket } = await connectAuthedClient(authedStore())
+
+    const events: unknown[] = []
+    client.on('voice-state', (state: any) => events.push(state))
+
+    await vi.waitFor(() => {
+      expect(writtenFrames(socket).some((f) => f.data && f.data.cmd === 'SUBSCRIBE')).toBe(true)
+    })
+    const sub = writtenFrames(socket).find((f) => f.data && f.data.cmd === 'SUBSCRIBE')!
+
+    // Discord's ack carries the subscribed evt AND the request nonce; it must
+    // resolve the pending request, not be treated as a state push.
+    socket.emit(
+      'data',
+      encodeFrame(OP_FRAME, {
+        cmd: 'SUBSCRIBE',
+        evt: 'VOICE_SETTINGS_UPDATE',
+        nonce: sub.data.nonce,
+        data: { evt: 'VOICE_SETTINGS_UPDATE' },
+      }),
+    )
+
+    await Promise.resolve()
+    expect(events).toHaveLength(0)
+  })
+})

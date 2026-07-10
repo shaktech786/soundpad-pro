@@ -92,6 +92,7 @@ class DiscordRpcClient extends EventEmitter {
     this.status = 'disconnected';
     this.error = null;
     this.user = null;
+    this.voiceState = null; // { muted, deafened } from VOICE_SETTINGS_UPDATE
 
     this._desired = false; // true once connect() is called, until disconnect()
     this._connecting = false;
@@ -172,6 +173,7 @@ class DiscordRpcClient extends EventEmitter {
     this._rejectAllPending(new Error('Disconnected'));
     this._teardownSocket();
     this.user = null;
+    this.voiceState = null;
     this._setStatus('disconnected');
     return this.getStatus();
   }
@@ -234,6 +236,7 @@ class DiscordRpcClient extends EventEmitter {
     const result = await this._request('AUTHENTICATE', { access_token: freshToken });
     this.user = (result && result.user) || null;
     this._setStatus('connected');
+    this._subscribeVoiceState();
   }
 
   // --- connection lifecycle ----------------------------------------------
@@ -247,6 +250,9 @@ class DiscordRpcClient extends EventEmitter {
       await this._authenticateFlow();
       this._connecting = false;
       this._setStatus('connected');
+      // Fire-and-forget: subscribing must not gate the connected transition,
+      // and the renderer seeds initial state via getVoiceSettings() regardless.
+      this._subscribeVoiceState();
     } catch (err) {
       this._connecting = false;
       this._teardownSocket();
@@ -394,8 +400,34 @@ class DiscordRpcClient extends EventEmitter {
       return;
     }
 
+    // Unsolicited push event from a SUBSCRIBE (no matching nonce): Discord
+    // reports every manual mute/deafen change here so the UI stays in sync.
+    if (msg.evt === 'VOICE_SETTINGS_UPDATE') {
+      this._emitVoiceState(msg.data);
+      return;
+    }
+
     if (msg.evt === 'ERROR') {
       this.error = this._frameErrorMessage(msg);
+    }
+  }
+
+  /** Normalize Discord's voice-settings payload to the renderer's shape and
+   * broadcast it. `mute`/`deaf` are Discord's field names. */
+  _emitVoiceState(data) {
+    if (!data) return;
+    const state = { muted: !!data.mute, deafened: !!data.deaf };
+    this.voiceState = state;
+    this.emit('voice-state', state);
+  }
+
+  /** Subscribe to VOICE_SETTINGS_UPDATE push events. Failure degrades the
+   * bidirectional sync gracefully without tearing down the connection. */
+  async _subscribeVoiceState() {
+    try {
+      await this._dispatch({ cmd: 'SUBSCRIBE', evt: 'VOICE_SETTINGS_UPDATE' });
+    } catch (_) {
+      /* subscription is best-effort; commands still work without it */
     }
   }
 
@@ -426,6 +458,15 @@ class DiscordRpcClient extends EventEmitter {
   }
 
   _request(cmd, args, timeoutMs = REQUEST_TIMEOUT_MS) {
+    return this._dispatch({ cmd, args }, timeoutMs);
+  }
+
+  /**
+   * Send an OP_FRAME command carrying a fresh nonce and resolve when Discord
+   * replies to that nonce. `payload` is the command body sans nonce — plain
+   * commands pass { cmd, args }; SUBSCRIBE also carries a top-level `evt`.
+   */
+  _dispatch(payload, timeoutMs = REQUEST_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
       if (!this.socket) {
         reject(new Error('Not connected to Discord'));
@@ -436,7 +477,7 @@ class DiscordRpcClient extends EventEmitter {
       if (timeoutMs > 0) {
         timer = setTimeout(() => {
           this._pending.delete(nonce);
-          reject(new Error(`Discord RPC command ${cmd} timed out`));
+          reject(new Error(`Discord RPC command ${payload.cmd} timed out`));
         }, timeoutMs);
       }
       this._pending.set(nonce, {
@@ -449,7 +490,7 @@ class DiscordRpcClient extends EventEmitter {
           reject(err);
         },
       });
-      this._send(OP_FRAME, { cmd, args, nonce });
+      this._send(OP_FRAME, { ...payload, nonce });
     });
   }
 
