@@ -1,16 +1,43 @@
 # SoundPad Pro
 
-Professional soundboard application for streamers with gamepad/controller support. Features a Haute42-style 4x4 pad layout with color-coded rows and modern visual design.
+Professional soundboard application for streamers with gamepad/controller support. Features a Haute42-style 4x4 pad layout with color-coded rows and modern visual design. Doubles as a stream-control surface — a single pad can play a sound *and* switch an OBS scene, split a LiveSplit timer, or toggle your Discord mute at the same time.
+
+SoundPad Pro is the desktop companion to [prelive](https://prelive.ai) — see [Part of the Prelive Ecosystem](#part-of-the-prelive-ecosystem) below.
 
 ## Features
 
-- 🎮 **Controller Support** - Full gamepad/controller integration with button mapping
+### Soundboard
+
+- 🎮 **Controller Support** - Full gamepad/controller integration with button mapping (Web Gamepad API + native HID via `node-hid` for GP2040-CE controllers)
 - 🎨 **Professional UI** - MPC/Haute42-inspired 4x4 pad layout with color-coded rows
-- 🔊 **Audio Engine** - Powered by Howler.js for reliable audio playback
+- 🔊 **Dual Audio Engines** - Howler.js for standard WDM playback, plus a low-latency ASIO engine (see below)
 - ⌨️ **Global Hotkeys** - Control sounds even when app is in background
-- 💾 **Persistent Storage** - Saves all your mappings and settings
+- 💾 **Persistent Storage** - Saves all your mappings, profiles, and settings
 - 🎯 **Stop Button** - Configurable controller button to stop all audio
 - 📁 **Easy Mapping** - Simple interface to assign sounds to controller buttons
+
+### Streaming & Integrations
+
+Each pad is dual-purpose: it can trigger a sound *and* an integration action on the same press.
+
+- 🎬 **OBS Integration** - Scene switching, start/stop streaming and recording, replay-buffer control, source mute, and custom hotkeys over OBS WebSocket v5. See [docs/OBS_INTEGRATION.md](docs/OBS_INTEGRATION.md).
+- 🏁 **LiveSplit Integration** - Drive a LiveSplit timer (start / split / reset / pause / skip / undo, plus smart-toggle) over the LiveSplit Server WebSocket.
+- 🎙️ **Discord Integration** - Controller-mapped mute / deafen / push-to-talk voice control and now-playing Rich Presence, over Discord's local RPC pipe. See [docs/DISCORD_INTEGRATION.md](docs/DISCORD_INTEGRATION.md).
+- 🕹️ **Foreground Game Detection** - Detects the focused game via `active-win` and exposes it at `GET http://127.0.0.1:3006/current-game` for OBS docks and overlays. See [docs/GAME_DETECTION.md](docs/GAME_DETECTION.md).
+- 🎚️ **ASIO / VoiceMeeter Audio Routing** - Optional low-latency Direct mode (audify / RtAudio ASIO, ~10.7 ms buffer) that routes soundboard audio straight into VoiceMeeter for the stream mix. See [docs/audio-routing-architecture.md](docs/audio-routing-architecture.md).
+- 📡 **OBS Dock Mode** - Compact browser-dock UI at `http://localhost:3005/dock` for controlling the pad from inside OBS. See [docs/OBS_INTEGRATION.md](docs/OBS_INTEGRATION.md).
+
+## Part of the Prelive Ecosystem
+
+SoundPad Pro is the desktop companion to **[prelive](https://prelive.ai)** — a web platform for stream prep, cross-posting, and OBS tooling for Twitch / YouTube / Kick streamers. The two apps integrate through a local-only HTTP server that SoundPad Pro runs on `127.0.0.1:3006` (bound to loopback, never exposed to the network):
+
+- **Music Attribution** — SoundPad Pro broadcasts the currently-playing sound (with any `attribution.json` credits) at `GET /now-playing`. Prelive's [Music Attribution OBS dock](https://prelive.ai/dock/music-attribution) polls it to auto-credit CC-BY music to YouTube descriptions and Twitch chat.
+- **Game / category auto-fill** — SoundPad Pro's [foreground game detection](docs/GAME_DETECTION.md) exposes the focused game at `GET /current-game`. Prelive's Quick Metadata Editor dock (`/dock/metadata`) uses it to auto-fill the streamer's currently-playing game/category.
+- **Downloads** — Prelive's settings (Downloads tab) links to SoundPad Pro's GitHub releases.
+
+SoundPad Pro's own [Discord integration](docs/DISCORD_INTEGRATION.md) (controller-mapped voice control + Rich Presence) is a distinct, complementary feature from prelive's Discord integration (account linking, community server, per-alert webhook routing); the two are not the same system.
+
+Neither the local server nor prelive is required to use SoundPad Pro as a standalone soundboard.
 
 ## Installation
 
@@ -81,33 +108,52 @@ This project follows [Semantic Versioning](https://semver.org/):
 - **MINOR** (0.X.0): New features (backwards compatible)
 - **PATCH** (0.0.X): Bug fixes (backwards compatible)
 
-Version history is maintained in [CHANGELOG.md](./CHANGELOG.md).
+Version history is tracked in the git commit log and GitHub releases.
 
 ## Project Structure
 
 ```
 soundpad-pro/
-├── components/          # React components
-│   ├── SoundPad.tsx    # Main 4x4 pad grid
-│   ├── MappingConfig.tsx # Button mapping interface
-│   └── Settings.tsx    # App settings and configuration
+├── components/          # React components (SoundPad, BoardBuilder, OBS/Discord/LiveSplit settings, ...)
+├── contexts/            # React context providers for integrations
+│   ├── OBSContext.tsx      # OBS WebSocket connection + actions
+│   ├── DiscordContext.tsx  # Discord RPC voice control + Rich Presence
+│   ├── LiveSplitContext.tsx # LiveSplit Server WebSocket
+│   └── ThemeContext.tsx
 ├── hooks/              # Custom React hooks
-│   ├── useAudioEngine.ts # Audio playback engine
-│   └── useGamepad.ts   # Controller input handling
+│   ├── useAudioEngine.ts    # Audio playback engine (WDM + ASIO)
+│   ├── useSimpleGamepad.ts  # Controller input handling
+│   ├── useProfileManager.ts # Profile switching
+│   └── usePersistentStorage.ts
 ├── main/               # Electron main process
-├── pages/              # Next.js pages
+│   ├── index.js             # App entry, IPC, lifecycle
+│   ├── asio-audio-engine.js # audify/RtAudio ASIO Direct-mode engine
+│   ├── discord-rpc-client.js # Discord RPC over local IPC pipe
+│   ├── game-detection.js    # active-win foreground game classifier
+│   ├── now-playing-server.js # Local 127.0.0.1:3006 HTTP server (prelive tie-in)
+│   ├── gp2040ce-api.js      # GP2040-CE controller config
+│   ├── hid-gamepad.js       # Native HID gamepad input (node-hid)
+│   └── preload.js
+├── types/              # TypeScript type definitions (electron.d.ts, profile.ts, ...)
+├── config/             # App configuration
+├── pages/              # Next.js pages (main app + /dock)
+├── scripts/            # Setup/launch helper scripts
 ├── styles/             # Global styles and Tailwind CSS
 ├── utils/              # Utility functions
+├── docs/               # Integration and architecture docs
+├── __tests__/ · test/  # Vitest tests
 └── dist/               # Build output (generated)
 ```
 
 ## Technologies
 
 - **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS
-- **Desktop**: Electron 27
-- **Audio**: Howler.js
+- **Desktop**: Electron 40
+- **Audio**: Howler.js (WDM mode) + audify / RtAudio ASIO (Direct mode)
+- **Integrations**: obs-websocket-js (OBS), Discord RPC over local IPC, LiveSplit Server WebSocket, active-win (game detection), node-hid (native gamepad)
 - **Storage**: electron-store
 - **Build**: electron-builder
+- **Tests**: Vitest
 
 ## Configuration
 
@@ -169,6 +215,6 @@ SoundPad Pro Team
 
 ---
 
-**Current Version**: 2.1.0
+**Current Version**: 2.27.1
 
-See [CHANGELOG.md](./CHANGELOG.md) for version history and updates.
+See the git commit log and GitHub releases for version history and updates.
