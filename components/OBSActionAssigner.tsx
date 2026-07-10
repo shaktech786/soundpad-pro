@@ -5,6 +5,7 @@ import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
 import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
 import { CombinedAction } from '../types/profile'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface OBSActionAssignerProps {
   buttonIndex: number
@@ -115,6 +116,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   liveSplitConnected,
   discordConnected
 }) => {
+  const { theme } = useTheme()
   const [selectedTab, setSelectedTab] = useState<'sound' | 'obs' | 'livesplit' | 'discord'>(
     currentSound ? 'sound' : currentAction?.service || 'sound'
   )
@@ -286,6 +288,27 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     }
   }
 
+  const headingClass = theme === 'light' ? 'text-gray-900' : 'text-white'
+  const labelClass = theme === 'light' ? 'text-gray-600' : 'text-gray-400'
+  const cardClass = theme === 'light' ? 'bg-gray-100' : 'bg-gray-800'
+  const secondaryBtnClass = theme === 'light'
+    ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+    : 'bg-gray-700 hover:bg-gray-600 text-white'
+  const inputClass = theme === 'light'
+    ? 'bg-gray-50 text-gray-900 border-gray-300'
+    : 'bg-gray-800 text-white border-gray-700'
+  const selectClass = theme === 'light'
+    ? 'bg-white text-gray-900 border-gray-300'
+    : 'bg-gray-700 text-white border-gray-600'
+  const inactiveTabClass = theme === 'light'
+    ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+  const disabledTabClass = theme === 'light'
+    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+    : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+  const disabledAccentBtn = theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
+  const previewIconClass = theme === 'light' ? 'text-gray-700' : 'text-white'
+
   return (
     <>
     <div
@@ -297,14 +320,14 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
         if (e.target === e.currentTarget) { stopPreview(); onClose() }
       }}
     >
-      <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl animate-scale-in">
+      <div className={`rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl animate-scale-in ${theme === 'light' ? 'bg-white' : 'bg-gray-900'}`}>
         <div className="flex justify-between items-center mb-6">
-          <h2 id="modal-title" className="text-2xl font-bold text-white">
+          <h2 id="modal-title" className={`text-2xl font-bold ${headingClass}`}>
             Assign Action to Pad {buttonIndex}
           </h2>
           <button
             onClick={() => { stopPreview(); onClose() }}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className={`px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 ${secondaryBtnClass}`}
             aria-label="Close dialog"
           >
             ✕
@@ -323,7 +346,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
             className={`flex-1 px-4 py-3 rounded-lg font-bold transition-all ${
               selectedTab === 'sound'
                 ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                : inactiveTabClass
             }`}
           >
             🔊 Sound
@@ -340,8 +363,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               selectedTab === 'obs'
                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
                 : obsConnected
-                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                ? inactiveTabClass
+                : disabledTabClass
             }`}
           >
             {currentAction?.service === 'obs' && (
@@ -361,8 +384,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               selectedTab === 'livesplit'
                 ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white'
                 : liveSplitConnected
-                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                ? inactiveTabClass
+                : disabledTabClass
             }`}
           >
             {currentAction?.service === 'livesplit' && (
@@ -382,8 +405,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               selectedTab === 'discord'
                 ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
                 : discordConnected
-                ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                ? inactiveTabClass
+                : disabledTabClass
             }`}
           >
             {currentAction?.service === 'discord' && (
@@ -401,13 +424,15 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
               <div className="space-y-4">
                 {/* File error banner */}
                 {soundError && (
-                  <div className="p-3 bg-amber-900/40 border border-amber-600 rounded-lg flex gap-3 items-start">
-                    <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                  <div className={`p-3 rounded-lg flex gap-3 items-start border ${
+                    theme === 'light' ? 'bg-amber-100 border-amber-400' : 'bg-amber-900/40 border-amber-600'
+                  }`}>
+                    <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${theme === 'light' ? 'text-amber-600' : 'text-amber-400'}`} viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2L1 21h22L12 2zm1 13h-2v2h2v-2zm0-6h-2v4h2v-4z"/>
                     </svg>
                     <div>
-                      <div className="text-amber-300 text-sm font-semibold">Sound file unavailable</div>
-                      <div className="text-amber-400/80 text-xs mt-0.5">{formatSoundError(soundError)}</div>
+                      <div className={`text-sm font-semibold ${theme === 'light' ? 'text-amber-800' : 'text-amber-300'}`}>Sound file unavailable</div>
+                      <div className={`text-xs mt-0.5 ${theme === 'light' ? 'text-amber-700' : 'text-amber-400/80'}`}>{formatSoundError(soundError)}</div>
                       <div className="text-gray-500 text-xs mt-1 font-mono break-all">{currentSound}</div>
                     </div>
                   </div>
@@ -415,23 +440,25 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Current Sound Display */}
                 {currentSound && !soundError && (
-                  <div className="p-4 bg-gray-800 rounded-lg flex items-center gap-3">
+                  <div className={`p-4 rounded-lg flex items-center gap-3 ${cardClass}`}>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-gray-400 mb-1">Current Sound:</div>
-                      <div className="text-white font-medium break-all text-sm">{currentSound}</div>
+                      <div className={`text-sm mb-1 ${labelClass}`}>Current Sound:</div>
+                      <div className={`font-medium break-all text-sm ${headingClass}`}>{currentSound}</div>
                     </div>
                     <button
                       onClick={() => isPreviewPlaying && !pendingFile ? stopPreview() : playPreview(currentSound)}
                       disabled={previewLoading || !!pendingFile}
-                      className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+                        theme === 'light' ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-700 hover:bg-gray-600'
+                      }`}
                       title={isPreviewPlaying && !pendingFile ? 'Stop preview' : 'Preview current sound'}
                     >
                       {previewLoading && !pendingFile ? (
                         <span className="w-4 h-4 border-2 border-gray-400 border-t-white rounded-full animate-spin" />
                       ) : isPreviewPlaying && !pendingFile ? (
-                        <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                        <svg className={`w-4 h-4 ${previewIconClass}`} viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                       ) : (
-                        <svg className="w-4 h-4 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        <svg className={`w-4 h-4 ml-0.5 ${previewIconClass}`} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                       )}
                     </button>
                   </div>
@@ -439,12 +466,14 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Pending file preview panel */}
                 {pendingFile && (
-                  <div className="p-4 bg-blue-950 border border-blue-700 rounded-lg">
-                    <div className="text-sm text-blue-300 font-semibold mb-2">Selected — preview before assigning:</div>
+                  <div className={`p-4 rounded-lg border ${
+                    theme === 'light' ? 'bg-blue-50 border-blue-300' : 'bg-blue-950 border-blue-700'
+                  }`}>
+                    <div className={`text-sm font-semibold mb-2 ${theme === 'light' ? 'text-blue-700' : 'text-blue-300'}`}>Selected — preview before assigning:</div>
                     <div className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="text-white font-medium truncate">{pendingFile.fileName}</div>
-                        <div className="text-gray-400 text-xs truncate mt-0.5">{pendingFile.filePath}</div>
+                        <div className={`font-medium truncate ${headingClass}`}>{pendingFile.fileName}</div>
+                        <div className={`text-xs truncate mt-0.5 ${labelClass}`}>{pendingFile.filePath}</div>
                       </div>
                       <button
                         onClick={() => isPreviewPlaying ? stopPreview() : playPreview(pendingFile.filePath)}
@@ -462,10 +491,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                       </button>
                       <button
                         onClick={() => { stopPreview(); setPendingFile(null) }}
-                        className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                        className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
+                          theme === 'light' ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-700 hover:bg-gray-600'
+                        }`}
                         title="Discard selection"
                       >
-                        <svg className="w-4 h-4 text-gray-300" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                        <svg className={`w-4 h-4 ${theme === 'light' ? 'text-gray-600' : 'text-gray-300'}`} viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                       </button>
                     </div>
                   </div>
@@ -482,14 +513,14 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Divider */}
                 <div className="flex items-center gap-4">
-                  <div className="flex-1 border-t border-gray-700"></div>
+                  <div className={`flex-1 border-t ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}></div>
                   <span className="text-gray-500 text-sm">OR</span>
-                  <div className="flex-1 border-t border-gray-700"></div>
+                  <div className={`flex-1 border-t ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}></div>
                 </div>
 
                 {/* URL Input */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                  <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
                     Enter Sound URL
                   </label>
                   <input
@@ -500,15 +531,15 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                       setError(null)
                     }}
                     placeholder="https://www.myinstants.com/... or direct audio URL"
-                    className="w-full px-4 py-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    className={`w-full px-4 py-3 rounded-lg border focus:border-blue-500 focus:outline-none ${inputClass}`}
                     disabled={loading}
                     autoFocus={!currentSound}
                   />
                 </div>
 
                 {/* Supported Sources Info */}
-                <div className="p-3 bg-gray-800 rounded-lg">
-                  <div className="text-xs font-medium text-gray-400 mb-2">Supported Sources:</div>
+                <div className={`p-3 rounded-lg ${cardClass}`}>
+                  <div className={`text-xs font-medium mb-2 ${labelClass}`}>Supported Sources:</div>
                   <div className="text-xs text-gray-500 space-y-1">
                     <div>🎵 MyInstants.com - Sound button pages</div>
                     <div>🔗 Direct audio URLs (.mp3, .wav, .ogg, etc.)</div>
@@ -516,12 +547,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                 </div>
 
                 {/* Volume Control */}
-                <div className="p-4 bg-gray-800 rounded-lg">
+                <div className={`p-4 rounded-lg ${cardClass}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <label className="text-sm font-medium text-gray-400">
+                    <label className={`text-sm font-medium ${labelClass}`}>
                       Volume
                     </label>
-                    <span className="text-white font-bold text-lg">
+                    <span className={`font-bold text-lg ${headingClass}`}>
                       {volume}%{volume > 0 ? ` (${(20 * Math.log10((volume / 100) ** 2 * 0.7)).toFixed(0)}dB)` : ' (-∞)'}
                     </span>
                   </div>
@@ -536,9 +567,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                       setVolume(newVolume)
                       onSetVolume?.(newVolume)
                     }}
-                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    className={`w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-600 ${theme === 'light' ? 'bg-gray-200' : 'bg-gray-700'}`}
                     style={{
-                      background: `linear-gradient(to right, rgb(37, 99, 235) 0%, rgb(37, 99, 235) ${volume}%, rgb(55, 65, 81) ${volume}%, rgb(55, 65, 81) 100%)`
+                      background: `linear-gradient(to right, rgb(37, 99, 235) 0%, rgb(37, 99, 235) ${volume}%, ${theme === 'light' ? 'rgb(209, 213, 219)' : 'rgb(55, 65, 81)'} ${volume}%, ${theme === 'light' ? 'rgb(209, 213, 219)' : 'rgb(55, 65, 81)'} 100%)`
                     }}
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-2">
@@ -550,18 +581,18 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Drum Pad Mode Toggle */}
                 {currentSound && onDrumPadToggle && (
-                  <div className="p-4 bg-gray-800 rounded-lg">
+                  <div className={`p-4 rounded-lg ${cardClass}`}>
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm font-medium text-white">Drum Pad Mode</div>
-                        <div className="text-xs text-gray-400 mt-0.5">
+                        <div className={`text-sm font-medium ${headingClass}`}>Drum Pad Mode</div>
+                        <div className={`text-xs mt-0.5 ${labelClass}`}>
                           Polyphonic playback, zero debounce. Best for drum hits and one-shots.
                         </div>
                       </div>
                       <button
                         onClick={() => onDrumPadToggle(!isDrumPad)}
                         className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${
-                          isDrumPad ? 'bg-orange-500' : 'bg-gray-600'
+                          isDrumPad ? 'bg-orange-500' : theme === 'light' ? 'bg-gray-300' : 'bg-gray-600'
                         }`}
                       >
                         <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
@@ -574,8 +605,10 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Error Message */}
                 {error && (
-                  <div className="p-3 bg-red-900/30 border border-red-700 rounded-lg">
-                    <div className="text-red-400 text-sm">{error}</div>
+                  <div className={`p-3 rounded-lg border ${
+                    theme === 'light' ? 'bg-red-100 border-red-300' : 'bg-red-900/30 border-red-700'
+                  }`}>
+                    <div className={`text-sm ${theme === 'light' ? 'text-red-700' : 'text-red-400'}`}>{error}</div>
                   </div>
                 )}
 
@@ -592,7 +625,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                     <button
                       onClick={handleAssignSound}
                       disabled={!url || loading}
-                      className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                      className={`flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors ${disabledAccentBtn}`}
                     >
                       {loading ? 'Processing...' : 'Assign Sound'}
                     </button>
@@ -610,7 +643,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   <button
                     onClick={() => { stopPreview(); onClose() }}
                     disabled={loading}
-                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                    className={`px-6 py-3 disabled:cursor-not-allowed font-bold rounded-lg transition-colors ${secondaryBtnClass}`}
                   >
                     Cancel
                   </button>
@@ -623,7 +656,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
           {(selectedTab === 'obs' || selectedTab === 'livesplit' || selectedTab === 'discord') && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-3">
+                <label className={`block text-sm font-medium mb-3 ${labelClass}`}>
                   Select {selectedTab === 'obs' ? 'OBS' : selectedTab === 'discord' ? 'Discord' : 'LiveSplit'} Action
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -637,7 +670,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                       className={`p-4 rounded-lg border-2 transition-all text-left ${
                         selectedType === action.value
                           ? 'bg-purple-600 border-purple-400 text-white'
-                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                          : theme === 'light'
+                            ? 'bg-gray-100 border-gray-200 text-gray-700 hover:border-gray-300'
+                            : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
                       }`}
                     >
                       <div className="font-bold">{action.label}</div>
@@ -651,8 +686,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
           {/* Parameter Input */}
           {selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && (
-            <div className="p-4 bg-gray-800 rounded-lg">
-              <label className="block text-sm font-medium text-gray-400 mb-2">
+            <div className={`p-4 rounded-lg ${cardClass}`}>
+              <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
                 {selectedActionType.param === 'sceneName' && 'Select Scene'}
                 {selectedActionType.param === 'inputName' && 'Select Audio Source'}
                 {selectedActionType.param === 'hotkeyName' && 'Enter Hotkey Name'}
@@ -662,7 +697,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                 <select
                   value={paramValue}
                   onChange={(e) => setParamValue(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                  className={`w-full px-4 py-2 rounded-lg border focus:border-purple-500 focus:outline-none ${selectClass}`}
                 >
                   <option value="">Select a scene...</option>
                   {scenes.map(scene => (
@@ -675,7 +710,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                 <select
                   value={paramValue}
                   onChange={(e) => setParamValue(e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                  className={`w-full px-4 py-2 rounded-lg border focus:border-purple-500 focus:outline-none ${selectClass}`}
                 >
                   <option value="">Select an audio source...</option>
                   {sources.map(source => (
@@ -690,7 +725,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   value={paramValue}
                   onChange={(e) => setParamValue(e.target.value)}
                   placeholder="e.g. OBSBasic.StartStreaming"
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                  className={`w-full px-4 py-2 rounded-lg border focus:border-purple-500 focus:outline-none ${selectClass}`}
                 />
               )}
 
@@ -711,9 +746,9 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
           {/* Preview */}
           {selectedType && (
-            <div className="p-4 bg-gray-800 rounded-lg">
-              <div className="text-sm text-gray-400 mb-2">Preview:</div>
-              <div className="text-white font-medium">
+            <div className={`p-4 rounded-lg ${cardClass}`}>
+              <div className={`text-sm mb-2 ${labelClass}`}>Preview:</div>
+              <div className={`font-medium ${headingClass}`}>
                 {selectedActionType?.label}
                 {paramValue && (
                   <span className="text-purple-400"> → {paramValue}</span>
@@ -727,7 +762,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
             <button
               onClick={handleAssign}
               disabled={!selectedType || (selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)}
-              className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+              className={`flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors ${disabledAccentBtn}`}
             >
               Assign Action
             </button>
@@ -743,7 +778,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
             <button
               onClick={onClose}
-              className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
+              className={`px-6 py-3 font-bold rounded-lg transition-colors ${secondaryBtnClass}`}
             >
               Cancel
             </button>

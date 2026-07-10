@@ -1,8 +1,13 @@
 import { describe, test, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react'
+import { ReactElement } from 'react'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
+import { ThemeProvider } from '../contexts/ThemeContext'
 
 vi.mock('obs-websocket-js', () => ({ default: class OBSWebSocket {} }))
+
+// OBSActionAssigner calls useTheme(), which requires a ThemeProvider ancestor.
+const render = (ui: ReactElement) => rtlRender(<ThemeProvider>{ui}</ThemeProvider>)
 
 const baseProps = {
   buttonIndex: 3,

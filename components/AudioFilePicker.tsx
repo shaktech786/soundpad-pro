@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import logger from '../utils/logger'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface DirEntry {
   name: string
@@ -16,6 +17,7 @@ const DEFAULT_DIR_STORE_KEY = 'audioLibrary:defaultDir'
 
 export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onClose }) => {
   const api = (window as any).electronAPI
+  const { theme } = useTheme()
 
   const [currentPath, setCurrentPath] = useState<string>('')
   const [entries, setEntries] = useState<DirEntry[]>([])
@@ -136,22 +138,30 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     return () => document.removeEventListener('keydown', onKey)
   }, [selectedFile, stopPreview, onClose])
 
+  const secondaryBtnClass = theme === 'light'
+    ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) { stopPreview(); onClose() } }}
     >
-      <div className="bg-gray-900 rounded-xl shadow-2xl flex flex-col w-full max-w-2xl" style={{ height: '70vh' }}>
+      <div className={`rounded-xl shadow-2xl flex flex-col w-full max-w-2xl ${theme === 'light' ? 'bg-white' : 'bg-gray-900'}`} style={{ height: '70vh' }}>
         {/* Header */}
-        <div className="flex items-center gap-2 p-4 border-b border-gray-700 flex-shrink-0">
-          <span className="text-white font-bold text-lg">Choose Audio File</span>
+        <div className={`flex items-center gap-2 p-4 border-b flex-shrink-0 ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}>
+          <span className={`font-bold text-lg ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>Choose Audio File</span>
           <div className="flex-1" />
 
           {/* Go to default library */}
           {defaultDir && currentPath !== defaultDir && (
             <button
               onClick={handleGoToDefault}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-blue-300 rounded-lg transition-colors"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                theme === 'light'
+                  ? 'bg-gray-200 hover:bg-gray-300 text-blue-700'
+                  : 'bg-gray-700 hover:bg-gray-600 text-blue-300'
+              }`}
               title={`Go to default library: ${defaultDir}`}
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
@@ -167,7 +177,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                 ? 'bg-blue-700 text-blue-200 cursor-default'
                 : pinSaved
                   ? 'bg-green-700 text-green-200'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                  : secondaryBtnClass
             }`}
             disabled={currentPath === defaultDir}
             title={currentPath === defaultDir ? 'This is your default library folder' : 'Set current folder as default library'}
@@ -180,29 +190,37 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
 
           <button
             onClick={handleBrowse}
-            className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+            className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${secondaryBtnClass}`}
           >
             Browse...
           </button>
           <button
             onClick={() => { stopPreview(); onClose() }}
-            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+              theme === 'light'
+                ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            }`}
           >
             ✕
           </button>
         </div>
 
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-800 flex-shrink-0 overflow-x-auto">
+        <div className={`flex items-center gap-1 px-4 py-2 border-b flex-shrink-0 overflow-x-auto ${theme === 'light' ? 'border-gray-200' : 'border-gray-800'}`}>
           <button
             onClick={goUp}
             disabled={pathParts.length <= 1}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 transition-colors"
+            className={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
+              theme === 'light'
+                ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+            }`}
             title="Go up"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
           </button>
-          <div className="flex items-center gap-1 text-xs text-gray-400 min-w-0">
+          <div className={`flex items-center gap-1 text-xs min-w-0 ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
             {pathParts.map((part, i) => (
               <React.Fragment key={i}>
                 {i > 0 && <span className="text-gray-600">/</span>}
@@ -211,7 +229,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                     const target = pathParts.slice(0, i + 1).join('/')
                     navigate((currentPath.startsWith('/') ? '/' : '') + target)
                   }}
-                  className="hover:text-white transition-colors truncate max-w-[120px]"
+                  className={`transition-colors truncate max-w-[120px] ${theme === 'light' ? 'hover:text-gray-900' : 'hover:text-white'}`}
                   title={part}
                 >
                   {part}
@@ -245,7 +263,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors select-none ${
                   isSelected
                     ? 'bg-blue-600 text-white'
-                    : 'hover:bg-gray-800 text-gray-200'
+                    : theme === 'light' ? 'hover:bg-gray-100 text-gray-800' : 'hover:bg-gray-800 text-gray-200'
                 }`}
               >
                 {/* Icon */}
@@ -271,7 +289,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                         ? 'bg-blue-500 hover:bg-blue-400'
                         : isSelected
                           ? 'bg-blue-500 hover:bg-blue-400'
-                          : 'bg-gray-700 hover:bg-gray-600'
+                          : theme === 'light' ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-700 hover:bg-gray-600'
                     }`}
                     title={isThisPlaying ? 'Stop preview' : 'Preview'}
                   >
@@ -280,7 +298,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                     ) : isThisPlaying ? (
                       <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                     ) : (
-                      <svg className="w-3.5 h-3.5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                      <svg className={`w-3.5 h-3.5 ml-0.5 ${isSelected ? 'text-white' : theme === 'light' ? 'text-gray-700' : 'text-white'}`} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                     )}
                   </button>
                 )}
@@ -297,24 +315,30 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-3 p-4 border-t border-gray-700 flex-shrink-0">
+        <div className={`flex items-center gap-3 p-4 border-t flex-shrink-0 ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}>
           <div className="flex-1 min-w-0">
             {selectedFile ? (
-              <span className="text-white text-sm truncate block">{selectedFile.name}</span>
+              <span className={`text-sm truncate block ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>{selectedFile.name}</span>
             ) : (
               <span className="text-gray-500 text-sm">No file selected</span>
             )}
           </div>
           <button
             onClick={() => { stopPreview(); onClose() }}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
+            className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+              theme === 'light'
+                ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            }`}
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={!selectedFile}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-bold"
+            className={`px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-bold ${
+              theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
+            }`}
           >
             Select
           </button>

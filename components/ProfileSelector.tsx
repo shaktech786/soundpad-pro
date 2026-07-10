@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { BoardProfile, ButtonShape } from '../types/profile'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface ProfileSelectorProps {
   profiles: BoardProfile[]
@@ -20,6 +21,7 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
   onDuplicate,
   onNewProfile,
 }) => {
+  const { theme } = useTheme()
   const [isOpen, setIsOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -52,11 +54,17 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
     setEditingId(null)
   }
 
+  const borderClass = theme === 'light' ? 'border-gray-200' : 'border-gray-700'
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-white transition-colors border border-gray-700"
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border ${
+          theme === 'light'
+            ? 'bg-gray-100 hover:bg-gray-200 text-gray-900 border-gray-200'
+            : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
+        }`}
       >
         <span className="text-sm font-medium truncate max-w-[150px]">
           {activeProfile?.name || 'No Profile'}
@@ -64,15 +72,17 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
         <span className="text-gray-500 text-xs">
           {activeProfile ? `${activeProfile.boardLayout.length} btns` : ''}
         </span>
-        <svg className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-4 h-4 transition-transform ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 left-0 w-72 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
-          <div className="p-2 border-b border-gray-700">
-            <div className="text-gray-400 text-xs font-medium px-2 py-1">PROFILES</div>
+        <div className={`absolute top-full mt-2 left-0 w-72 rounded-xl shadow-2xl z-50 overflow-hidden border ${
+          theme === 'light' ? 'bg-white border-gray-200' : 'bg-gray-800 border-gray-700'
+        }`}>
+          <div className={`p-2 border-b ${borderClass}`}>
+            <div className={`text-xs font-medium px-2 py-1 ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>PROFILES</div>
           </div>
 
           <div className="max-h-64 overflow-y-auto">
@@ -84,7 +94,9 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                 <div
                   key={profile.id}
                   className={`group flex items-center justify-between px-3 py-2 ${
-                    isActive ? 'bg-purple-600/20' : 'hover:bg-gray-700/50'
+                    isActive
+                      ? (theme === 'light' ? 'bg-purple-100' : 'bg-purple-600/20')
+                      : (theme === 'light' ? 'hover:bg-gray-100' : 'hover:bg-gray-700/50')
                   }`}
                 >
                   {isEditing ? (
@@ -97,7 +109,11 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                         if (e.key === 'Escape') setEditingId(null)
                       }}
                       onBlur={confirmRename}
-                      className="flex-1 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      className={`flex-1 px-2 py-1 rounded text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 border ${
+                        theme === 'light'
+                          ? 'bg-white border-gray-300 text-gray-900'
+                          : 'bg-gray-900 border-gray-600 text-white'
+                      }`}
                       autoFocus
                     />
                   ) : (
@@ -114,10 +130,14 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                         <span className={`text-xs font-mono ${isActive ? 'text-purple-400' : 'text-gray-500'}`}>
                           {shapeIcon(profile.buttonShape)}
                         </span>
-                        <span className={`text-sm truncate ${isActive ? 'text-white font-medium' : 'text-gray-300'}`}>
+                        <span className={`text-sm truncate ${
+                          isActive
+                            ? (theme === 'light' ? 'text-gray-900 font-medium' : 'text-white font-medium')
+                            : (theme === 'light' ? 'text-gray-700' : 'text-gray-300')
+                        }`}>
                           {profile.name}
                         </span>
-                        <span className="text-gray-600 text-xs">
+                        <span className={`text-xs ${theme === 'light' ? 'text-gray-400' : 'text-gray-600'}`}>
                           {profile.boardLayout.length}
                         </span>
                         {isActive && (
@@ -128,14 +148,22 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => startEditing(profile)}
-                          className="p-1 hover:bg-gray-600 rounded text-gray-400 hover:text-white text-xs"
+                          className={`p-1 rounded text-xs ${
+                            theme === 'light'
+                              ? 'hover:bg-gray-200 text-gray-600 hover:text-gray-900'
+                              : 'hover:bg-gray-600 text-gray-400 hover:text-white'
+                          }`}
                           title="Rename"
                         >
                           Ren
                         </button>
                         <button
                           onClick={() => onDuplicate(profile.id)}
-                          className="p-1 hover:bg-gray-600 rounded text-gray-400 hover:text-white text-xs"
+                          className={`p-1 rounded text-xs ${
+                            theme === 'light'
+                              ? 'hover:bg-gray-200 text-gray-600 hover:text-gray-900'
+                              : 'hover:bg-gray-600 text-gray-400 hover:text-white'
+                          }`}
                           title="Duplicate"
                         >
                           Dup
@@ -147,7 +175,9 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                                 onDelete(profile.id)
                               }
                             }}
-                            className="p-1 hover:bg-red-600/50 rounded text-gray-400 hover:text-red-400 text-xs"
+                            className={`p-1 hover:bg-red-600/50 rounded text-xs hover:text-red-400 ${
+                              theme === 'light' ? 'text-gray-600' : 'text-gray-400'
+                            }`}
                             title="Delete"
                           >
                             Del
@@ -161,13 +191,15 @@ export const ProfileSelector: React.FC<ProfileSelectorProps> = ({
             })}
           </div>
 
-          <div className="p-2 border-t border-gray-700">
+          <div className={`p-2 border-t ${borderClass}`}>
             <button
               onClick={() => {
                 onNewProfile()
                 setIsOpen(false)
               }}
-              className="w-full px-3 py-2 text-sm text-purple-400 hover:bg-gray-700/50 rounded-lg text-left font-medium transition-colors"
+              className={`w-full px-3 py-2 text-sm text-purple-400 rounded-lg text-left font-medium transition-colors ${
+                theme === 'light' ? 'hover:bg-gray-100' : 'hover:bg-gray-700/50'
+              }`}
             >
               + New Profile
             </button>
