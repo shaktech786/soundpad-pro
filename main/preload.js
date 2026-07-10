@@ -102,6 +102,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gp2040GetAddonsOptions: () => ipcRenderer.invoke('gp2040:get-addons-options'),
   gp2040AnalyzeMappings: (mappings) => ipcRenderer.invoke('gp2040:analyze-mappings', mappings),
 
+  // Discord RPC (connection + OAuth handshake)
+  discordConnect: () => ipcRenderer.invoke('discord:connect'),
+  discordDisconnect: () => ipcRenderer.invoke('discord:disconnect'),
+  discordStatus: () => ipcRenderer.invoke('discord:status'),
+  discordGetConfig: () => ipcRenderer.invoke('discord:get-config'),
+  discordSetConfig: (config) => ipcRenderer.invoke('discord:set-config', config),
+  onDiscordStatusChanged: (callback) => {
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on('discord:status-changed', handler);
+    return () => ipcRenderer.removeListener('discord:status-changed', handler);
+  },
+
   // Logging
   logError: (error) => ipcRenderer.invoke('log-error', error),
 
@@ -112,5 +124,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('hid-stop-captured');
     ipcRenderer.removeAllListeners('asio:stream-lost');
     ipcRenderer.removeAllListeners('asio:stream-recovered');
+    ipcRenderer.removeAllListeners('discord:status-changed');
   }
 });
