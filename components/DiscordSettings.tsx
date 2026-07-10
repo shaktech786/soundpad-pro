@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useDiscord } from '../contexts/DiscordContext'
+import { usePersistentStorage } from '../hooks/usePersistentStorage'
 
 interface DiscordSettingsProps {
   onClose?: () => void
@@ -23,6 +24,22 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
   const [redirectUri, setRedirectUri] = useState('http://localhost')
   const [hasSecret, setHasSecret] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // App-level toggle (not profile-scoped) for showing the currently playing
+  // sound as Discord Rich Presence. Persisted alongside other integration
+  // settings; the main process reads the same key to drive SET_ACTIVITY.
+  const [richPresence, setRichPresence] = usePersistentStorage<boolean>(
+    'discord-rich-presence-enabled',
+    true,
+  )
+
+  const toggleRichPresence = () => {
+    const next = !richPresence
+    setRichPresence(next)
+    // Apply instantly (main clears or re-pushes presence) without waiting for
+    // the persisted-store write to land.
+    void window.electronAPI?.discordRefreshActivity?.(next)
+  }
 
   // Prefill from persisted config (secret is never returned — we only learn
   // whether one is already stored).
@@ -201,6 +218,32 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
             <div className="font-bold text-white truncate">
               {user ? user.global_name || user.username : 'Connected'}
             </div>
+          </div>
+
+          <div className="p-4 bg-gray-800 rounded-lg flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <div className="font-bold text-white">Show currently playing sound in Discord status</div>
+              <div className="text-gray-400 text-sm mt-1">
+                Displays a Rich Presence status with the sound you&apos;re playing.
+                Clears automatically when playback stops.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={richPresence}
+              aria-label="Show currently playing sound in Discord status"
+              onClick={toggleRichPresence}
+              className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors ${
+                richPresence ? 'bg-indigo-600' : 'bg-gray-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                  richPresence ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
 
           <button

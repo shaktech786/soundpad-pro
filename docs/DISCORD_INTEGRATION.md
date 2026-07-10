@@ -90,6 +90,31 @@ permissions error and SoundPad Pro **automatically re-opens the authorization
 popup** so you can grant the new scope. Approve it once; the refreshed token is
 saved and subsequent actions work without prompting.
 
+## Rich Presence (Now Playing)
+
+When connected, SoundPad Pro can show the **currently playing sound** as your
+Discord Rich Presence — the "Playing a game / listening to…" status on your
+profile.
+
+- The status reads **`Playing <sound name>`** and, when the sound's folder has
+  an `attribution.json` entry, a second line with the artist (`by <artist>`) or
+  track title.
+- The elapsed timer starts when the sound begins.
+- The status **clears automatically** when playback stops, so your profile never
+  shows a stale "still playing" entry.
+- The most recently triggered sound wins if several overlap.
+
+This feature needs only the base `rpc` scope granted at connect — it works even
+if you never authorized `rpc.voice.write` for the mute/deafen actions.
+
+### Toggle
+
+In **Settings → Integrations → Discord**, once connected, use
+**"Show currently playing sound in Discord status"** to turn Rich Presence on or
+off. It's **on by default**. Turning it off clears any active presence
+immediately and is independent of the mute/deafen/push-to-talk actions. The
+setting is stored locally under `discord-rich-presence-enabled`.
+
 ## Connection Status
 
 The **Discord badge** (header and sidebar) reflects live connection state:
@@ -150,7 +175,8 @@ renderer** — the settings UI only learns whether a secret is already saved.
 **Auth**: OAuth2 authorization-code grant via `https://discord.com/api/oauth2/token`
 **Scopes**: `rpc`, `identify`, `rpc.voice.write`
 **Voice commands**: `SET_VOICE_SETTINGS` / `GET_VOICE_SETTINGS` (opcode 1 FRAME)
-**Storage**: `electron-store` (`discord-client-config`, `discord-rpc-auth`)
+**Rich Presence**: `SET_ACTIVITY` (opcode 1 FRAME; `activity: null` clears it)
+**Storage**: `electron-store` (`discord-client-config`, `discord-rpc-auth`, `discord-rich-presence-enabled`)
 
 ## Privacy & Security
 
@@ -158,12 +184,6 @@ renderer** — the settings UI only learns whether a secret is already saved.
 - The client secret never leaves the main process
 - The connection is entirely local (named pipe to your own Discord client)
 - No data is sent to external servers beyond Discord's own OAuth token endpoint
-
-## Not Yet Implemented
-
-The following is planned for a later story and is intentionally not wired up yet:
-
-- Rich Presence / activity (`SET_ACTIVITY`)
 
 ---
 

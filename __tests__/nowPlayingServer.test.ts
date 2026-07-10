@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
@@ -107,5 +107,63 @@ describe('NowPlayingServer', () => {
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('*')
     expect(res.headers.get('access-control-allow-private-network')).toBe('true')
+  })
+})
+
+describe('NowPlayingServer onNowPlayingChange (Rich Presence hook)', () => {
+  const fpA = 'C:\\sounds\\airhorn.wav'
+  const fpB = 'C:\\sounds\\sadtrombone.wav'
+  let playing: string[]
+  let events: any[]
+  let server: any
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_700_000_000_000)
+    playing = []
+    events = []
+    server = new NowPlayingServer({
+      getAsioPlaying: () => playing,
+      getWdmPlaying: () => [],
+      onNowPlayingChange: (track: any) => events.push(track),
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('fires once with the primary track when a sound starts', () => {
+    playing = [fpA]
+    server._pollNowPlaying()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ filePath: fpA, fileName: 'airhorn.wav' })
+    expect(typeof events[0].startedAt).toBe('number')
+  })
+
+  it('does not re-fire while the same sound keeps playing', () => {
+    playing = [fpA]
+    server._pollNowPlaying()
+    server._pollNowPlaying()
+    expect(events).toHaveLength(1)
+  })
+
+  it('fires with null when playback stops', () => {
+    playing = [fpA]
+    server._pollNowPlaying()
+    playing = []
+    server._pollNowPlaying()
+    expect(events).toHaveLength(2)
+    expect(events[1]).toBeNull()
+  })
+
+  it('switches the primary to the most recently started sound', () => {
+    playing = [fpA]
+    server._pollNowPlaying()
+    vi.advanceTimersByTime(1000) // fpB starts strictly later than fpA
+    playing = [fpA, fpB]
+    server._pollNowPlaying()
+    expect(events).toHaveLength(2)
+    expect(events[1].filePath).toBe(fpB)
   })
 })

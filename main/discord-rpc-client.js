@@ -18,9 +18,9 @@
  *   4. Persist the token so later launches skip re-authorization (refreshing
  *      silently via the refresh_token grant when expired).
  *
- * This module implements the connection + auth handshake and voice control
- * (SET_VOICE_SETTINGS / GET_VOICE_SETTINGS for mute/deafen). SET_ACTIVITY is
- * added by a later story.
+ * This module implements the connection + auth handshake, voice control
+ * (SET_VOICE_SETTINGS / GET_VOICE_SETTINGS for mute/deafen), and Rich Presence
+ * (SET_ACTIVITY — needs only the base `rpc` scope).
  */
 const net = require('net');
 const https = require('https');
@@ -192,6 +192,45 @@ class DiscordRpcClient extends EventEmitter {
   /** Read Discord's current voice settings (mute, deaf, and more). */
   async getVoiceSettings() {
     return this._voiceCommand('GET_VOICE_SETTINGS', {});
+  }
+
+  // --- rich presence ------------------------------------------------------
+
+  /**
+   * Set (or clear) the user's Discord Rich Presence via the SET_ACTIVITY RPC
+   * command. Pass an activity object to show a status, or `null`/omit it to
+   * clear the current presence (Discord's convention: `activity: null` clears).
+   *
+   * Only the base `rpc` scope (already requested at connect) is required — this
+   * works even if the user never granted `rpc.voice.write`.
+   *
+   * @param {null | {
+   *   details?: string,
+   *   state?: string,
+   *   startTimestamp?: number,   // epoch ms; shown as an elapsed "for HH:MM"
+   *   largeImageKey?: string,    // asset key registered on the Discord app
+   * }} activity
+   */
+  async setActivity(activity) {
+    return this._request('SET_ACTIVITY', {
+      pid: process.pid,
+      activity: activity ? this._activityArgs(activity) : null,
+    });
+  }
+
+  /** Map our activity shape to Discord's SET_ACTIVITY `activity` payload,
+   * dropping any fields the caller left undefined. */
+  _activityArgs(activity) {
+    const a = {};
+    if (activity.details != null) a.details = String(activity.details);
+    if (activity.state != null) a.state = String(activity.state);
+    if (activity.startTimestamp != null) {
+      a.timestamps = { start: Math.floor(activity.startTimestamp) };
+    }
+    if (activity.largeImageKey != null) {
+      a.assets = { large_image: String(activity.largeImageKey) };
+    }
+    return a;
   }
 
   /** Keep only the boolean mute/deaf keys Discord accepts. */

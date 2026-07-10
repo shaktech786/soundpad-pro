@@ -78,6 +78,8 @@ interface ElectronAPI {
   discordSetConfig: (config: Partial<DiscordConfigInput>) => Promise<DiscordPublicConfig>
   discordSetVoiceSettings: (settings: DiscordVoiceSettingsInput) => Promise<DiscordVoiceSettings>
   discordGetVoiceSettings: () => Promise<DiscordVoiceSettings>
+  discordSetActivity: (activity: DiscordActivityInput | null) => Promise<unknown>
+  discordRefreshActivity: (enabled?: boolean) => Promise<{ success: boolean }>
   onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
   onDiscordVoiceStateChanged: (callback: (state: DiscordVoiceState) => void) => (() => void)
 
@@ -136,6 +138,13 @@ interface DiscordVoiceSettings {
 interface DiscordVoiceState {
   muted: boolean
   deafened: boolean
+}
+
+interface DiscordActivityInput {
+  details?: string
+  state?: string
+  startTimestamp?: number
+  largeImageKey?: string
 }
 
 declare global {

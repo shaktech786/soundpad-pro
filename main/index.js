@@ -63,7 +63,49 @@ discordRpc.on('status', (status) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('discord:status-changed', status);
   }
+  // Push the current now-playing presence once the connection settles (covers
+  // both the first connect and background reconnects while a sound is playing).
+  if (status.status === 'connected') applyDiscordActivity();
 });
+
+// Discord Rich Presence: reflect the currently playing sound in the user's
+// Discord status. App-level toggle (default on); the actual now-playing signal
+// is driven by NowPlayingServer's onNowPlayingChange hook below.
+const DISCORD_RICH_PRESENCE_KEY = 'discord-rich-presence-enabled';
+const DISCORD_LARGE_IMAGE_KEY = 'soundpad_pro';
+let lastNowPlaying = null; // most recent primary track from the now-playing hook
+
+function isRichPresenceEnabled() {
+  return store.get(DISCORD_RICH_PRESENCE_KEY) !== false; // default enabled
+}
+
+/** Build the SET_ACTIVITY payload for a now-playing track. */
+function buildDiscordActivity(track) {
+  const attribution = track.attribution || {};
+  const displayName = track.fileName.replace(/\.[^.]+$/, '');
+  let state;
+  if (attribution.artist) {
+    state = `by ${attribution.artist}`;
+  } else if (attribution.title) {
+    state = attribution.title;
+  }
+  return {
+    details: `Playing ${displayName}`,
+    state,
+    startTimestamp: track.startedAt,
+    largeImageKey: DISCORD_LARGE_IMAGE_KEY,
+  };
+}
+
+/** Re-evaluate and push (or clear) the Discord presence for the current track.
+ * `enabledOverride` lets the toggle apply instantly without racing the store
+ * write; otherwise the persisted setting is read. */
+function applyDiscordActivity(enabledOverride) {
+  if (discordRpc.getStatus().status !== 'connected') return;
+  const enabled = typeof enabledOverride === 'boolean' ? enabledOverride : isRichPresenceEnabled();
+  const activity = enabled && lastNowPlaying ? buildDiscordActivity(lastNowPlaying) : null;
+  discordRpc.setActivity(activity).catch(() => { /* best-effort presence */ });
+}
 // Live mute/deafen state pushed from Discord's VOICE_SETTINGS_UPDATE
 // subscription — keeps the UI in sync when the user mutes inside Discord.
 discordRpc.on('voice-state', (state) => {
@@ -244,6 +286,10 @@ app.whenReady().then(() => {
     getAsioPlaying: () => (asioEngine && asioEngine.isInitialized() ? asioEngine.getActiveSounds() : []),
     getWdmPlaying: () => wdmPlaying,
     getCurrentGame: () => (gameDetector ? gameDetector.getSnapshot() : null),
+    onNowPlayingChange: (track) => {
+      lastNowPlaying = track;
+      applyDiscordActivity();
+    },
   });
   nowPlayingServer.start();
 
@@ -815,6 +861,17 @@ ipcMain.handle('discord:set-voice-settings', async (event, settings) => {
 
 ipcMain.handle('discord:get-voice-settings', async () => {
   return discordRpc.getVoiceSettings();
+});
+
+// Rich Presence: direct pass-through (used for testing / manual control) and a
+// refresh hook the settings toggle calls so enabling/disabling applies at once.
+ipcMain.handle('discord:set-activity', async (event, activity) => {
+  return discordRpc.setActivity(activity || null);
+});
+
+ipcMain.handle('discord:refresh-activity', async (event, enabled) => {
+  applyDiscordActivity(typeof enabled === 'boolean' ? enabled : undefined);
+  return { success: true };
 });
 
 // Log errors from renderer process
