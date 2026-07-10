@@ -11,10 +11,11 @@ const path = require('path');
 //   { "tracks": { "<filename>": { "title", "artist", "license",
 //                                 "requiresAttribution", "credit", "url" } } }
 class NowPlayingServer {
-  constructor({ port = 3006, getAsioPlaying, getWdmPlaying } = {}) {
+  constructor({ port = 3006, getAsioPlaying, getWdmPlaying, getCurrentGame } = {}) {
     this.port = port;
     this.getAsioPlaying = getAsioPlaying || (() => []);
     this.getWdmPlaying = getWdmPlaying || (() => []);
+    this.getCurrentGame = getCurrentGame || (() => null);
     this.server = null;
     this._startedAt = new Map(); // filePath -> epoch ms when first seen playing
     this._manifestCache = new Map(); // dir -> { mtimeMs, tracks }
@@ -56,6 +57,9 @@ class NowPlayingServer {
     if (url === '/now-playing') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(this._snapshot()));
+    } else if (url === '/current-game') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(this._currentGame()));
     } else if (url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, app: 'soundpad-pro' }));
@@ -92,6 +96,26 @@ class NowPlayingServer {
         attribution: this._lookupAttribution(filePath),
       })),
       timestamp: now,
+    };
+  }
+
+  _currentGame() {
+    let state;
+    try {
+      state = this.getCurrentGame();
+    } catch (_) {
+      state = null;
+    }
+    if (!state || typeof state !== 'object') {
+      return { processName: null, windowTitle: null, detectedGame: null, confidence: 'low' };
+    }
+    const detectedGame = state.detectedGame != null ? String(state.detectedGame) : null;
+    return {
+      processName: state.processName != null ? String(state.processName) : null,
+      windowTitle: state.windowTitle != null ? String(state.windowTitle) : null,
+      detectedGame,
+      // Confidence is 'high' only for a real allowlist hit (non-null game).
+      confidence: detectedGame && state.confidence === 'high' ? 'high' : 'low',
     };
   }
 

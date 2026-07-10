@@ -26,7 +26,8 @@ module.exports = {
   asarUnpack: [
     "node_modules/howler/**/*",
     "node_modules/audify/**/*",
-    "node_modules/node-hid/**/*"
+    "node_modules/node-hid/**/*",
+    "node_modules/active-win/**/*"
   ],
   compression: "maximum",
   npmRebuild: true,

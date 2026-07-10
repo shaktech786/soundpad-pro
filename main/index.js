@@ -7,6 +7,7 @@ const { HIDGamepad, NEUTRAL: HID_NEUTRAL } = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
 const { NowPlayingServer } = require('./now-playing-server');
+const { GameDetector } = require('./game-detection');
 const { DiscordRpcClient } = require('./discord-rpc-client');
 
 let gp2040api = new GP2040ceApi();
@@ -48,6 +49,11 @@ let asioInitializing = false;
 // state is pushed up via the 'audio:wdm-playing' IPC event.
 let nowPlayingServer = null;
 let wdmPlaying = [];
+
+// Foreground-window game detection for the /current-game endpoint on the same
+// local server. Polls active-win on an interval; the HTTP handler reads the
+// cached snapshot so it never blocks on the OS query.
+let gameDetector = null;
 
 // Discord RPC client (connection + OAuth handshake only). Talks to the local
 // Discord IPC named pipe; pushes status changes to the renderer. Never blocks
@@ -223,10 +229,14 @@ app.whenReady().then(() => {
 
   createWindow();
 
+  gameDetector = new GameDetector({ intervalMs: 3000 });
+  gameDetector.start();
+
   nowPlayingServer = new NowPlayingServer({
     port: 3006,
     getAsioPlaying: () => (asioEngine && asioEngine.isInitialized() ? asioEngine.getActiveSounds() : []),
     getWdmPlaying: () => wdmPlaying,
+    getCurrentGame: () => (gameDetector ? gameDetector.getSnapshot() : null),
   });
   nowPlayingServer.start();
 
@@ -276,6 +286,10 @@ app.on('window-all-closed', () => {
   if (nowPlayingServer) {
     nowPlayingServer.shutdown();
     nowPlayingServer = null;
+  }
+  if (gameDetector) {
+    gameDetector.stop();
+    gameDetector = null;
   }
   // HID gamepad is local to app.whenReady — no explicit cleanup needed (GC handles it)
   // Discord RPC cleanup

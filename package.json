@@ -27,6 +27,7 @@
   "author": "SoundPad Pro",
   "license": "MIT",
   "dependencies": {
+    "active-win": "^8.2.1",
     "audify": "^1.10.1",
     "electron-is-dev": "^2.0.0",
     "electron-store": "^8.2.0",
