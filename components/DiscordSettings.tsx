@@ -1,6 +1,7 @@
 import React from 'react'
 import { useDiscord } from '../contexts/DiscordContext'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface DiscordSettingsProps {
   onClose?: () => void
@@ -16,6 +17,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
     connect,
     disconnect,
   } = useDiscord()
+  const { theme } = useTheme()
 
   // App-level toggle (not profile-scoped) for showing the currently playing
   // sound as Discord Rich Presence. Persisted alongside other integration
@@ -49,17 +51,25 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
         ? 'Connecting…'
         : 'Not Connected'
 
+  const cardClass = theme === 'light' ? 'bg-gray-100' : 'bg-gray-800'
+  const headingClass = theme === 'light' ? 'text-gray-900' : 'text-white'
+  const labelClass = theme === 'light' ? 'text-gray-600' : 'text-gray-400'
+
   return (
-    <div className="bg-gray-900 rounded-xl p-6 shadow-2xl">
+    <div className={`rounded-xl p-6 shadow-2xl ${theme === 'light' ? 'bg-white' : 'bg-gray-900'}`}>
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+        <h2 className={`text-2xl font-bold flex items-center gap-3 ${headingClass}`}>
           <span className="text-3xl">🎮</span>
           Discord Integration
         </h2>
         {onClose && (
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              theme === 'light'
+                ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            }`}
           >
             Close
           </button>
@@ -68,7 +78,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
 
       {/* Connection Status */}
       <div className="mb-6">
-        <div className="flex items-center gap-4 p-4 bg-gray-800 rounded-lg">
+        <div className={`flex items-center gap-4 p-4 rounded-lg ${cardClass}`}>
           <div
             className={`w-4 h-4 rounded-full ${
               connected
@@ -79,7 +89,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
             }`}
           />
           <div className="flex-1">
-            <div className="font-bold text-white">{statusLabel}</div>
+            <div className={`font-bold ${headingClass}`}>{statusLabel}</div>
             {connected && user && (
               <div className="text-green-400 text-sm mt-1">
                 {user.global_name || user.username}
@@ -102,18 +112,20 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
           <button
             onClick={handleConnect}
             disabled={connecting}
-            className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+            className={`w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors ${
+              theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
+            }`}
           >
             {connecting ? 'Connecting…' : 'Connect to Discord'}
           </button>
 
           {/* Setup Instructions */}
-          <div className="mt-4 p-4 bg-gray-800 rounded-lg">
-            <div className="text-sm text-gray-400">
-              <div className="font-bold text-white mb-2">Setup Instructions:</div>
+          <div className={`mt-4 p-4 rounded-lg ${cardClass}`}>
+            <div className={`text-sm ${labelClass}`}>
+              <div className={`font-bold mb-2 ${headingClass}`}>Setup Instructions:</div>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Make sure the Discord desktop app is running and you are signed in</li>
-                <li>Click <span className="text-white font-semibold">Connect to Discord</span></li>
+                <li>Click <span className={`font-semibold ${headingClass}`}>Connect to Discord</span></li>
                 <li>Approve the authorization popup in Discord</li>
                 <li>The token is saved — later launches reconnect without prompting</li>
               </ol>
@@ -124,17 +136,17 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
 
       {connected && (
         <div className="space-y-4">
-          <div className="p-4 bg-gray-800 rounded-lg">
-            <div className="text-gray-400 text-sm mb-1">Authorized Account</div>
-            <div className="font-bold text-white truncate">
+          <div className={`p-4 rounded-lg ${cardClass}`}>
+            <div className={`text-sm mb-1 ${labelClass}`}>Authorized Account</div>
+            <div className={`font-bold truncate ${headingClass}`}>
               {user ? user.global_name || user.username : 'Connected'}
             </div>
           </div>
 
-          <div className="p-4 bg-gray-800 rounded-lg flex items-center justify-between gap-4">
+          <div className={`p-4 rounded-lg flex items-center justify-between gap-4 ${cardClass}`}>
             <div className="flex-1">
-              <div className="font-bold text-white">Show currently playing sound in Discord status</div>
-              <div className="text-gray-400 text-sm mt-1">
+              <div className={`font-bold ${headingClass}`}>Show currently playing sound in Discord status</div>
+              <div className={`text-sm mt-1 ${labelClass}`}>
                 Displays a Rich Presence status with the sound you&apos;re playing.
                 Clears automatically when playback stops.
               </div>
@@ -146,7 +158,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
               aria-label="Show currently playing sound in Discord status"
               onClick={toggleRichPresence}
               className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors ${
-                richPresence ? 'bg-indigo-600' : 'bg-gray-600'
+                richPresence ? 'bg-indigo-600' : theme === 'light' ? 'bg-gray-300' : 'bg-gray-600'
               }`}
             >
               <span

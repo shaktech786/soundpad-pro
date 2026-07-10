@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useLiveSplit, LiveSplitConnectionConfig } from '../contexts/LiveSplitContext'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface LiveSplitSettingsProps {
   onClose: () => void
@@ -7,6 +8,7 @@ interface LiveSplitSettingsProps {
 
 export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose }) => {
   const { connected, connecting, error, connect, disconnect } = useLiveSplit()
+  const { theme } = useTheme()
 
   const [config, setConfig] = useState<LiveSplitConnectionConfig>({
     address: 'localhost',
@@ -53,16 +55,27 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
     disconnect()
   }
 
+  const headingClass = theme === 'light' ? 'text-gray-900' : 'text-white'
+  const labelClass = theme === 'light' ? 'text-gray-600' : 'text-gray-400'
+  const cardClass = theme === 'light' ? 'bg-gray-100' : 'bg-gray-800'
+  const inputClass = theme === 'light'
+    ? 'bg-gray-50 text-gray-900 border-gray-300'
+    : 'bg-gray-800 text-white border-gray-700'
+
   return (
-    <div className="bg-gray-900 rounded-xl p-6 max-w-2xl w-full shadow-2xl animate-scale-in" role="dialog" aria-modal="true" aria-labelledby="livesplit-title">
+    <div className={`rounded-xl p-6 max-w-2xl w-full shadow-2xl animate-scale-in ${theme === 'light' ? 'bg-white' : 'bg-gray-900'}`} role="dialog" aria-modal="true" aria-labelledby="livesplit-title">
       <div className="flex justify-between items-center mb-6">
-        <h2 id="livesplit-title" className="text-2xl font-bold text-white flex items-center gap-3">
+        <h2 id="livesplit-title" className={`text-2xl font-bold flex items-center gap-3 ${headingClass}`}>
           <span className="text-3xl" role="img" aria-label="Racing flag">🏁</span>
           LiveSplit Server Settings
         </h2>
         <button
           onClick={onClose}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500"
+          className={`px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 ${
+            theme === 'light'
+              ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+              : 'bg-gray-700 hover:bg-gray-600 text-white'
+          }`}
           aria-label="Close LiveSplit settings"
         >
           ✕
@@ -72,16 +85,16 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
       {/* Connection Status */}
       <div className="mb-6">
         <div className={`px-4 py-3 rounded-lg flex items-center gap-3 ${
-          connected ? 'bg-green-900/50 border-2 border-green-500' :
-          connecting ? 'bg-yellow-900/50 border-2 border-yellow-500' :
-          error ? 'bg-red-900/50 border-2 border-red-500' :
-          'bg-gray-800 border-2 border-gray-700'
+          connected ? (theme === 'light' ? 'bg-green-100 border-2 border-green-400' : 'bg-green-900/50 border-2 border-green-500') :
+          connecting ? (theme === 'light' ? 'bg-yellow-100 border-2 border-yellow-400' : 'bg-yellow-900/50 border-2 border-yellow-500') :
+          error ? (theme === 'light' ? 'bg-red-100 border-2 border-red-400' : 'bg-red-900/50 border-2 border-red-500') :
+          (theme === 'light' ? 'bg-gray-100 border-2 border-gray-200' : 'bg-gray-800 border-2 border-gray-700')
         }`}>
           <span className="text-2xl">
             {connected ? '✅' : connecting ? '⏳' : error ? '❌' : '⚪'}
           </span>
           <div className="flex-1">
-            <div className="font-bold text-white">
+            <div className={`font-bold ${headingClass}`}>
               {connected ? 'Connected to LiveSplit Server' :
                connecting ? 'Connecting...' :
                error ? 'Connection Failed' :
@@ -98,7 +111,7 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
       <div className="space-y-4 mb-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
               Server Address
             </label>
             <input
@@ -107,12 +120,12 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
               onChange={(e) => setConfig(prev => ({ ...prev, address: e.target.value }))}
               placeholder="localhost"
               disabled={connected}
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-purple-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full px-4 py-2 rounded-lg border focus:border-purple-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${inputClass}`}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">
+            <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
               Port
             </label>
             <input
@@ -121,7 +134,7 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
               onChange={(e) => setConfig(prev => ({ ...prev, port: e.target.value }))}
               placeholder="16834"
               disabled={connected}
-              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-purple-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full px-4 py-2 rounded-lg border focus:border-purple-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${inputClass}`}
             />
           </div>
         </div>
@@ -148,19 +161,19 @@ export const LiveSplitSettings: React.FC<LiveSplitSettingsProps> = ({ onClose })
       </div>
 
       {/* Instructions */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <div className="text-white text-sm space-y-2">
+      <div className={`rounded-lg p-4 ${cardClass}`}>
+        <div className={`text-sm space-y-2 ${headingClass}`}>
           <div className="font-bold mb-2">📝 Setup Instructions:</div>
-          <ol className="list-decimal list-inside text-gray-400 space-y-1 ml-2">
+          <ol className={`list-decimal list-inside space-y-1 ml-2 ${labelClass}`}>
             <li>Open LiveSplit</li>
             <li>Right-click LiveSplit → Control → Start Server</li>
             <li>Default port is 16834</li>
             <li>Click "Connect to LiveSplit Server" above</li>
             <li>Assign LiveSplit actions to your controller buttons!</li>
           </ol>
-          <div className="mt-4 pt-4 border-t border-gray-700">
-            <div className="font-bold text-white mb-1">🎮 Available Actions:</div>
-            <div className="text-gray-400 text-xs">
+          <div className={`mt-4 pt-4 border-t ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}>
+            <div className={`font-bold mb-1 ${headingClass}`}>🎮 Available Actions:</div>
+            <div className={`text-xs ${labelClass}`}>
               Start Timer • Split • Reset • Pause/Resume • Undo Split • Skip Split • and more!
             </div>
           </div>
