@@ -9,6 +9,7 @@ const { GP2040ceApi } = require('./gp2040ce-api');
 const { NowPlayingServer } = require('./now-playing-server');
 const { GameDetector } = require('./game-detection');
 const { DiscordRpcClient } = require('./discord-rpc-client');
+const { AutoUpdaterManager } = require('./auto-updater');
 
 let gp2040api = new GP2040ceApi();
 
@@ -112,6 +113,14 @@ discordRpc.on('voice-state', (state) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('discord:voice-state-changed', state);
   }
+});
+
+// Auto-updater: checks GitHub Releases on launch + every 4h, downloads updates
+// silently in the background, and only ever installs on an explicit user action
+// (see main/auto-updater.js). Started in app.whenReady (skipped in dev), torn
+// down on window-all-closed alongside the other interval-driven services.
+const autoUpdaterManager = new AutoUpdaterManager({
+  getMainWindow: () => mainWindow,
 });
 
 // HID stop button — dead-simple raw-byte pattern matching.
@@ -293,6 +302,11 @@ app.whenReady().then(() => {
   });
   nowPlayingServer.start();
 
+  // Start checking for updates (never in dev — electron-updater has no feed there).
+  if (!isDev) {
+    autoUpdaterManager.start();
+  }
+
   // Background HID gamepad polling — works even when OBS or another app has focus.
   // The Pokken Controller (GP2040-CE Switch mode) is a pure HID device, not XInput,
   // so node-hid can open it without conflict. Auto-reconnects if the controller
@@ -344,6 +358,9 @@ app.on('window-all-closed', () => {
     gameDetector.stop();
     gameDetector = null;
   }
+  // Stop the update check timers (a downloaded update still installs on quit
+  // via autoInstallOnAppQuit — this only clears the polling intervals).
+  autoUpdaterManager.stop();
   // HID gamepad is local to app.whenReady — no explicit cleanup needed (GC handles it)
   // Discord RPC cleanup
   discordRpc.disconnect();
@@ -867,6 +884,19 @@ ipcMain.handle('discord:set-activity', async (event, activity) => {
 
 ipcMain.handle('discord:refresh-activity', async (event, enabled) => {
   applyDiscordActivity(typeof enabled === 'boolean' ? enabled : undefined);
+  return { success: true };
+});
+
+// --- Auto-updater IPC Handlers ---
+
+// Current update state, so the renderer can render the "Restart to install"
+// badge on mount even if 'update-downloaded' fired before it subscribed.
+ipcMain.handle('app:get-update-status', () => autoUpdaterManager.getStatus());
+
+// Explicit, user-gated install: quits and relaunches into the downloaded
+// installer. Only invoked from the renderer's "Restart to install" button.
+ipcMain.handle('app:quit-and-install', () => {
+  autoUpdaterManager.quitAndInstall();
   return { success: true };
 });
 
