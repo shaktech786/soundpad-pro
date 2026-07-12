@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { detectGame, GameDetector } = require('../main/game-detection')
+const { detectGame, GameDetector, GAME_ALLOWLIST } = require('../main/game-detection')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { NowPlayingServer } = require('../main/now-playing-server')
 
@@ -63,6 +63,56 @@ describe('detectGame (pure classifier)', () => {
   })
 })
 
+describe('detectGame (tiered merge)', () => {
+  const localTier = [
+    { game: 'Baldur’s Gate 3', exe: ['bg3.exe'], title: ["baldur's gate 3"] },
+    { game: 'Stardew Valley', title: ['stardew valley'] }, // Steam-style, title-only
+    // Same title substring as a curated game, but a DIFFERENT display name, to
+    // prove the earlier tier wins.
+    { game: 'Counter-Strike 2 (local)', exe: ['cs2.exe'] },
+  ]
+
+  it('matches an installed local-scan game not in the curated list', () => {
+    expect(detectGame('bg3.exe', 'Baldur’s Gate 3', [localTier, GAME_ALLOWLIST])).toEqual({
+      detectedGame: 'Baldur’s Gate 3',
+      confidence: 'high',
+    })
+  })
+
+  it('matches a Steam-style title-only local entry with an unknown exe', () => {
+    expect(
+      detectGame('Stardew Valley.exe', 'Stardew Valley', [localTier, GAME_ALLOWLIST]).detectedGame
+    ).toBe('Stardew Valley')
+  })
+
+  it('the earlier tier wins when both tiers could match', () => {
+    // cs2.exe is in BOTH the local tier and the curated allowlist; local wins.
+    expect(detectGame('cs2.exe', '', [localTier, GAME_ALLOWLIST]).detectedGame).toBe(
+      'Counter-Strike 2 (local)'
+    )
+  })
+
+  it('falls through to the curated allowlist tier when no local entry matches', () => {
+    expect(detectGame('valorant.exe', '', [localTier, GAME_ALLOWLIST]).detectedGame).toBe('VALORANT')
+  })
+
+  it('denylist still short-circuits before any tier is checked', () => {
+    const spoof = [{ game: 'Spoofed', title: ['youtube'] }]
+    expect(detectGame('chrome.exe', 'Baldur’s Gate 3 - YouTube', [spoof, GAME_ALLOWLIST])).toEqual({
+      detectedGame: null,
+      confidence: 'low',
+    })
+  })
+
+  it('an empty local tier leaves curated behaviour unchanged', () => {
+    expect(detectGame('cs2.exe', '', [[], GAME_ALLOWLIST]).detectedGame).toBe('Counter-Strike 2')
+    expect(detectGame('SlayTheSpire2.exe', 'Slay the Spire 2', [[], GAME_ALLOWLIST])).toEqual({
+      detectedGame: null,
+      confidence: 'low',
+    })
+  })
+})
+
 describe('GameDetector (polling wrapper, active-win mocked)', () => {
   const makeDetector = (winResult: unknown) =>
     new GameDetector({ intervalMs: 10_000, activeWindow: async () => winResult })
@@ -113,6 +163,40 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
     expect(snap.processName).toBe('chrome.exe')
     expect(snap.detectedGame).toBeNull()
     expect(snap.confidence).toBe('low')
+  })
+
+  it('detects a scanned local-library game once a scan has populated the tier', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({
+        title: 'Baldur’s Gate 3',
+        owner: { name: 'bg3.exe', path: 'C:\\Games\\bg3.exe' },
+      }),
+      scanLocalLibraries: async () => [{ game: 'Baldur’s Gate 3', exe: ['bg3.exe'], title: ["baldur's gate 3"] }],
+    })
+
+    // Before a scan, an unlisted game is unknown.
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBeNull()
+
+    // After the scan populates the local tier, it's detected.
+    await detector._runLocalScan()
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBe('Baldur’s Gate 3')
+  })
+
+  it('degrades to an empty tier (no throw) when the scanner rejects', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
+      scanLocalLibraries: async () => {
+        throw new Error('scan blew up')
+      },
+    })
+    await detector._runLocalScan() // must not throw
+    await detector._poll()
+    // Curated allowlist still works despite the failed scan.
+    expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
   })
 })
 
