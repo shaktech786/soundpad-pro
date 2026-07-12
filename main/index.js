@@ -9,6 +9,7 @@ const { GP2040ceApi } = require('./gp2040ce-api');
 const { NowPlayingServer } = require('./now-playing-server');
 const { GameDetector } = require('./game-detection');
 const { DiscordRpcClient } = require('./discord-rpc-client');
+const { PreliveClient } = require('./prelive-client');
 const { AutoUpdaterManager } = require('./auto-updater');
 
 let gp2040api = new GP2040ceApi();
@@ -112,6 +113,17 @@ function applyDiscordActivity(enabledOverride) {
 discordRpc.on('voice-state', (state) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('discord:voice-state-changed', state);
+  }
+});
+
+// Prelive API-key pairing: periodically pulls the user's streamed-game history
+// (with a games:read Bearer key they paste in) and exposes it as the highest-
+// priority game-detection tier. Pushes status changes to the renderer. Never
+// blocks startup — it only fetches when a key is configured, on a slow interval.
+const preliveClient = new PreliveClient({ store });
+preliveClient.on('status', (status) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('prelive:status-changed', status);
   }
 });
 
@@ -287,8 +299,16 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  gameDetector = new GameDetector({ intervalMs: 3000 });
+  gameDetector = new GameDetector({
+    intervalMs: 3000,
+    // Highest-priority tier: games the user has actually streamed, per prelive.
+    // Read live each poll so pairing/unpairing a key takes effect immediately.
+    getPreliveTier: () => preliveClient.getTier(),
+  });
   gameDetector.start();
+
+  // Begin the slow background history refresh (no-op until a key is paired).
+  preliveClient.start();
 
   nowPlayingServer = new NowPlayingServer({
     port: 3006,
@@ -358,6 +378,9 @@ app.on('window-all-closed', () => {
     gameDetector.stop();
     gameDetector = null;
   }
+  // Stop the prelive history refresh timer (the stored key persists; it resumes
+  // on next launch).
+  preliveClient.stop();
   // Stop the update check timers (a downloaded update still installs on quit
   // via autoInstallOnAppQuit — this only clears the polling intervals).
   autoUpdaterManager.stop();
@@ -885,6 +908,24 @@ ipcMain.handle('discord:set-activity', async (event, activity) => {
 ipcMain.handle('discord:refresh-activity', async (event, enabled) => {
   applyDiscordActivity(typeof enabled === 'boolean' ? enabled : undefined);
   return { success: true };
+});
+
+// --- Prelive API-key pairing IPC Handlers ---
+
+// Store the pasted games:read key, trigger an immediate fetch, and return the
+// resulting status. The key is never returned to the renderer.
+ipcMain.handle('prelive:set-api-key', async (event, apiKey) => {
+  return preliveClient.setApiKey(typeof apiKey === 'string' ? apiKey : '');
+});
+
+// Current pairing/fetch status — never includes the API key.
+ipcMain.handle('prelive:get-status', async () => {
+  return preliveClient.getStatus();
+});
+
+// Clear the stored key and cached tier; detection falls back to local + curated.
+ipcMain.handle('prelive:disconnect', async () => {
+  return preliveClient.disconnect();
 });
 
 // --- Auto-updater IPC Handlers ---

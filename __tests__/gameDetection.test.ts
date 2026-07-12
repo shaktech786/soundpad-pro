@@ -113,6 +113,44 @@ describe('detectGame (tiered merge)', () => {
   })
 })
 
+describe('detectGame (prelive > local-scan > curated priority)', () => {
+  // The same game (by window title) present in all three tiers under different
+  // display names, to prove which tier wins.
+  const preliveTier = [{ game: 'Counter-Strike 2 (prelive)', title: ['counter-strike 2'] }]
+  const localTier = [{ game: 'Counter-Strike 2 (local)', exe: ['cs2.exe'], title: ['counter-strike 2'] }]
+
+  it('prelive wins over both local-scan and curated for a shared game', () => {
+    expect(
+      detectGame('cs2.exe', 'Counter-Strike 2', [preliveTier, localTier, GAME_ALLOWLIST]).detectedGame
+    ).toBe('Counter-Strike 2 (prelive)')
+  })
+
+  it('local-scan wins over curated when prelive has no match', () => {
+    expect(
+      detectGame('cs2.exe', 'Counter-Strike 2', [[], localTier, GAME_ALLOWLIST]).detectedGame
+    ).toBe('Counter-Strike 2 (local)')
+  })
+
+  it('falls through to curated when neither prelive nor local matches', () => {
+    expect(
+      detectGame('cs2.exe', 'Counter-Strike 2', [[], [], GAME_ALLOWLIST]).detectedGame
+    ).toBe('Counter-Strike 2')
+  })
+
+  it('matches a prelive-only game (streamed, not installed, not curated)', () => {
+    const prelive = [{ game: 'Slay the Spire', title: ['slay the spire'] }]
+    expect(
+      detectGame('somegame.exe', 'Slay the Spire', [prelive, [], GAME_ALLOWLIST]).detectedGame
+    ).toBe('Slay the Spire')
+  })
+
+  it('an empty prelive tier (unpaired / disconnected) falls back cleanly', () => {
+    expect(
+      detectGame('valorant.exe', '', [[], localTier, GAME_ALLOWLIST]).detectedGame
+    ).toBe('VALORANT')
+  })
+})
+
 describe('GameDetector (polling wrapper, active-win mocked)', () => {
   const makeDetector = (winResult: unknown) =>
     new GameDetector({ intervalMs: 10_000, activeWindow: async () => winResult })
@@ -196,6 +234,57 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
     await detector._runLocalScan() // must not throw
     await detector._poll()
     // Curated allowlist still works despite the failed scan.
+    expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
+  })
+
+  it('the injected prelive tier outranks the local scan and curated allowlist', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({
+        title: 'Counter-Strike 2',
+        owner: { name: 'cs2.exe', path: 'C:\\Games\\cs2.exe' },
+      }),
+      // cs2 is also in the curated allowlist ('Counter-Strike 2'); prelive wins.
+      getPreliveTier: () => [{ game: 'Counter-Strike 2 (prelive)', title: ['counter-strike 2'] }],
+      scanLocalLibraries: async () => [{ game: 'Counter-Strike 2 (local)', exe: ['cs2.exe'] }],
+    })
+    await detector._runLocalScan()
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBe('Counter-Strike 2 (prelive)')
+  })
+
+  it('reads the prelive tier live: clearing it (disconnect) falls back next poll', async () => {
+    let preliveTier: Array<{ game: string; title?: string[]; exe?: string[] }> = [
+      { game: 'Streamed Game', title: ['counter-strike 2'] },
+    ]
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({
+        title: 'Counter-Strike 2',
+        owner: { name: 'cs2.exe', path: 'C:\\Games\\cs2.exe' },
+      }),
+      getPreliveTier: () => preliveTier,
+    })
+
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBe('Streamed Game')
+
+    // Disconnecting empties the prelive tier; the very next poll falls back to
+    // the curated allowlist without any other change.
+    preliveTier = []
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBe('Counter-Strike 2')
+  })
+
+  it('a throwing prelive getter degrades to no prelive tier (no crash)', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
+      getPreliveTier: () => {
+        throw new Error('getter blew up')
+      },
+    })
+    await detector._poll() // must not throw
     expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
   })
 })
