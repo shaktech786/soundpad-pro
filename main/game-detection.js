@@ -197,6 +197,16 @@ class GameDetector {
     return { ...this._snapshot };
   }
 
+  // Run one immediate foreground poll and return the resulting snapshot. Reuses
+  // the exact same classification path as the interval-driven poll (no duplicated
+  // logic) and awaits its completion so the caller sees the freshly-classified
+  // window, not the previous cached snapshot. Used by the /current-game/recheck
+  // endpoint for on-demand rechecks; the background interval is untouched.
+  async forcePoll() {
+    await this._poll();
+    return this.getSnapshot();
+  }
+
   _resolveActiveWindow() {
     if (this._activeWindow) return this._activeWindow;
     if (!this._available) return null;

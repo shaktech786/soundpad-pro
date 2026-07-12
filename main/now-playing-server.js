@@ -16,6 +16,7 @@ class NowPlayingServer {
     getAsioPlaying,
     getWdmPlaying,
     getCurrentGame,
+    forcePoll,
     onNowPlayingChange,
     pollIntervalMs = 2000,
   } = {}) {
@@ -23,6 +24,10 @@ class NowPlayingServer {
     this.getAsioPlaying = getAsioPlaying || (() => []);
     this.getWdmPlaying = getWdmPlaying || (() => []);
     this.getCurrentGame = getCurrentGame || (() => null);
+    // Triggers an immediate active-win query + reclassification and resolves to
+    // the fresh snapshot, backing POST /current-game/recheck. Defaults to the
+    // last cached snapshot when no detector is wired.
+    this.forcePoll = forcePoll || (() => this.getCurrentGame());
     // Fired when the primary now-playing sound changes (or stops → null), so
     // consumers like Discord Rich Presence can react without polling the HTTP
     // endpoint themselves.
@@ -93,7 +98,7 @@ class NowPlayingServer {
     // CORS for OBS browser docks (including https pages fetching a local
     // address, which requires the Private Network Access preflight header).
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
@@ -110,6 +115,16 @@ class NowPlayingServer {
     } else if (url === '/current-game') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(this._currentGame()));
+    } else if (url === '/current-game/recheck') {
+      // On-demand recheck: force an immediate active-win query + reclassification
+      // rather than returning the interval-cached snapshot. POST-only, since it
+      // has the side effect of driving a poll.
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'POST' });
+        res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+        return;
+      }
+      this._recheckGame(res);
     } else if (url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, app: 'soundpad-pro' }));
@@ -160,6 +175,27 @@ class NowPlayingServer {
     } catch (_) {
       state = null;
     }
+    return this._normalizeGame(state);
+  }
+
+  /** Handle POST /current-game/recheck: drive an immediate poll via the injected
+   * forcePoll callback and respond with the fresh snapshot in the exact same JSON
+   * shape as /current-game. Errors degrade to the unknown shape rather than
+   * crashing the request. */
+  async _recheckGame(res) {
+    let state;
+    try {
+      state = await this.forcePoll();
+    } catch (err) {
+      console.error(`[NowPlaying] force recheck failed: ${err.message}`);
+      state = null;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(this._normalizeGame(state)));
+  }
+
+  /** Normalise a raw detector snapshot into the stable /current-game JSON shape. */
+  _normalizeGame(state) {
     if (!state || typeof state !== 'object') {
       return { processName: null, windowTitle: null, detectedGame: null, confidence: 'low' };
     }

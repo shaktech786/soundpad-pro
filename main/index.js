@@ -315,6 +315,7 @@ app.whenReady().then(() => {
     getAsioPlaying: () => (asioEngine && asioEngine.isInitialized() ? asioEngine.getActiveSounds() : []),
     getWdmPlaying: () => wdmPlaying,
     getCurrentGame: () => (gameDetector ? gameDetector.getSnapshot() : null),
+    forcePoll: () => (gameDetector ? gameDetector.forcePoll() : null),
     onNowPlayingChange: (track) => {
       lastNowPlaying = track;
       applyDiscordActivity();

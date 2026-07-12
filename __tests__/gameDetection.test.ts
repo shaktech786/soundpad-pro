@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { detectGame, GameDetector, GAME_ALLOWLIST } = require('../main/game-detection')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -286,6 +286,134 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
     })
     await detector._poll() // must not throw
     expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
+  })
+})
+
+describe('GameDetector.forcePoll (on-demand recheck)', () => {
+  it('forces an immediate poll and returns the freshly-classified snapshot, not the cached one', async () => {
+    let win: any = { title: 'Inbox - Chrome', owner: { name: 'chrome.exe', path: '' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+
+    // Prime the cache with a non-game window.
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBeNull()
+
+    // The window changes to a game; forcePoll must re-query active-win and
+    // reclassify rather than hand back the stale cached snapshot.
+    win = { title: 'VALORANT', owner: { name: 'VALORANT-Win64-Shipping.exe', path: '' } }
+    const pollSpy = vi.spyOn(detector, '_poll')
+    const snap = await detector.forcePoll()
+
+    expect(pollSpy).toHaveBeenCalledTimes(1)
+    expect(snap).toEqual({
+      processName: 'VALORANT-Win64-Shipping.exe',
+      windowTitle: 'VALORANT',
+      detectedGame: 'VALORANT',
+      confidence: 'high',
+    })
+  })
+
+  it('leaves the background polling interval and its 3000ms cadence untouched', async () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval')
+    const detector = new GameDetector({
+      intervalMs: 3000,
+      activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
+      scanLocalLibraries: async () => [],
+    })
+    detector.start()
+
+    const callsAfterStart = setIntervalSpy.mock.calls.length
+    // The foreground poll interval is registered at exactly the 3000ms cadence.
+    expect(setIntervalSpy.mock.calls.some((c) => c[1] === 3000)).toBe(true)
+
+    await detector.forcePoll()
+
+    // forcePoll must not create, reset, or otherwise touch any interval timer.
+    expect(setIntervalSpy.mock.calls.length).toBe(callsAfterStart)
+    expect(detector._intervalMs).toBe(3000)
+
+    detector.stop()
+    setIntervalSpy.mockRestore()
+  })
+})
+
+describe('NowPlayingServer /current-game/recheck route', () => {
+  const PORT = 3200
+  let server: any
+  let forcePollCalls = 0
+  let freshState: any = null
+  const cachedState = {
+    processName: 'stale.exe',
+    windowTitle: 'Stale Window',
+    detectedGame: null,
+    confidence: 'low',
+  }
+
+  beforeAll(async () => {
+    forcePollCalls = 0
+    server = new NowPlayingServer({
+      port: PORT,
+      getCurrentGame: () => cachedState,
+      forcePoll: async () => {
+        forcePollCalls++
+        return freshState
+      },
+    })
+    server.start()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  })
+
+  afterAll(() => server.shutdown())
+
+  it('POST forces a recheck and returns the fresh snapshot, not the cached one', async () => {
+    freshState = {
+      processName: 'cs2.exe',
+      windowTitle: 'Counter-Strike 2',
+      detectedGame: 'Counter-Strike 2',
+      confidence: 'high',
+    }
+    const res = await fetch(`http://127.0.0.1:${PORT}/current-game/recheck`, { method: 'POST' })
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(forcePollCalls).toBe(1)
+    expect(body).toEqual({
+      processName: 'cs2.exe',
+      windowTitle: 'Counter-Strike 2',
+      detectedGame: 'Counter-Strike 2',
+      confidence: 'high',
+    })
+  })
+
+  it('normalises the fresh snapshot the same way as /current-game', async () => {
+    freshState = {
+      processName: 'randomapp.exe',
+      windowTitle: 'Random App',
+      detectedGame: null,
+      confidence: 'high',
+    }
+    const res = await fetch(`http://127.0.0.1:${PORT}/current-game/recheck`, { method: 'POST' })
+    const body = await res.json()
+    expect(body.detectedGame).toBeNull()
+    expect(body.confidence).toBe('low')
+  })
+
+  it('rejects a GET (non-POST) with 405 without triggering a recheck', async () => {
+    const before = forcePollCalls
+    const res = await fetch(`http://127.0.0.1:${PORT}/current-game/recheck`)
+    expect(res.status).toBe(405)
+    expect(res.headers.get('allow')).toBe('POST')
+    expect(forcePollCalls).toBe(before)
+  })
+
+  it('GET /current-game still returns the cached snapshot without forcing a poll', async () => {
+    const before = forcePollCalls
+    const res = await fetch(`http://127.0.0.1:${PORT}/current-game`)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.processName).toBe('stale.exe')
+    expect(body.detectedGame).toBeNull()
+    // The cached GET path must never invoke forcePoll.
+    expect(forcePollCalls).toBe(before)
   })
 })
 
