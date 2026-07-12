@@ -47,6 +47,7 @@ export interface DiscordStatus {
 
 export interface DiscordPublicConfig {
   hasAuth: boolean
+  hasClientSecret: boolean
 }
 
 interface DiscordContextType {
@@ -61,6 +62,9 @@ interface DiscordContextType {
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   getConfig: () => Promise<DiscordPublicConfig | null>
+  // Store the user-provided Client Secret (never hardcoded — see
+  // main/discord-rpc-client.js's header comment for why).
+  setClientSecret: (secret: string) => Promise<DiscordPublicConfig | null>
   // Fire a mute/deafen/toggle action on press (mirrors OBS's press-fire model).
   executeAction: (action: DiscordAction) => Promise<void>
   // Push-to-talk: active=true unmutes (on press), active=false remutes (on release).
@@ -114,6 +118,11 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
   const getConfig = useCallback(async () => {
     if (typeof window === 'undefined' || !window.electronAPI?.discordGetConfig) return null
     return window.electronAPI.discordGetConfig()
+  }, [])
+
+  const setClientSecret = useCallback(async (secret: string) => {
+    if (typeof window === 'undefined' || !window.electronAPI?.discordSetClientSecret) return null
+    return window.electronAPI.discordSetClientSecret(secret)
   }, [])
 
   // Keep a ref of the live connection state so the action helpers (called from
@@ -272,6 +281,7 @@ export const DiscordProvider: React.FC<DiscordProviderProps> = ({ children }) =>
     connect,
     disconnect,
     getConfig,
+    setClientSecret,
     executeAction,
     setPushToTalk,
   }

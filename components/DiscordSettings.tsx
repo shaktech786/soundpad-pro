@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useDiscord } from '../contexts/DiscordContext'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { useTheme } from '../contexts/ThemeContext'
@@ -16,8 +16,26 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
     user,
     connect,
     disconnect,
+    getConfig,
+    setClientSecret,
   } = useDiscord()
   const { theme } = useTheme()
+
+  const [clientSecret, setClientSecretInput] = useState('')
+  const [hasClientSecret, setHasClientSecret] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Prefill "already configured" state (never the secret value itself — it's
+  // never sent back from the main process once stored).
+  useEffect(() => {
+    let cancelled = false
+    getConfig().then((config) => {
+      if (!cancelled && config) setHasClientSecret(config.hasClientSecret)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [getConfig])
 
   // App-level toggle (not profile-scoped) for showing the currently playing
   // sound as Discord Rich Presence. Persisted alongside other integration
@@ -36,7 +54,17 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
   }
 
   const handleConnect = async () => {
-    await connect()
+    setSaving(true)
+    try {
+      if (clientSecret.trim()) {
+        const result = await setClientSecret(clientSecret.trim())
+        if (result) setHasClientSecret(result.hasClientSecret)
+        setClientSecretInput('')
+      }
+      await connect()
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDisconnect = async () => {
@@ -109,9 +137,30 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
 
       {!connected && (
         <div className="space-y-4 mb-6">
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
+              Discord Client Secret
+            </label>
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecretInput(e.target.value)}
+              placeholder={hasClientSecret ? '•••••••• (saved — leave blank to keep)' : 'Client secret'}
+              className={`w-full px-4 py-2 rounded-lg border focus:border-indigo-500 focus:outline-none ${
+                theme === 'light'
+                  ? 'bg-gray-50 text-gray-900 border-gray-300'
+                  : 'bg-gray-800 text-white border-gray-700'
+              }`}
+            />
+            <p className={`text-xs mt-1 ${labelClass}`}>
+              From prelive&apos;s Discord app (OAuth2 → Client Secret) — the same one prelive
+              itself uses. Stored locally on this machine only, never sent anywhere else.
+            </p>
+          </div>
+
           <button
             onClick={handleConnect}
-            disabled={connecting}
+            disabled={connecting || saving || (!hasClientSecret && !clientSecret.trim())}
             className={`w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors ${
               theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
             }`}
@@ -125,6 +174,7 @@ export const DiscordSettings: React.FC<DiscordSettingsProps> = ({ onClose }) => 
               <div className={`font-bold mb-2 ${headingClass}`}>Setup Instructions:</div>
               <ol className="list-decimal list-inside space-y-1">
                 <li>Make sure the Discord desktop app is running and you are signed in</li>
+                <li>Paste the Client Secret from prelive&apos;s Discord app</li>
                 <li>Click <span className={`font-semibold ${headingClass}`}>Connect to Discord</span></li>
                 <li>Approve the authorization popup in Discord</li>
                 <li>The token is saved — later launches reconnect without prompting</li>

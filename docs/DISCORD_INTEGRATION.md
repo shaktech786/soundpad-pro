@@ -10,9 +10,12 @@ change your live Discord voice state.
 - SoundPad Pro talks to Discord through the local IPC named pipe
   (`\\?\pipe\discord-ipc-0` … `-9`) using a direct Node implementation of the
   Discord RPC handshake — no browser, no external service.
-- The Discord Application is **built in** (a Public Client — no client secret
-  ships with the app), so there is no client ID, secret, or redirect URI to
-  configure.
+- The Discord Application's **Client ID is built in** (not a secret, safe to
+  ship in the app). The **Client Secret is not built in** — this repo is
+  public, and Discord's RPC authorization flow requires a real client secret
+  (it has no PKCE support, so a secret-free "Public Client" exchange doesn't
+  work here — confirmed by testing). You paste the Client Secret once; it's
+  stored locally via `electron-store` and never leaves your machine.
 - On first connect, Discord shows its **native authorization popup** asking you
   to approve SoundPad Pro (scopes: `rpc`, `identify`, `rpc.voice.write`). The
   `rpc.voice.write` scope is what allows SoundPad Pro to set your mute/deafen
@@ -24,15 +27,15 @@ change your live Discord voice state.
 
 ## Setup
 
-SoundPad Pro ships **pre-configured** — there is nothing to paste. It embeds a
-Discord Application (a "Public Client", so no client secret is needed) and
-handles the OAuth2 exchange for you. All you do is click a button.
+The Client ID is built in — you only need a Client Secret, entered once.
 
-1. Make sure the **Discord desktop app is running** and you're signed in
-2. Click the **Discord** badge in the header (or open **Settings → Integrations →
-   Discord**) and click **Connect to Discord**
-3. Discord shows an **Authorize** popup — approve it
-4. The badge turns green and shows your Discord account name
+1. Get the **Client Secret** from the Discord Application's OAuth2 page
+   (the same application prelive itself uses)
+2. Make sure the **Discord desktop app is running** and you're signed in
+3. Open **Settings → Integrations → Discord**, paste the Client Secret, and
+   click **Connect to Discord**
+4. Discord shows an **Authorize** popup — approve it
+5. The badge turns green and shows your Discord account name
 
 That's it. On later launches SoundPad Pro reconnects automatically without
 prompting again.
@@ -111,12 +114,15 @@ The status updates automatically as Discord starts, stops, or is restarted.
 
 ## Where Things Are Stored
 
-The OAuth token is stored locally via `electron-store`:
+Two things are stored locally via `electron-store`, never committed anywhere
+and never sent anywhere except Discord's own OAuth token endpoint:
 
+- `discord-client-secret` — the Client Secret you pasted in
 - `discord-rpc-auth` — access token, refresh token, and expiry
 
-The Client ID is a hardcoded constant in the app (a Public Client, so no secret
-exists), and the token never leaves the main process.
+The Client ID is a hardcoded constant in the app (not a secret, safe to embed
+in a public repo). The Client Secret is deliberately **not** hardcoded — see
+Technical Details below.
 
 ## Troubleshooting
 
@@ -142,8 +148,9 @@ exists), and the token never leaves the main process.
 **Protocol**: Discord RPC over local IPC named pipe
 **Transport**: Node `net` (named pipe) — no native dependency
 **Frame format**: `[opcode int32 LE][length int32 LE][UTF-8 JSON]`
-**Auth**: OAuth2 authorization-code grant (Public Client — no client_secret) via `https://discord.com/api/oauth2/token`
-**Client ID**: hardcoded constant (`DEFAULT_CLIENT_ID` in `main/discord-rpc-client.js`)
+**Auth**: OAuth2 authorization-code grant (Confidential Client — `client_secret` required) via `https://discord.com/api/oauth2/token`
+**Client ID**: hardcoded constant (`DEFAULT_CLIENT_ID` in `main/discord-rpc-client.js`) — not a secret
+**Client Secret**: user-provided local config (`discord-client-secret` in `electron-store`), never hardcoded — this repo is public, and Discord's RPC `AUTHORIZE` command has no PKCE support, so a secret-free "Public Client" exchange doesn't work here (confirmed: it fails with "Missing code_verifier")
 **Scopes**: `rpc`, `identify`, `rpc.voice.write`
 **Voice commands**: `SET_VOICE_SETTINGS` / `GET_VOICE_SETTINGS` (opcode 1 FRAME)
 **Rich Presence**: `SET_ACTIVITY` (opcode 1 FRAME; `activity: null` clears it)
@@ -151,10 +158,12 @@ exists), and the token never leaves the main process.
 
 ## Privacy & Security
 
-- The OAuth token is stored locally on your machine only
-- The Client ID is a Public Client identifier (not a secret); no client secret
-  ships with the app
-- The token never leaves the main process
+- The OAuth token and Client Secret are both stored locally on your machine
+  only, via `electron-store` — neither is ever committed to source or sent
+  anywhere except Discord's own OAuth endpoint
+- The Client ID is a public identifier (not a secret) and is the only part
+  hardcoded in the app
+- The token and secret never leave the main process
 - The connection is entirely local (named pipe to your own Discord client)
 - No data is sent to external servers beyond Discord's own OAuth token endpoint
 

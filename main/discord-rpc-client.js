@@ -8,10 +8,15 @@
  *
  *   frame = [opcode: int32 LE][length: int32 LE][payload: UTF-8 JSON]
  *
- * Zero-config: the Discord Application (Client ID) is hardcoded — it reuses
- * prelive's Discord app, which is registered as a "Public Client", so the
- * OAuth2 token/refresh exchange needs no client_secret. The end user never
- * enters a Client ID, secret, or redirect URI; they just click Connect.
+ * The Discord Application Client ID is hardcoded (it reuses prelive's Discord
+ * app — not a secret, safe to embed). The Client Secret is NOT hardcoded and
+ * NEVER committed to source: this repo is public, and Discord's RPC AUTHORIZE
+ * command has no PKCE support (confirmed by testing "Public Client" mode,
+ * which broke the exchange with "Missing code_verifier" — Discord's server
+ * requires a code_verifier for public clients that the RPC popup flow has no
+ * way to supply). So the app is a Confidential Client, and the Client Secret
+ * is user-provided local config (electron-store, never leaves this machine),
+ * entered once via Discord Settings — see setClientSecret()/getClientSecret().
  *
  * Flow:
  *   1. Connect to the first pipe index that accepts a connection.
@@ -19,8 +24,8 @@
  *      dispatch.
  *   3. AUTHENTICATE with a stored access token, or AUTHORIZE (pops Discord's
  *      native consent dialog) then exchange the returned code at
- *      https://discord.com/api/oauth2/token for an access token (Public Client
- *      grant — no client_secret sent).
+ *      https://discord.com/api/oauth2/token (with the locally-configured
+ *      client_secret) for an access token.
  *   4. Persist the token so later launches skip re-authorization (refreshing
  *      silently via the refresh_token grant when expired).
  *
@@ -48,12 +53,14 @@ const REQUEST_TIMEOUT_MS = 15000;
 const AUTHORIZE_TIMEOUT_MS = 120000; // user has to click "Authorize" in Discord
 const DEFAULT_REDIRECT_URI = 'http://localhost';
 
-// prelive's Discord Application, configured as a "Public Client" so the OAuth2
-// token exchange needs no client_secret — reused here so SoundPad Pro ships
-// zero-config (the user never enters a Client ID). Not a secret; safe to embed.
+// prelive's Discord Application Client ID — reused so the user never has to
+// enter a Client ID. This is a public identifier, not a secret; safe to embed
+// in a public repo. The matching Client Secret is deliberately NOT here — see
+// the module header comment — it's user-provided local config instead.
 const DEFAULT_CLIENT_ID = '1523146707725058048';
 
 const AUTH_KEY = 'discord-rpc-auth';
+const CLIENT_SECRET_KEY = 'discord-client-secret';
 
 // Valid status values: disconnected | connecting | awaiting-authorization | connected | error
 
@@ -122,6 +129,28 @@ class DiscordRpcClient extends EventEmitter {
     return !!(auth && auth.access_token);
   }
 
+  // --- client secret (user-provided local config, never hardcoded) -------
+
+  /** Store the user-provided Client Secret. Never logged, never handed back
+   * to the renderer — getPublicConfig() only reports whether one is set. */
+  setClientSecret(secret) {
+    const trimmed = typeof secret === 'string' ? secret.trim() : '';
+    if (this.store) {
+      if (trimmed) this.store.set(CLIENT_SECRET_KEY, trimmed);
+      else this.store.delete(CLIENT_SECRET_KEY);
+    }
+  }
+
+  _getClientSecret() {
+    const secret = this.store ? this.store.get(CLIENT_SECRET_KEY) : null;
+    return typeof secret === 'string' && secret.trim() ? secret.trim() : null;
+  }
+
+  /** Config safe to hand to the renderer — never the secret itself. */
+  getPublicConfig() {
+    return { hasClientSecret: !!this._getClientSecret(), hasAuth: this.hasStoredAuth() };
+  }
+
   getStatus() {
     return { status: this.status, error: this.error, user: this.user };
   }
@@ -136,6 +165,10 @@ class DiscordRpcClient extends EventEmitter {
 
   async connect() {
     this._desired = true;
+    if (!this._getClientSecret()) {
+      this._setStatus('error', 'Discord Client Secret not configured');
+      return this.getStatus();
+    }
     if (this.status === 'connected' || this._connecting) return this.getStatus();
     await this._openConnection();
     return this.getStatus();
@@ -556,9 +589,11 @@ class DiscordRpcClient extends EventEmitter {
   }
 
   async _exchangeCode(code) {
-    // Public Client: no client_secret in the token request.
+    const clientSecret = this._getClientSecret();
+    if (!clientSecret) throw new Error('Discord Client Secret not configured');
     return this._tokenRequest({
       client_id: DEFAULT_CLIENT_ID,
+      client_secret: clientSecret,
       grant_type: 'authorization_code',
       code,
       redirect_uri: DEFAULT_REDIRECT_URI,
@@ -567,9 +602,11 @@ class DiscordRpcClient extends EventEmitter {
 
   async _refreshToken(refreshToken) {
     if (!refreshToken) return null;
-    // Public Client: no client_secret in the refresh request.
+    const clientSecret = this._getClientSecret();
+    if (!clientSecret) return null;
     const token = await this._tokenRequest({
       client_id: DEFAULT_CLIENT_ID,
+      client_secret: clientSecret,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });

@@ -32,8 +32,13 @@ class FakeSocket extends EventEmitter {
   }
 }
 
+// Every test gets a configured Client Secret by default (it's user-provided
+// local config, never hardcoded — see main/discord-rpc-client.js's header
+// comment) so existing tests don't all need to seed it individually. Tests
+// that specifically exercise the "no secret configured" path pass
+// { 'discord-client-secret': undefined } to override this default.
 function makeStore(initial: Record<string, any> = {}) {
-  const data: Record<string, any> = { ...initial }
+  const data: Record<string, any> = { 'discord-client-secret': 'test-client-secret', ...initial }
   return {
     get: (key: string) => data[key],
     set: (key: string, value: any) => {
@@ -230,7 +235,7 @@ describe('DiscordRpcClient connection/handshake', () => {
     expect(emptyToken.hasStoredAuth()).toBe(false)
   })
 
-  test('_exchangeCode posts the hardcoded client_id and no client_secret', async () => {
+  test('_exchangeCode posts the hardcoded client_id and the configured client_secret', async () => {
     const client = new DiscordRpcClient({ store: makeStore() })
     const tokenSpy = vi
       .spyOn(client as any, '_tokenRequest')
@@ -242,14 +247,21 @@ describe('DiscordRpcClient connection/handshake', () => {
     const params = tokenSpy.mock.calls[0][0]
     expect(params).toEqual({
       client_id: DEFAULT_CLIENT_ID,
+      client_secret: 'test-client-secret',
       grant_type: 'authorization_code',
       code: 'auth-code',
       redirect_uri: 'http://localhost',
     })
-    expect(params).not.toHaveProperty('client_secret')
   })
 
-  test('_refreshToken posts the hardcoded client_id and no client_secret', async () => {
+  test('_exchangeCode throws when no client_secret is configured', async () => {
+    const client = new DiscordRpcClient({ store: makeStore({ 'discord-client-secret': undefined }) })
+    await expect((client as any)._exchangeCode('auth-code')).rejects.toThrow(
+      'Discord Client Secret not configured',
+    )
+  })
+
+  test('_refreshToken posts the hardcoded client_id and the configured client_secret', async () => {
     const client = new DiscordRpcClient({ store: makeStore() })
     const tokenSpy = vi
       .spyOn(client as any, '_tokenRequest')
@@ -261,10 +273,34 @@ describe('DiscordRpcClient connection/handshake', () => {
     const params = tokenSpy.mock.calls[0][0]
     expect(params).toEqual({
       client_id: DEFAULT_CLIENT_ID,
+      client_secret: 'test-client-secret',
       grant_type: 'refresh_token',
       refresh_token: 'old-refresh',
     })
-    expect(params).not.toHaveProperty('client_secret')
+  })
+
+  test('_refreshToken resolves to null when no client_secret is configured', async () => {
+    const client = new DiscordRpcClient({ store: makeStore({ 'discord-client-secret': undefined }) })
+    await expect((client as any)._refreshToken('old-refresh')).resolves.toBeNull()
+  })
+
+  test('connect() surfaces an error status when no client_secret is configured', async () => {
+    const client = new DiscordRpcClient({ store: makeStore({ 'discord-client-secret': undefined }) })
+    const status = await client.connect()
+    expect(status.status).toBe('error')
+    expect(status.error).toMatch(/Client Secret not configured/)
+  })
+
+  test('setClientSecret stores a trimmed secret, and getPublicConfig reports it without exposing it', () => {
+    const client = new DiscordRpcClient({ store: makeStore({ 'discord-client-secret': undefined }) })
+    expect(client.getPublicConfig().hasClientSecret).toBe(false)
+
+    client.setClientSecret('  my-secret  ')
+    expect(client.getPublicConfig().hasClientSecret).toBe(true)
+    expect((client as any)._getClientSecret()).toBe('my-secret')
+
+    client.setClientSecret('')
+    expect(client.getPublicConfig().hasClientSecret).toBe(false)
   })
 })
 
