@@ -122,6 +122,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('discord:voice-state-changed', handler);
   },
 
+  // Prelive API-key pairing (games:read history → highest-priority game tier)
+  preliveSetApiKey: (apiKey) => ipcRenderer.invoke('prelive:set-api-key', apiKey),
+  preliveGetStatus: () => ipcRenderer.invoke('prelive:get-status'),
+  preliveDisconnect: () => ipcRenderer.invoke('prelive:disconnect'),
+  onPreliveStatusChanged: (callback) => {
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on('prelive:status-changed', handler);
+    return () => ipcRenderer.removeListener('prelive:status-changed', handler);
+  },
+
   // Auto-updater (silent background download, user-gated install)
   getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
   quitAndInstall: () => ipcRenderer.invoke('app:quit-and-install'),
@@ -143,6 +153,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('asio:stream-recovered');
     ipcRenderer.removeAllListeners('discord:status-changed');
     ipcRenderer.removeAllListeners('discord:voice-state-changed');
+    ipcRenderer.removeAllListeners('prelive:status-changed');
     ipcRenderer.removeAllListeners('app:update-status');
   }
 });

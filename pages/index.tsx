@@ -11,6 +11,8 @@ import { useDiscord, DiscordAction } from '../contexts/DiscordContext'
 import { OBSSettings } from '../components/OBSSettings'
 import { LiveSplitSettings } from '../components/LiveSplitSettings'
 import { DiscordSettings } from '../components/DiscordSettings'
+import { PreliveSettings } from '../components/PreliveSettings'
+import { usePrelive } from '../contexts/PreliveContext'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
 import { ProfileSelector } from '../components/ProfileSelector'
@@ -114,6 +116,7 @@ export default function Home() {
   const { connected: obsConnected, executeAction: executeOBSAction, obsState } = useOBS()
   const { connected: liveSplitConnected, executeAction: executeLiveSplitAction } = useLiveSplit()
   const { connected: discordConnected, voiceState: discordVoiceState, executeAction: executeDiscordAction, setPushToTalk: setDiscordPushToTalk } = useDiscord()
+  const { connected: preliveConnected, gameCount: preliveGameCount } = usePrelive()
   const discordDeafened = discordConnected && !!discordVoiceState?.deafened
   const discordMuted = discordConnected && !!discordVoiceState?.muted
   // Deafen implies mute in Discord, so it takes visual precedence.
@@ -174,6 +177,7 @@ export default function Home() {
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
   const [showDiscordSettings, setShowDiscordSettings] = useState(false)
+  const [showPreliveSettings, setShowPreliveSettings] = useState(false)
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
   const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -1222,6 +1226,24 @@ export default function Home() {
                     {discordStateLabel}
                   </span>
                 </button>
+
+                {/* Prelive */}
+                <button
+                  onClick={() => setShowPreliveSettings(true)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                    preliveConnected
+                      ? 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'
+                      : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  <StatusDot active={preliveConnected} />
+                  <span className="flex-1 text-left">Prelive</span>
+                  <span className={`text-[10px] font-normal ${
+                    preliveConnected ? 'text-emerald-400/70' : theme === 'light' ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
+                    {preliveConnected ? `${preliveGameCount} games` : 'Not connected'}
+                  </span>
+                </button>
               </SidebarSection>
 
               {/* Section 4: Layout & Profile */}
@@ -1296,6 +1318,14 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="max-w-4xl w-full">
             <DiscordSettings onClose={() => setShowDiscordSettings(false)} />
+          </div>
+        </div>
+      )}
+
+      {showPreliveSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="max-w-4xl w-full">
+            <PreliveSettings onClose={() => setShowPreliveSettings(false)} />
           </div>
         </div>
       )}

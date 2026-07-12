@@ -5,6 +5,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { OBSProvider } from '../contexts/OBSContext'
 import { LiveSplitProvider } from '../contexts/LiveSplitContext'
 import { DiscordProvider } from '../contexts/DiscordContext'
+import { PreliveProvider } from '../contexts/PreliveContext'
 import { ThemeProvider } from '../contexts/ThemeContext'
 
 // Polyfill process for client-side
@@ -53,7 +54,9 @@ function MyApp({ Component, pageProps }: AppProps) {
         <OBSProvider>
           <LiveSplitProvider>
             <DiscordProvider>
-              <Component {...pageProps} />
+              <PreliveProvider>
+                <Component {...pageProps} />
+              </PreliveProvider>
             </DiscordProvider>
           </LiveSplitProvider>
         </OBSProvider>

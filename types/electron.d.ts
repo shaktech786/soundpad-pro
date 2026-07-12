@@ -82,6 +82,12 @@ interface ElectronAPI {
   onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
   onDiscordVoiceStateChanged: (callback: (state: DiscordVoiceState) => void) => (() => void)
 
+  // Prelive API-key pairing (games:read history → highest-priority game tier)
+  preliveSetApiKey: (apiKey: string) => Promise<PreliveStatus>
+  preliveGetStatus: () => Promise<PreliveStatus>
+  preliveDisconnect: () => Promise<PreliveStatus>
+  onPreliveStatusChanged: (callback: (status: PreliveStatus) => void) => (() => void)
+
   // Auto-updater (silent background download, user-gated install)
   getUpdateStatus: () => Promise<UpdateStatus>
   quitAndInstall: () => Promise<{ success: boolean }>
@@ -148,6 +154,15 @@ interface DiscordActivityInput {
   state?: string
   startTimestamp?: number
   largeImageKey?: string
+}
+
+// Prelive pairing status — NEVER carries the API key itself, only whether the
+// last history fetch succeeded and how many games are cached.
+interface PreliveStatus {
+  connected: boolean
+  error: string | null
+  gameCount: number
+  lastFetchAt: number | null
 }
 
 declare global {

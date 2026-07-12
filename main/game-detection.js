@@ -109,16 +109,24 @@ class GameDetector {
   // production it lazily loads the Steam/Epic scanner. It must resolve to a
   // `{game, exe?, title?}[]` tier and never reject (the scanner swallows its own
   // errors), but we still guard against rejection here.
+  //
+  // `getPrelivetier` is a synchronous getter returning the current prelive
+  // game-history tier (a `{game, title?}[]` list), checked AHEAD of the local
+  // scan and curated allowlist. It's dependency-injected the same way — this
+  // class never touches HTTP or the API key, it just reads a tier each poll — so
+  // clearing the prelive key (empty tier) immediately drops that priority level.
   constructor({
     intervalMs = 3000,
     scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS,
     activeWindow,
     scanLocalLibraries,
+    getPreliveTier,
   } = {}) {
     this._intervalMs = intervalMs;
     this._scanIntervalMs = scanIntervalMs;
     this._activeWindow = activeWindow || null;
     this._scanLocalLibraries = scanLocalLibraries || null;
+    this._getPreliveTier = typeof getPreliveTier === 'function' ? getPreliveTier : () => [];
     this._timer = null;
     this._scanTimer = null;
     this._polling = false;
@@ -216,9 +224,20 @@ class GameDetector {
       const processName =
         win.owner.name || (win.owner.path ? path.basename(win.owner.path) : '') || '';
       const windowTitle = win.title || '';
-      // Local-scan tier first, curated allowlist as the final fallback. A future
-      // story can prepend a higher-priority tier here without further change.
-      const tiers = [this._localTier, GAME_ALLOWLIST];
+      // Priority order: prelive game-history tier (highest — games the user has
+      // actually streamed) → local Steam/Epic scan → curated allowlist fallback.
+      // The prelive tier is read live each poll, so pairing/unpairing a key takes
+      // effect on the next poll with no other change. A getter throwing (or
+      // returning a non-array) degrades to an empty tier rather than breaking the
+      // poll.
+      let preliveTier = [];
+      try {
+        const t = this._getPreliveTier();
+        if (Array.isArray(t)) preliveTier = t;
+      } catch (err) {
+        console.error(`[GameDetection] prelive tier getter failed: ${err.message}`);
+      }
+      const tiers = [preliveTier, this._localTier, GAME_ALLOWLIST];
       const { detectedGame, confidence } = detectGame(processName, windowTitle, tiers);
       this._snapshot = {
         processName: processName || null,
