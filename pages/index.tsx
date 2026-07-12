@@ -177,6 +177,9 @@ export default function Home() {
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
   const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  // Auto-update: only surfaced once an update is fully downloaded and ready to
+  // install (checking/downloading stay silent by design — the app is used live).
+  const [updateReady, setUpdateReady] = useState<{ version: string | null } | null>(null)
 
   // Helper to navigate properly in Electron and browser
   const navigateTo = async (route: string) => {
@@ -376,6 +379,27 @@ export default function Home() {
       if (typeof cleanupStop === 'function') cleanupStop()
     }
   }, [soundMappings, buttonVolumes, drumPadButtons, playSound, stopAll])
+
+  // Auto-update status: show the "Restart to install" badge once an update has
+  // finished downloading. Reads the current status on mount (covers the case
+  // where the download completed before this component subscribed) and then
+  // listens for pushes from the main process.
+  useEffect(() => {
+    const api = (window as any).electronAPI
+    if (!api?.onAppUpdateStatusChanged) return
+
+    const applyStatus = (status: { state?: string; version?: string | null } | null | undefined) => {
+      if (status?.state === 'downloaded') {
+        setUpdateReady({ version: status.version ?? null })
+      }
+    }
+
+    api.getUpdateStatus?.().then(applyStatus).catch(() => {})
+    const cleanup = api.onAppUpdateStatusChanged(applyStatus)
+    return () => {
+      if (typeof cleanup === 'function') cleanup()
+    }
+  }, [])
 
   // Poll for triggers from OBS dock (only in dev mode where API routes exist)
   useEffect(() => {
@@ -734,6 +758,19 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Update-ready badge — only shown once an update has fully downloaded.
+                Clicking it quits and relaunches into the installer (user-gated). */}
+            {updateReady && (
+              <button
+                onClick={() => (window as any).electronAPI?.quitAndInstall?.()}
+                title={updateReady.version ? `Update to v${updateReady.version} is ready to install` : 'An update is ready to install'}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50"
+              >
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 status-dot-live" />
+                Update ready — Restart to install
+              </button>
+            )}
+
             {/* Controller badge */}
             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
               connected

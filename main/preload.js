@@ -122,6 +122,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('discord:voice-state-changed', handler);
   },
 
+  // Auto-updater (silent background download, user-gated install)
+  getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
+  quitAndInstall: () => ipcRenderer.invoke('app:quit-and-install'),
+  onAppUpdateStatusChanged: (callback) => {
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on('app:update-status', handler);
+    return () => ipcRenderer.removeListener('app:update-status', handler);
+  },
+
   // Logging
   logError: (error) => ipcRenderer.invoke('log-error', error),
 
@@ -134,5 +143,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('asio:stream-recovered');
     ipcRenderer.removeAllListeners('discord:status-changed');
     ipcRenderer.removeAllListeners('discord:voice-state-changed');
+    ipcRenderer.removeAllListeners('app:update-status');
   }
 });

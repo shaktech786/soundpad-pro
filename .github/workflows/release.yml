@@ -154,5 +154,7 @@ jobs:
           draft: false
           files: |
             dist/SoundPad-Pro-Setup.exe
+            dist/SoundPad-Pro-Setup.exe.blockmap
+            dist/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

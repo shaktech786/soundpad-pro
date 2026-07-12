@@ -82,11 +82,24 @@ interface ElectronAPI {
   onDiscordStatusChanged: (callback: (status: DiscordStatus) => void) => (() => void)
   onDiscordVoiceStateChanged: (callback: (state: DiscordVoiceState) => void) => (() => void)
 
+  // Auto-updater (silent background download, user-gated install)
+  getUpdateStatus: () => Promise<UpdateStatus>
+  quitAndInstall: () => Promise<{ success: boolean }>
+  onAppUpdateStatusChanged: (callback: (status: UpdateStatus) => void) => (() => void)
+
   // Cleanup
   removeAllListeners: () => void
 
   // Logging
   logError: (error: { message: string; stack?: string; details?: any; componentStack?: string }) => void
+}
+
+type UpdateState = 'idle' | 'available' | 'downloaded' | 'error'
+
+interface UpdateStatus {
+  state: UpdateState
+  version: string | null
+  error: string | null
 }
 
 type DiscordConnectionStatus =
