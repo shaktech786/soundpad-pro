@@ -47,9 +47,33 @@ function stripExe(name) {
   return lower.endsWith('.exe') ? lower.slice(0, -4) : lower;
 }
 
+// Match a focused window against a single tier — a `{game, exe?, title?}[]`
+// list. `exe` values match the process's executable basename; `title` values
+// are case-insensitive substrings of the window title. Returns the game name of
+// the first entry that hits, or null.
+function matchTier(tier, procBase, title) {
+  if (!Array.isArray(tier)) return null;
+  for (const entry of tier) {
+    if (!entry) continue;
+    const exeHit =
+      procBase && Array.isArray(entry.exe) && entry.exe.some((e) => stripExe(e) === procBase);
+    const titleHit =
+      title && Array.isArray(entry.title) && entry.title.some((t) => t && title.includes(t));
+    if (exeHit || titleHit) return entry.game;
+  }
+  return null;
+}
+
 // Pure classifier. Returns { detectedGame: string | null, confidence: 'high' | 'low' }.
-// A plain allowlist hit is always 'high'; unknown or denylisted apps are 'low'.
-function detectGame(processName, windowTitle) {
+//
+// `tiers` is an ORDERED list of tiers, each a `{game, exe?, title?}[]`-shaped
+// list, checked top-to-bottom; the first tier with a match wins. This makes the
+// priority order data, not code: a caller can prepend a higher-priority tier
+// (e.g. a live local-library scan, or — in a future story — a prelive-history
+// tier) without touching this function. The denylist still short-circuits
+// everything before any tier is consulted. Default is the curated allowlist
+// alone, preserving the original single-list behaviour.
+function detectGame(processName, windowTitle, tiers = [GAME_ALLOWLIST]) {
   const proc = (processName || '').trim();
   const title = (windowTitle || '').trim().toLowerCase();
   if (!proc && !title) return { detectedGame: null, confidence: 'low' };
@@ -60,10 +84,9 @@ function detectGame(processName, windowTitle) {
   }
 
   const procBase = proc ? stripExe(proc) : '';
-  for (const entry of GAME_ALLOWLIST) {
-    const exeHit = procBase && entry.exe.some((e) => stripExe(e) === procBase);
-    const titleHit = title && entry.title.some((t) => title.includes(t));
-    if (exeHit || titleHit) return { detectedGame: entry.game, confidence: 'high' };
+  for (const tier of tiers) {
+    const game = matchTier(tier, procBase, title);
+    if (game) return { detectedGame: game, confidence: 'high' };
   }
   return { detectedGame: null, confidence: 'low' };
 }
@@ -75,17 +98,37 @@ const EMPTY_SNAPSHOT = Object.freeze({
   confidence: 'low',
 });
 
+// Local-library scans change rarely (installed-game lists don't churn), so we
+// rescan far less often than the 3s foreground poll — every 12 minutes.
+const DEFAULT_SCAN_INTERVAL_MS = 12 * 60 * 1000;
+
 class GameDetector {
   // `activeWindow` is injectable for tests; in production it's lazily required
   // from active-win (8.x — CommonJS + N-API, ABI-stable across Electron so no
-  // electron-rebuild is needed).
-  constructor({ intervalMs = 3000, activeWindow } = {}) {
+  // electron-rebuild is needed). `scanLocalLibraries` is likewise injectable; in
+  // production it lazily loads the Steam/Epic scanner. It must resolve to a
+  // `{game, exe?, title?}[]` tier and never reject (the scanner swallows its own
+  // errors), but we still guard against rejection here.
+  constructor({
+    intervalMs = 3000,
+    scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS,
+    activeWindow,
+    scanLocalLibraries,
+  } = {}) {
     this._intervalMs = intervalMs;
+    this._scanIntervalMs = scanIntervalMs;
     this._activeWindow = activeWindow || null;
+    this._scanLocalLibraries = scanLocalLibraries || null;
     this._timer = null;
+    this._scanTimer = null;
     this._polling = false;
+    this._scanning = false;
     this._snapshot = { ...EMPTY_SNAPSHOT };
     this._available = true;
+    // Cached, dynamically-scanned tier. Checked BEFORE the curated allowlist so
+    // an actually-installed game outranks the hand-picked six. Starts empty and
+    // is replaced wholesale by each successful scan.
+    this._localTier = [];
   }
 
   start() {
@@ -94,12 +137,51 @@ class GameDetector {
     this._poll();
     this._timer = setInterval(() => this._poll(), this._intervalMs);
     if (typeof this._timer.unref === 'function') this._timer.unref();
+
+    // Local-library scanning runs on its own, much slower cadence and must never
+    // block or crash the foreground poll above.
+    this._runLocalScan();
+    this._scanTimer = setInterval(() => this._runLocalScan(), this._scanIntervalMs);
+    if (typeof this._scanTimer.unref === 'function') this._scanTimer.unref();
   }
 
   stop() {
     if (this._timer) {
       clearInterval(this._timer);
       this._timer = null;
+    }
+    if (this._scanTimer) {
+      clearInterval(this._scanTimer);
+      this._scanTimer = null;
+    }
+  }
+
+  _resolveScanner() {
+    if (this._scanLocalLibraries) return this._scanLocalLibraries;
+    try {
+      this._scanLocalLibraries = require('./local-game-scan').scanAll;
+    } catch (err) {
+      this._scanLocalLibraries = async () => [];
+      console.error(`[GameDetection] local-game-scan unavailable: ${err.message}`);
+    }
+    return this._scanLocalLibraries;
+  }
+
+  async _runLocalScan() {
+    if (this._scanning) return; // never overlap scans
+    this._scanning = true;
+    try {
+      const scan = this._resolveScanner();
+      const entries = await scan();
+      // Degrade gracefully: a non-array / bad result becomes an empty tier
+      // rather than corrupting classification.
+      this._localTier = Array.isArray(entries) ? entries : [];
+    } catch (err) {
+      // The scanner is supposed to swallow its own errors; if one still escapes,
+      // keep the previous tier and log — never let it bubble into the poll loop.
+      console.error(`[GameDetection] local library scan failed: ${err.message}`);
+    } finally {
+      this._scanning = false;
     }
   }
 
@@ -134,7 +216,10 @@ class GameDetector {
       const processName =
         win.owner.name || (win.owner.path ? path.basename(win.owner.path) : '') || '';
       const windowTitle = win.title || '';
-      const { detectedGame, confidence } = detectGame(processName, windowTitle);
+      // Local-scan tier first, curated allowlist as the final fallback. A future
+      // story can prepend a higher-priority tier here without further change.
+      const tiers = [this._localTier, GAME_ALLOWLIST];
+      const { detectedGame, confidence } = detectGame(processName, windowTitle, tiers);
       this._snapshot = {
         processName: processName || null,
         windowTitle: windowTitle || null,
@@ -149,4 +234,12 @@ class GameDetector {
   }
 }
 
-module.exports = { GameDetector, detectGame, GAME_ALLOWLIST, DENYLIST, EMPTY_SNAPSHOT };
+module.exports = {
+  GameDetector,
+  detectGame,
+  matchTier,
+  GAME_ALLOWLIST,
+  DENYLIST,
+  EMPTY_SNAPSHOT,
+  DEFAULT_SCAN_INTERVAL_MS,
+};
