@@ -107,8 +107,52 @@ function parseAppManifest(vdfObject) {
   };
 }
 
+// Steam manifests never expose a launch executable, so Steam entries fall back
+// to title-substring matching — but some games' actual runtime window title is
+// an internal project codename that doesn't contain the Steam display name at
+// all (e.g. Palworld's window title is just "Pal"), which silently defeats
+// substring matching. Unreal Engine packaged builds always name their real
+// game executable "<Something>-Win64-Shipping.exe" (or Win32), regardless of
+// the project's internal name or the Steam store name — a highly specific,
+// low-false-positive-risk convention. When present, this gives the entry a
+// real `exe` match so detection doesn't depend on window-title wording at all.
+const SHIPPING_EXE_PATTERN = /-win(?:32|64)-shipping\.exe$/i;
+const MAX_SHIPPING_EXE_SCAN_DEPTH = 5;
+
+// Breadth-first, depth-bounded search for a *-Win64/32-Shipping.exe under an
+// install directory. Bounded depth + a single, narrow filename pattern keeps
+// this cheap even for large (many-GB) game installs, and the naming convention
+// is specific enough that a match is essentially guaranteed to be the actual
+// game executable, never engine tooling (CrashReportClient, EpicWebHelper, etc).
+function findShippingExe(rootDir) {
+  let queue = [{ dir: rootDir, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue; // unreadable/missing — skip this branch
+    }
+    for (const dirent of entries) {
+      if (dirent.isFile() && SHIPPING_EXE_PATTERN.test(dirent.name)) {
+        return dirent.name.toLowerCase();
+      }
+    }
+    if (depth < MAX_SHIPPING_EXE_SCAN_DEPTH) {
+      for (const dirent of entries) {
+        if (dirent.isDirectory()) {
+          queue.push({ dir: path.join(dir, dirent.name), depth: depth + 1 });
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Scan every Steam library folder for installed apps. Steam manifests expose no
-// executable name, so entries are title-substring only ({game, title:[name]}).
+// executable name, so entries are title-substring by default, upgraded to a
+// real exe match when a *-Shipping.exe is found under the install directory.
 // Never throws: any failure yields [].
 async function scanSteam({ steamPath } = {}) {
   try {
@@ -150,7 +194,13 @@ async function scanSteam({ steamPath } = {}) {
           const key = manifest.name.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          entries.push({ game: manifest.name, title: [manifest.name.toLowerCase()] });
+
+          const entry = { game: manifest.name, title: [manifest.name.toLowerCase()] };
+          if (manifest.installdir) {
+            const shippingExe = findShippingExe(path.join(folder, 'steamapps', 'common', manifest.installdir));
+            if (shippingExe) entry.exe = [shippingExe];
+          }
+          entries.push(entry);
         } catch {
           // Stale / partial / malformed manifest — skip this one, keep going.
           continue;
@@ -274,6 +324,7 @@ module.exports = {
   parseSteamPathFromReg,
   parseLibraryFolders,
   parseAppManifest,
+  findShippingExe,
   scanSteam,
   resolveEpicManifestDir,
   parseEpicItem,

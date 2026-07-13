@@ -9,6 +9,7 @@ const {
   parseAppManifest,
   parseEpicItem,
   resolveEpicManifestDir,
+  findShippingExe,
   scanSteam,
   scanEpic,
   scanAll,
@@ -164,6 +165,76 @@ describe('scanSteam (fixture library on disk)', () => {
 
   it('returns [] when Steam is not installed (no path)', async () => {
     expect(await scanSteam({ steamPath: path.join(os.tmpdir(), 'does-not-exist-spp') })).toEqual([])
+  })
+})
+
+describe('findShippingExe', () => {
+  it('finds a *-Win64-Shipping.exe several levels deep (Unreal Engine layout)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-shipping-'))
+    try {
+      const deep = path.join(root, 'Pal', 'Binaries', 'Win64')
+      fs.mkdirSync(deep, { recursive: true })
+      fs.writeFileSync(path.join(deep, 'Palworld-Win64-Shipping.exe'), '')
+      expect(findShippingExe(root)).toBe('palworld-win64-shipping.exe')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores engine tooling exes that do not match the shipping pattern', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-shipping-none-'))
+    try {
+      const engineDir = path.join(root, 'Engine', 'Binaries', 'Win64')
+      fs.mkdirSync(engineDir, { recursive: true })
+      fs.writeFileSync(path.join(engineDir, 'CrashReportClient.exe'), '')
+      fs.writeFileSync(path.join(engineDir, 'EpicWebHelper.exe'), '')
+      expect(findShippingExe(root)).toBeNull()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('returns null past the depth bound and for a missing directory', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-shipping-deep-'))
+    try {
+      const tooDeep = path.join(root, 'a', 'b', 'c', 'd', 'e', 'f')
+      fs.mkdirSync(tooDeep, { recursive: true })
+      fs.writeFileSync(path.join(tooDeep, 'Game-Win64-Shipping.exe'), '')
+      expect(findShippingExe(root)).toBeNull()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+    expect(findShippingExe(path.join(os.tmpdir(), 'does-not-exist-spp-shipping'))).toBeNull()
+  })
+})
+
+describe('scanSteam — shipping-exe upgrade', () => {
+  it('attaches a real exe match when a *-Shipping.exe is found under the install dir', async () => {
+    const steamPath = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-steam-shipping-'))
+    try {
+      const steamapps = path.join(steamPath, 'steamapps')
+      fs.mkdirSync(steamapps, { recursive: true })
+      fs.writeFileSync(
+        path.join(steamapps, 'libraryfolders.vdf'),
+        `"libraryfolders" { "0" { "path" "${steamPath.replace(/\\/g, '\\\\')}" } }`
+      )
+      fs.writeFileSync(
+        path.join(steamapps, 'appmanifest_1623730.acf'),
+        `"AppState" { "appid" "1623730" "name" "Palworld" "installdir" "Palworld" }`
+      )
+      const shippingDir = path.join(steamapps, 'common', 'Palworld', 'Pal', 'Binaries', 'Win64')
+      fs.mkdirSync(shippingDir, { recursive: true })
+      fs.writeFileSync(path.join(shippingDir, 'Palworld-Win64-Shipping.exe'), '')
+
+      const entries = await scanSteam({ steamPath })
+      expect(entries).toContainEqual({
+        game: 'Palworld',
+        title: ['palworld'],
+        exe: ['palworld-win64-shipping.exe'],
+      })
+    } finally {
+      fs.rmSync(steamPath, { recursive: true, force: true })
+    }
   })
 })
 
