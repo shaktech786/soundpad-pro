@@ -197,8 +197,14 @@ async function scanSteam({ steamPath } = {}) {
 
           const entry = { game: manifest.name, title: [manifest.name.toLowerCase()] };
           if (manifest.installdir) {
-            const shippingExe = findShippingExe(path.join(folder, 'steamapps', 'common', manifest.installdir));
-            if (shippingExe) entry.exe = [shippingExe];
+            const commonDir = path.join(folder, 'steamapps', 'common');
+            const installDir = path.resolve(commonDir, manifest.installdir);
+            // installdir comes from an on-disk manifest and is untrusted; reject
+            // anything that resolves outside steamapps/common (e.g. "../../..").
+            if (installDir === commonDir || installDir.startsWith(commonDir + path.sep)) {
+              const shippingExe = findShippingExe(installDir);
+              if (shippingExe) entry.exe = [shippingExe];
+            }
           }
           entries.push(entry);
         } catch {

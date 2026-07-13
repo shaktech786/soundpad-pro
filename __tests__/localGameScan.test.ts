@@ -238,6 +238,35 @@ describe('scanSteam — shipping-exe upgrade', () => {
   })
 })
 
+describe('scanSteam — installdir path-traversal rejection', () => {
+  it('does not scan outside steamapps/common when installdir contains ".." (untrusted manifest)', async () => {
+    const steamPath = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-steam-traversal-'))
+    try {
+      const steamapps = path.join(steamPath, 'steamapps')
+      fs.mkdirSync(steamapps, { recursive: true })
+      fs.writeFileSync(
+        path.join(steamapps, 'libraryfolders.vdf'),
+        `"libraryfolders" { "0" { "path" "${steamPath.replace(/\\/g, '\\\\')}" } }`
+      )
+      // A malicious/corrupted manifest whose installdir escapes steamapps/common.
+      fs.writeFileSync(
+        path.join(steamapps, 'appmanifest_1.acf'),
+        `"AppState" { "appid" "1" "name" "Evil Game" "installdir" "..\\\\..\\\\outside" }`
+      )
+      // Plant a shipping exe outside steamapps/common that traversal would reach.
+      const outsideDir = path.join(steamPath, 'outside')
+      fs.mkdirSync(outsideDir, { recursive: true })
+      fs.writeFileSync(path.join(outsideDir, 'Evil-Win64-Shipping.exe'), '')
+
+      const entries = await scanSteam({ steamPath })
+      expect(entries).toContainEqual({ game: 'Evil Game', title: ['evil game'] })
+      expect(entries.find((e: any) => e.game === 'Evil Game').exe).toBeUndefined()
+    } finally {
+      fs.rmSync(steamPath, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('scanEpic (fixture manifests on disk)', () => {
   let manifestDir: string
 
