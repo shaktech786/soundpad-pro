@@ -32,6 +32,8 @@ jobs:
           node-version: 20
           cache: npm
 
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - name: Determine version bump
         id: bump
         shell: bash
