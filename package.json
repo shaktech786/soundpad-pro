@@ -14,7 +14,7 @@
     "shortcut": "powershell -ExecutionPolicy Bypass -File create-desktop-shortcut.ps1",
     "start": "electron simple-main.js",
     "type-check": "tsc --noEmit",
-    "postinstall": "electron-rebuild -f -w audify",
+    "postinstall": "electron-rebuild -f -o audify",
     "test": "vitest run",
     "test:watch": "vitest"
   },
