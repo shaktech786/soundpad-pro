@@ -58,3 +58,6 @@ Thumbs.db
 
 # Test scripts
 test-*.js
+
+# Build-time generated secret (injected from DISCORD_CLIENT_SECRET at package time)
+main/discord-secret.js

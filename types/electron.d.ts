@@ -75,7 +75,6 @@ interface ElectronAPI {
   discordDisconnect: () => Promise<DiscordStatus>
   discordStatus: () => Promise<DiscordStatus>
   discordGetConfig: () => Promise<DiscordPublicConfig>
-  discordSetClientSecret: (secret: string) => Promise<DiscordPublicConfig>
   discordSetVoiceSettings: (settings: DiscordVoiceSettingsInput) => Promise<DiscordVoiceSettings>
   discordGetVoiceSettings: () => Promise<DiscordVoiceSettings>
   discordSetActivity: (activity: DiscordActivityInput | null) => Promise<unknown>
@@ -132,7 +131,6 @@ interface DiscordStatus {
 
 interface DiscordPublicConfig {
   hasAuth: boolean
-  hasClientSecret: boolean
 }
 
 interface DiscordVoiceSettingsInput {

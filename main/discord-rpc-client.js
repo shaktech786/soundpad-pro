@@ -9,14 +9,17 @@
  *   frame = [opcode: int32 LE][length: int32 LE][payload: UTF-8 JSON]
  *
  * The Discord Application Client ID is hardcoded (it reuses prelive's Discord
- * app — not a secret, safe to embed). The Client Secret is NOT hardcoded and
- * NEVER committed to source: this repo is public, and Discord's RPC AUTHORIZE
- * command has no PKCE support (confirmed by testing "Public Client" mode,
- * which broke the exchange with "Missing code_verifier" — Discord's server
- * requires a code_verifier for public clients that the RPC popup flow has no
- * way to supply). So the app is a Confidential Client, and the Client Secret
- * is user-provided local config (electron-store, never leaves this machine),
- * entered once via Discord Settings — see setClientSecret()/getClientSecret().
+ * app — not a secret, safe to embed). The Client Secret is NEVER committed to
+ * this public repo, but it also is NOT entered by the user: Discord's RPC
+ * AUTHORIZE command has no PKCE support (confirmed by testing "Public Client"
+ * mode, which broke the exchange with "Missing code_verifier" — Discord's
+ * server requires a code_verifier for public clients that the RPC popup flow
+ * has no way to supply). So the app is a Confidential Client, and the Client
+ * Secret is baked into the build from the DISCORD_CLIENT_SECRET env / CI secret
+ * at package time (scripts/generate-discord-secret.js → gitignored
+ * main/discord-secret.js, required below). A distributed desktop app's secret
+ * is never truly secret regardless; this just keeps it out of source while
+ * removing all user setup — see embeddedClientSecret().
  *
  * Flow:
  *   1. Connect to the first pipe index that accepts a connection.
@@ -60,7 +63,26 @@ const DEFAULT_REDIRECT_URI = 'http://localhost';
 const DEFAULT_CLIENT_ID = '1523146707725058048';
 
 const AUTH_KEY = 'discord-rpc-auth';
-const CLIENT_SECRET_KEY = 'discord-client-secret';
+
+/**
+ * The Client Secret baked into the build. Precedence:
+ *   1. process.env.DISCORD_CLIENT_SECRET — set directly (dev, or the build env).
+ *   2. main/discord-secret.js — generated at package time from that same env
+ *      var (gitignored; absent in a dev tree that never ran the generator).
+ * Returns null when neither is present, in which case Discord stays inert.
+ */
+function embeddedClientSecret() {
+  const fromEnv = process.env.DISCORD_CLIENT_SECRET;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) return fromEnv.trim();
+  try {
+    const generated = require('./discord-secret');
+    const secret = generated && generated.DISCORD_CLIENT_SECRET;
+    if (typeof secret === 'string' && secret.trim()) return secret.trim();
+  } catch (_) {
+    // Not generated (dev without a build) — fall through to null.
+  }
+  return null;
+}
 
 // Valid status values: disconnected | connecting | awaiting-authorization | connected | error
 
@@ -129,26 +151,17 @@ class DiscordRpcClient extends EventEmitter {
     return !!(auth && auth.access_token);
   }
 
-  // --- client secret (user-provided local config, never hardcoded) -------
+  // --- client secret (baked into the build, never entered by the user) ----
 
-  /** Store the user-provided Client Secret. Never logged, never handed back
-   * to the renderer — getPublicConfig() only reports whether one is set. */
-  setClientSecret(secret) {
-    const trimmed = typeof secret === 'string' ? secret.trim() : '';
-    if (this.store) {
-      if (trimmed) this.store.set(CLIENT_SECRET_KEY, trimmed);
-      else this.store.delete(CLIENT_SECRET_KEY);
-    }
-  }
-
+  /** The build-embedded Client Secret, or null if this build has none. Never
+   * logged, never handed back to the renderer. */
   _getClientSecret() {
-    const secret = this.store ? this.store.get(CLIENT_SECRET_KEY) : null;
-    return typeof secret === 'string' && secret.trim() ? secret.trim() : null;
+    return embeddedClientSecret();
   }
 
   /** Config safe to hand to the renderer — never the secret itself. */
   getPublicConfig() {
-    return { hasClientSecret: !!this._getClientSecret(), hasAuth: this.hasStoredAuth() };
+    return { hasAuth: this.hasStoredAuth() };
   }
 
   getStatus() {
@@ -166,7 +179,7 @@ class DiscordRpcClient extends EventEmitter {
   async connect() {
     this._desired = true;
     if (!this._getClientSecret()) {
-      this._setStatus('error', 'Discord Client Secret not configured');
+      this._setStatus('error', 'Discord integration is not configured in this build');
       return this.getStatus();
     }
     if (this.status === 'connected' || this._connecting) return this.getStatus();

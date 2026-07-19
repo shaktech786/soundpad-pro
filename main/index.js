@@ -892,11 +892,6 @@ ipcMain.handle('discord:get-config', async () => {
   return discordRpc.getPublicConfig();
 });
 
-ipcMain.handle('discord:set-client-secret', async (event, secret) => {
-  discordRpc.setClientSecret(secret);
-  return discordRpc.getPublicConfig();
-});
-
 ipcMain.handle('discord:set-voice-settings', async (event, settings) => {
   return discordRpc.setVoiceSettings(settings || {});
 });

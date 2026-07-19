@@ -135,6 +135,11 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
+      - name: Embed Discord Client Secret
+        run: npm run generate:secrets
+        env:
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+
       - name: Build Electron (Windows)
         run: npx electron-builder --win --config .electron-builder.config.js --publish never
 
