@@ -656,100 +656,150 @@ class AsioAudioEngine {
   }
 
   /**
-   * Mix loop: writes interleaved float32 PCM to the ASIO output via setInterval.
-   * Only writes when there are active voices — avoids queue buildup.
+   * Mix + write exactly one interleaved float32 buffer to the ASIO output,
+   * advancing/removing voices. Returns false if the ASIO write failed (so the
+   * caller stops catching up for this tick). Assumes at least one active voice.
+   */
+  _mixAndWriteBuffer(framesPerBuffer, channels) {
+    const floatView = new Float32Array(framesPerBuffer * channels);
+
+    // Mix all active voices
+    for (const [filePath, voices] of this._activeVoices.entries()) {
+      const cached = this._soundCache.get(filePath);
+      if (!cached) continue;
+
+      const voicesToRemove = [];
+
+      for (let vi = 0; vi < voices.length; vi++) {
+        const voice = voices[vi];
+        const leftPcm = cached.pcm[0];
+        const rightPcm = cached.pcm.length > 1 ? cached.pcm[1] : cached.pcm[0];
+        const pcmLength = cached.length;
+        const vol = voice.volume * this._masterVolume;
+
+        for (let frame = 0; frame < framesPerBuffer; frame++) {
+          let sampleIndex = voice.cursor + frame;
+
+          if (sampleIndex >= pcmLength) {
+            if (voice.loop) {
+              // Wrap cursor for seamless looping (no silence gap)
+              voice.cursor -= pcmLength;
+              sampleIndex = voice.cursor + frame;
+              if (sampleIndex < 0) sampleIndex = 0;
+            } else {
+              voicesToRemove.push(vi);
+              break;
+            }
+          }
+
+          const left = leftPcm[sampleIndex] * vol;
+          const right = rightPcm[sampleIndex] * vol;
+
+          floatView[frame * channels] += left;
+          floatView[frame * channels + 1] += right;
+        }
+
+        if (!voicesToRemove.includes(vi)) {
+          voice.cursor += framesPerBuffer;
+        }
+      }
+
+      // Remove finished voices (reverse order)
+      for (let i = voicesToRemove.length - 1; i >= 0; i--) {
+        voices.splice(voicesToRemove[i], 1);
+      }
+
+      if (voices.length === 0) {
+        this._activeVoices.delete(filePath);
+      }
+    }
+
+    // Clamp output
+    for (let i = 0; i < floatView.length; i++) {
+      if (floatView[i] > 1.0) floatView[i] = 1.0;
+      else if (floatView[i] < -1.0) floatView[i] = -1.0;
+    }
+
+    // Write interleaved float32 buffer to ASIO output
+    const buffer = Buffer.from(floatView.buffer);
+    try {
+      this._rtAudio.write(buffer);
+      this._consecutiveWriteErrors = 0;
+      return true;
+    } catch (err) {
+      this._consecutiveWriteErrors++;
+      if (this._consecutiveWriteErrors === 1) {
+        console.error(`[DirectAudio] Write error: ${err.message}`);
+      }
+
+      if (this._consecutiveWriteErrors >= this._writeErrorThreshold && !this._reconnecting) {
+        console.error(`[DirectAudio] ${this._consecutiveWriteErrors} consecutive write errors — stream lost, attempting reconnect`);
+        if (this._onStreamLost) {
+          this._onStreamLost(`ASIO write failed ${this._consecutiveWriteErrors} times: ${err.message}`);
+        }
+        // Reconnect asynchronously so we don't block the interval
+        setImmediate(() => this.reconnect());
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Mix loop: feeds interleaved float32 PCM to the ASIO output on a timer.
+   *
+   * Windows coarsens this process's timer resolution to ~15.6ms whenever
+   * SoundPad Pro is not the foreground app (backgroundThrottling:false only
+   * covers the renderer, not the main process's libuv timers). A naive
+   * one-buffer-per-tick writer — buffer is ~10.7ms at 512/48k — then can't keep
+   * up with the ASIO queue draining at the audio clock, and playback "breaks up"
+   * while unfocused. Two things make it timer-granularity-independent:
+   *   (a) keep a small lead cushion of buffers queued ahead of real time, and
+   *   (b) let a late tick write MULTIPLE buffers to catch back up to that lead.
+   * Wall-clock accounting (consumed = elapsed / bufferMs) bounds how far ahead we
+   * write, so a fine-grained timer doesn't over-fill and grow latency.
    */
   _startMixLoop() {
     const framesPerBuffer = this._framesPerBuffer;
     const channels = this._channels;
+    const bufferMs = (framesPerBuffer / this._sampleRate) * 1000;
 
-    // Match interval to buffer duration so we don't outpace the ASIO driver
-    const intervalMs = Math.max(5, Math.floor((framesPerBuffer / this._sampleRate) * 1000));
+    // Fire finer than one buffer so a fine-grained timer tops up smoothly.
+    const intervalMs = Math.max(4, Math.floor(bufferMs / 2));
+    // Lead cushion large enough to cover a coarse (~16ms) background tick plus a
+    // buffer of margin, so the queue never underruns while unfocused.
+    const leadBuffers = Math.max(2, Math.ceil((16 + bufferMs) / bufferMs));
+    // Per-tick catch-up ceiling — a huge stall shouldn't queue unbounded audio.
+    const maxWritesPerTick = leadBuffers + 4;
+
+    let pacingStartMs = null; // real-time anchor for the current active run
+    let buffersWritten = 0;   // buffers written since that anchor
 
     this._mixInterval = setInterval(() => {
       if (!this._rtAudio) return;
 
-      // Don't write anything when idle — prevents queue from growing with silence
-      if (this._activeVoices.size === 0) return;
-
-      const floatView = new Float32Array(framesPerBuffer * channels);
-
-      // Mix all active voices
-      for (const [filePath, voices] of this._activeVoices.entries()) {
-        const cached = this._soundCache.get(filePath);
-        if (!cached) continue;
-
-        const voicesToRemove = [];
-
-        for (let vi = 0; vi < voices.length; vi++) {
-          const voice = voices[vi];
-          const leftPcm = cached.pcm[0];
-          const rightPcm = cached.pcm.length > 1 ? cached.pcm[1] : cached.pcm[0];
-          const pcmLength = cached.length;
-          const vol = voice.volume * this._masterVolume;
-
-          for (let frame = 0; frame < framesPerBuffer; frame++) {
-            let sampleIndex = voice.cursor + frame;
-
-            if (sampleIndex >= pcmLength) {
-              if (voice.loop) {
-                // Wrap cursor for seamless looping (no silence gap)
-                voice.cursor -= pcmLength;
-                sampleIndex = voice.cursor + frame;
-                if (sampleIndex < 0) sampleIndex = 0;
-              } else {
-                voicesToRemove.push(vi);
-                break;
-              }
-            }
-
-            const left = leftPcm[sampleIndex] * vol;
-            const right = rightPcm[sampleIndex] * vol;
-
-            floatView[frame * channels] += left;
-            floatView[frame * channels + 1] += right;
-          }
-
-          if (!voicesToRemove.includes(vi)) {
-            voice.cursor += framesPerBuffer;
-          }
-        }
-
-        // Remove finished voices (reverse order)
-        for (let i = voicesToRemove.length - 1; i >= 0; i--) {
-          voices.splice(voicesToRemove[i], 1);
-        }
-
-        if (voices.length === 0) {
-          this._activeVoices.delete(filePath);
-        }
+      // Idle: write nothing (avoids queue buildup) and drop the pacing anchor so
+      // the next sound starts fresh with a full lead cushion.
+      if (this._activeVoices.size === 0) {
+        pacingStartMs = null;
+        buffersWritten = 0;
+        return;
       }
 
-      // Clamp output
-      for (let i = 0; i < floatView.length; i++) {
-        if (floatView[i] > 1.0) floatView[i] = 1.0;
-        else if (floatView[i] < -1.0) floatView[i] = -1.0;
+      const now = Date.now();
+      if (pacingStartMs === null) {
+        pacingStartMs = now;
+        buffersWritten = 0;
       }
 
-      // Write interleaved float32 buffer to ASIO output
-      const buffer = Buffer.from(floatView.buffer);
-      try {
-        this._rtAudio.write(buffer);
-        this._consecutiveWriteErrors = 0;
-      } catch (err) {
-        this._consecutiveWriteErrors++;
-        if (this._consecutiveWriteErrors === 1) {
-          console.error(`[DirectAudio] Write error: ${err.message}`);
-        }
+      // Buffers real time says are already consumed, plus the lead cushion.
+      const target = Math.floor((now - pacingStartMs) / bufferMs) + leadBuffers;
 
-        if (this._consecutiveWriteErrors >= this._writeErrorThreshold && !this._reconnecting) {
-          console.error(`[DirectAudio] ${this._consecutiveWriteErrors} consecutive write errors — stream lost, attempting reconnect`);
-          if (this._onStreamLost) {
-            this._onStreamLost(`ASIO write failed ${this._consecutiveWriteErrors} times: ${err.message}`);
-          }
-          // Reconnect asynchronously so we don't block the interval
-          setImmediate(() => this.reconnect());
-        }
+      let writes = 0;
+      while (buffersWritten < target && writes < maxWritesPerTick) {
+        if (this._activeVoices.size === 0) break; // last voice ended mid-catch-up
+        if (!this._mixAndWriteBuffer(framesPerBuffer, channels)) break; // write failed
+        buffersWritten++;
+        writes++;
       }
     }, intervalMs);
   }
