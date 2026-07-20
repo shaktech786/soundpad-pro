@@ -313,6 +313,50 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     })
   })
 
+  it('falls back to the last real detection when the recheck lands on a denylisted app (OBS steals focus)', async () => {
+    // The user plays a game (background poll catches it), then alt-tabs to OBS
+    // and clicks recheck — active-win now reports obs64.exe (denylisted).
+    let win: any = { title: 'VALORANT', owner: { name: 'VALORANT-Win64-Shipping.exe', path: '' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+
+    await detector._poll() // primes _lastDetected with VALORANT
+    expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
+
+    win = { title: 'OBS 30.0.0', owner: { name: 'obs64.exe', path: '' } }
+    const snap = await detector.forcePoll()
+    expect(snap.detectedGame).toBe('VALORANT')
+  })
+
+  it('does NOT override with a stale detection past the freshness window', async () => {
+    let clock = 1_000
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      lastGoodTtlMs: 5_000,
+      now: () => clock,
+    })
+
+    await detector._poll() // _lastDetected stamped at t=1000
+    win = { title: 'OBS', owner: { name: 'obs64.exe', path: '' } }
+    clock = 10_000 // 9s later — past the 5s TTL
+    const snap = await detector.forcePoll()
+    expect(snap.detectedGame).toBeNull()
+  })
+
+  it('does NOT override when the fresh foreground is an unrecognized game (not denylisted)', async () => {
+    // Switching to a genuinely unknown game must report null so the dock offers
+    // catalog search — the last-good fallback only covers denylisted apps.
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+
+    await detector._poll() // _lastDetected = VALORANT
+    win = { title: 'Some Obscure Indie', owner: { name: 'obscure-indie.exe', path: '' } }
+    const snap = await detector.forcePoll()
+    expect(snap.detectedGame).toBeNull()
+    expect(snap.processName).toBe('obscure-indie.exe')
+  })
+
   it('leaves the background polling interval and its 3000ms cadence untouched', async () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval')
     const detector = new GameDetector({

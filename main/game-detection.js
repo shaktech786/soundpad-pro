@@ -121,6 +121,8 @@ class GameDetector {
     activeWindow,
     scanLocalLibraries,
     getPreliveTier,
+    lastGoodTtlMs = 5 * 60 * 1000,
+    now,
   } = {}) {
     this._intervalMs = intervalMs;
     this._scanIntervalMs = scanIntervalMs;
@@ -137,6 +139,12 @@ class GameDetector {
     // an actually-installed game outranks the hand-picked six. Starts empty and
     // is replaced wholesale by each successful scan.
     this._localTier = [];
+    // Most recent poll that detected a real game, plus the time it was seen.
+    // forcePoll() falls back to it when an on-demand recheck lands on a
+    // denylisted foreground (see forcePoll). Injectable clock keeps it testable.
+    this._lastGoodTtlMs = lastGoodTtlMs;
+    this._now = typeof now === 'function' ? now : () => Date.now();
+    this._lastDetected = null;
   }
 
   start() {
@@ -202,9 +210,27 @@ class GameDetector {
   // logic) and awaits its completion so the caller sees the freshly-classified
   // window, not the previous cached snapshot. Used by the /current-game/recheck
   // endpoint for on-demand rechecks; the background interval is untouched.
+  //
+  // Recheck is triggered from the Meta dock — an OBS browser panel — so the
+  // click that fires it pulls OS focus onto OBS (or the browser), both on the
+  // DENYLIST. A naive fresh poll then lands on that denylisted app and returns
+  // null, masking the game the background poll already caught while the user was
+  // actually playing. So: when the freshly-sampled foreground is a known
+  // non-game app AND we have a recent real detection, hand back that instead.
+  // A genuinely unknown *game* (unrecognized exe, not denylisted) is NOT
+  // overridden — it falls through as null so the dock can offer catalog search.
   async forcePoll() {
     await this._poll();
-    return this.getSnapshot();
+    const snapshot = this.getSnapshot();
+    if (snapshot.detectedGame) return snapshot;
+
+    const procBase = snapshot.processName ? stripExe(snapshot.processName) : '';
+    const focusStolen = procBase && DENYLIST.has(procBase);
+    if (focusStolen && this._lastDetected) {
+      const { at, ...lastGood } = this._lastDetected;
+      if (this._now() - at <= this._lastGoodTtlMs) return lastGood;
+    }
+    return snapshot;
   }
 
   _resolveActiveWindow() {
@@ -255,6 +281,9 @@ class GameDetector {
         detectedGame,
         confidence,
       };
+      // Remember the last poll that saw a real game so an on-demand recheck
+      // fired from OBS (which steals focus) can fall back to it.
+      if (detectedGame) this._lastDetected = { ...this._snapshot, at: this._now() };
     } catch (err) {
       console.error(`[GameDetection] poll failed: ${err.message}`);
     } finally {
