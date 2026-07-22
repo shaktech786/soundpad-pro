@@ -257,8 +257,11 @@ class GameDetector {
         this._snapshot = { ...EMPTY_SNAPSHOT };
         return;
       }
-      const processName =
-        win.owner.name || (win.owner.path ? path.basename(win.owner.path) : '') || '';
+      // Prefer the exe basename: on Windows active-win sets owner.name to the
+      // friendly app name ("OBS Studio"), which never matches DENYLIST's exe
+      // basenames ("obs64"), silently disabling the focus-stolen fallback.
+      const exeBase = win.owner.path ? path.basename(win.owner.path) : '';
+      const processName = exeBase || win.owner.name || '';
       const windowTitle = win.title || '';
       // Priority order: prelive game-history tier (highest — games the user has
       // actually streamed) → local Steam/Epic scan → curated allowlist fallback.

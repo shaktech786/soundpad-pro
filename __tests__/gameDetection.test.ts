@@ -315,14 +315,15 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
 
   it('falls back to the last real detection when the recheck lands on a denylisted app (OBS steals focus)', async () => {
     // The user plays a game (background poll catches it), then alt-tabs to OBS
-    // and clicks recheck — active-win now reports obs64.exe (denylisted).
+    // and clicks recheck — active-win now reports OBS (denylisted). On Windows
+    // owner.name is the friendly name, so the exe basename must come from path.
     let win: any = { title: 'VALORANT', owner: { name: 'VALORANT-Win64-Shipping.exe', path: '' } }
     const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
 
     await detector._poll() // primes _lastDetected with VALORANT
     expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
 
-    win = { title: 'OBS 30.0.0', owner: { name: 'obs64.exe', path: '' } }
+    win = { title: 'OBS 30.0.0', owner: { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } }
     const snap = await detector.forcePoll()
     expect(snap.detectedGame).toBe('VALORANT')
   })
@@ -338,7 +339,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     })
 
     await detector._poll() // _lastDetected stamped at t=1000
-    win = { title: 'OBS', owner: { name: 'obs64.exe', path: '' } }
+    win = { title: 'OBS', owner: { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } }
     clock = 10_000 // 9s later — past the 5s TTL
     const snap = await detector.forcePoll()
     expect(snap.detectedGame).toBeNull()
