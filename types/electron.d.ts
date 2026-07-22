@@ -33,6 +33,17 @@ interface ElectronAPI {
   // Legacy, no-op kept for backwards compatibility during rollout
   setHidStopButton: (buttonId: number | null) => Promise<{ success: boolean }>
 
+  // HID controller input — primary gamepad path, decoded in the main process
+  hidGetState: () => Promise<{ success: boolean; connected: boolean; buttonIds: number[] }>
+  onHidButtons: (callback: (buttonIds: number[]) => void) => (() => void)
+  onHidConnectionChanged: (callback: (connected: boolean) => void) => (() => void)
+
+  // HID calibration (used by the /calibrate page)
+  hidGetCalibration: () => Promise<{ success: boolean; defaults: Record<string, number>; overrides: Record<string, number> }>
+  hidSetCalibration: (overrides: Record<string, number>) => Promise<{ success: boolean; overrides?: Record<string, number>; error?: string }>
+  hidClearCalibration: () => Promise<{ success: boolean }>
+  onHidRawReport: (callback: (payload: { report: number[]; sources: string[] }) => void) => (() => void)
+
   // Event listeners (return cleanup functions to remove the specific listener)
   onHotkeyTriggered: (callback: (buttonIndex: number) => void) => (() => void)
   onGlobalStopAudio: (callback: () => void) => (() => void)

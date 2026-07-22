@@ -3,7 +3,13 @@ const path = require('path');
 const fs = require('fs').promises;
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
-const { HIDGamepad, NEUTRAL: HID_NEUTRAL } = require('./hid-gamepad');
+const {
+  HIDGamepad,
+  NEUTRAL: HID_NEUTRAL,
+  decodeReport: decodeHidReport,
+  reportSources: hidReportSources,
+  DEFAULT_SOURCE_TO_ID: HID_DEFAULT_SOURCE_TO_ID,
+} = require('./hid-gamepad');
 const { AsioAudioEngine } = require('./asio-audio-engine');
 const { GP2040ceApi } = require('./gp2040ce-api');
 const { NowPlayingServer } = require('./now-playing-server');
@@ -152,6 +158,26 @@ try {
   if (Array.isArray(saved) && saved.length === 8) hidStopSnapshot = saved;
 } catch (_) { /* ignore */ }
 
+// HID button calibration: source name -> Chrome gamepad button ID. Overlays the
+// inferred defaults in main/hid-gamepad.js so a mis-guessed bit->index mapping
+// can be corrected from the calibration page without a rebuild, preserving the
+// user's existing bindings (which were recorded against Chrome's indices).
+let hidButtonCalibration = {};
+try {
+  const saved = store.get('hidButtonCalibration', null);
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) hidButtonCalibration = saved;
+} catch (_) { /* ignore */ }
+
+// Last decoded button-ID set, so we only push to the renderer on real changes.
+let hidLastButtonIds = [];
+let hidGamepad = null;
+
+function sameIdList(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return false; }
+  return true;
+}
+
 function hidReportMatchesStopSnapshot(report) {
   if (!hidStopSnapshot) return false;
   let anyDiff = false;
@@ -262,12 +288,17 @@ function createWindow() {
   mainWindow.on('resize', saveWindowBounds);
   mainWindow.on('move', saveWindowBounds);
 
+  // SOUNDPAD_START_ROUTE opens a specific page instead of the soundboard.
+  // Used to reach the controller calibration harness ('calibrate'), which has no
+  // in-app link because it's a diagnostic, not a feature.
+  const startRoute = (process.env.SOUNDPAD_START_ROUTE || '').replace(/^\/+/, '');
+
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3005');
+    mainWindow.loadURL(`http://localhost:3005/${startRoute}`);
   } else {
     // Clear cached code to ensure latest build is loaded
     session.defaultSession.clearCache().then(() => {
-      mainWindow.loadFile(path.join(__dirname, '../out/index.html'));
+      mainWindow.loadFile(path.join(__dirname, `../out/${startRoute || 'index'}.html`));
     });
   }
 
@@ -332,7 +363,24 @@ app.whenReady().then(() => {
   // The Pokken Controller (GP2040-CE Switch mode) is a pure HID device, not XInput,
   // so node-hid can open it without conflict. Auto-reconnects if the controller
   // is unplugged and replugged.
-  const hidGamepad = new HIDGamepad((report) => {
+  hidGamepad = new HIDGamepad((report) => {
+    // Primary controller input path. Decode to the renderer's button-ID space
+    // and push on change. This runs in the main process, so it keeps working
+    // when OBS (or anything else) holds foreground focus — unlike the Web
+    // Gamepad API, which Chromium freezes for unfocused documents.
+    const ids = decodeHidReport(report, hidButtonCalibration);
+    if (!sameIdList(ids, hidLastButtonIds)) {
+      hidLastButtonIds = ids;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('hid-buttons-changed', ids);
+      }
+    }
+    // Raw reports for the calibration page only (it correlates these against
+    // navigator.getGamepads() while the window is focused).
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hid-raw-report', { report, sources: hidReportSources(report) });
+    }
+
     // Detect neutral vs any-press for capture mode
     let isNeutral = true;
     for (let i = 0; i < 7; i++) {
@@ -362,6 +410,11 @@ app.whenReady().then(() => {
       }
     }
     hidStopMatchedLast = matches;
+  }, (connected) => {
+    if (!connected) hidLastButtonIds = [];
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hid-connection-changed', connected);
+    }
   });
   hidGamepad.start();
 
@@ -567,6 +620,45 @@ ipcMain.handle('has-hid-stop-pattern', () => {
 
 // Legacy no-op: old renderers call this but the new flow uses raw pattern match.
 ipcMain.handle('set-hid-stop-button', () => {
+  return { success: true };
+});
+
+// Current HID controller state, for renderers that mount after the last event.
+ipcMain.handle('hid:get-state', () => {
+  return {
+    success: true,
+    connected: hidGamepad ? hidGamepad.isConnected() : false,
+    buttonIds: hidLastButtonIds.slice(),
+  };
+});
+
+// Calibration: source name ('b0.3', 'hat.up', 'a3+') -> Chrome gamepad button ID.
+ipcMain.handle('hid:get-calibration', () => {
+  return {
+    success: true,
+    defaults: HID_DEFAULT_SOURCE_TO_ID,
+    overrides: hidButtonCalibration,
+  };
+});
+
+ipcMain.handle('hid:set-calibration', (event, overrides) => {
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+    return { success: false, error: 'calibration must be an object' };
+  }
+  const cleaned = {};
+  for (const [source, id] of Object.entries(overrides)) {
+    if (typeof id === 'number' && Number.isFinite(id)) cleaned[source] = id;
+  }
+  hidButtonCalibration = cleaned;
+  hidLastButtonIds = [];
+  try { store.set('hidButtonCalibration', cleaned); } catch (_) { /* ignore */ }
+  return { success: true, overrides: cleaned };
+});
+
+ipcMain.handle('hid:clear-calibration', () => {
+  hidButtonCalibration = {};
+  hidLastButtonIds = [];
+  try { store.delete('hidButtonCalibration'); } catch (_) { /* ignore */ }
   return { success: true };
 });
 

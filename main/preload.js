@@ -39,6 +39,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Legacy — kept so any in-flight renderer code doesn't throw
   setHidStopButton: (buttonId) => ipcRenderer.invoke('set-hid-stop-button', buttonId),
 
+  // HID controller input — the primary (and only) gamepad path. Decoded in the
+  // main process so it keeps firing while another app holds foreground focus.
+  hidGetState: () => ipcRenderer.invoke('hid:get-state'),
+  onHidButtons: (callback) => {
+    const handler = (_event, buttonIds) => callback(buttonIds);
+    ipcRenderer.on('hid-buttons-changed', handler);
+    return () => ipcRenderer.removeListener('hid-buttons-changed', handler);
+  },
+  onHidConnectionChanged: (callback) => {
+    const handler = (_event, connected) => callback(connected);
+    ipcRenderer.on('hid-connection-changed', handler);
+    return () => ipcRenderer.removeListener('hid-connection-changed', handler);
+  },
+
+  // Calibration (used by the /calibrate page only)
+  hidGetCalibration: () => ipcRenderer.invoke('hid:get-calibration'),
+  hidSetCalibration: (overrides) => ipcRenderer.invoke('hid:set-calibration', overrides),
+  hidClearCalibration: () => ipcRenderer.invoke('hid:clear-calibration'),
+  onHidRawReport: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('hid-raw-report', handler);
+    return () => ipcRenderer.removeListener('hid-raw-report', handler);
+  },
+
   // Global hotkey management
   registerHotkey: (key, buttonIndex) => ipcRenderer.invoke('register-hotkey', { key, buttonIndex }),
   unregisterHotkey: (key) => ipcRenderer.invoke('unregister-hotkey', key),
@@ -149,6 +173,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('hotkey-triggered');
     ipcRenderer.removeAllListeners('global-stop-audio');
     ipcRenderer.removeAllListeners('hid-stop-captured');
+    ipcRenderer.removeAllListeners('hid-buttons-changed');
+    ipcRenderer.removeAllListeners('hid-connection-changed');
+    ipcRenderer.removeAllListeners('hid-raw-report');
     ipcRenderer.removeAllListeners('asio:stream-lost');
     ipcRenderer.removeAllListeners('asio:stream-recovered');
     ipcRenderer.removeAllListeners('discord:status-changed');
