@@ -70,6 +70,27 @@ function extractGames(parsed) {
   return names;
 }
 
+// Trailing Roman numerals only, and only unambiguous multi-letter forms —
+// a lone "i"/"v"/"x" is usually an initial or a character name ("Mega Man X").
+const TRAILING_ROMAN = {
+  ii: '2', iii: '3', iv: '4', vi: '6', vii: '7', viii: '8', ix: '9',
+  xi: '11', xii: '12', xiii: '13',
+};
+
+// Twitch spells sequels with Roman numerals ("Slay the Spire II") while Steam
+// manifests and window titles use Arabic ones ("Slay the Spire 2"), so a
+// title-substring tier built from Twitch names alone would never fire — worse,
+// the base-game entry ("Slay the Spire") IS a substring of that title, so the
+// prequel would win. Index both spellings so the longest (most specific) title
+// match in main/game-detection.js resolves to the right game.
+function titleVariants(name) {
+  const lower = name.toLowerCase();
+  const words = lower.split(/\s+/);
+  const arabic = TRAILING_ROMAN[words[words.length - 1]];
+  if (!arabic || words.length < 2) return [lower];
+  return [lower, [...words.slice(0, -1), arabic].join(' ')];
+}
+
 // Turn raw game names into a classifier tier. Title-only matching, same
 // shape/limitation as the Story 2 Steam entries — the history endpoint returns
 // names only, no exe info. Trims, drops blanks, and dedupes case-insensitively.
@@ -83,7 +104,7 @@ function buildTier(names) {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    tier.push({ game: name, title: [key] });
+    tier.push({ game: name, title: titleVariants(name) });
   }
   return tier;
 }

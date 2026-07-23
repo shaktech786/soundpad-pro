@@ -149,6 +149,34 @@ describe('detectGame (prelive > local-scan > curated priority)', () => {
       detectGame('valorant.exe', '', [[], localTier, GAME_ALLOWLIST]).detectedGame
     ).toBe('VALORANT')
   })
+
+  it('within a tier the longest matching title wins, not the first listed', () => {
+    // A prelive tier built from Twitch clip history contains both the base game
+    // and its sequel; the base name is a substring of the sequel's window title,
+    // so first-hit ordering published the prequel.
+    const prelive = [
+      { game: 'Slay the Spire', title: ['slay the spire'] },
+      { game: 'Slay the Spire II', title: ['slay the spire ii', 'slay the spire 2'] },
+    ]
+    expect(
+      detectGame('SlayTheSpire2.exe', 'Slay the Spire 2', [prelive, [], GAME_ALLOWLIST]).detectedGame
+    ).toBe('Slay the Spire II')
+    // Order-independent: reversing the tier must not change the answer.
+    expect(
+      detectGame('SlayTheSpire2.exe', 'Slay the Spire 2', [[...prelive].reverse(), [], GAME_ALLOWLIST])
+        .detectedGame
+    ).toBe('Slay the Spire II')
+  })
+
+  it('an exact exe hit still beats any title match in the same tier', () => {
+    const tier = [
+      { game: 'Wrong By Title', title: ['slay the spire 2'] },
+      { game: 'Right By Exe', exe: ['slaythespire2.exe'] },
+    ]
+    expect(detectGame('SlayTheSpire2.exe', 'Slay the Spire 2', [tier]).detectedGame).toBe(
+      'Right By Exe'
+    )
+  })
 })
 
 describe('GameDetector (polling wrapper, active-win mocked)', () => {
@@ -343,6 +371,23 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     clock = 10_000 // 9s later — past the 5s TTL
     const snap = await detector.forcePoll()
     expect(snap.detectedGame).toBeNull()
+  })
+
+  it('falls back to an UNRECOGNIZED game foreground, not just a classified one', async () => {
+    // The whole point of the recheck button: the user is playing something the
+    // classifier doesn't know, clicks recheck in the OBS dock, and OBS takes
+    // focus. Remembering only classified detections handed back OBS's own
+    // window, so the dock had nothing to search Twitch's catalog with.
+    let win: any = { title: 'Slay the Spire 2', owner: { name: 'SlayTheSpire2.exe', path: '' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBeNull() // not in any tier
+
+    win = { title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } }
+    const snap = await detector.forcePoll()
+    expect(snap.processName).toBe('SlayTheSpire2.exe')
+    expect(snap.windowTitle).toBe('Slay the Spire 2')
   })
 
   it('does NOT override when the fresh foreground is an unrecognized game (not denylisted)', async () => {

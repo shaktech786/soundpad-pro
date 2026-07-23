@@ -49,19 +49,32 @@ function stripExe(name) {
 
 // Match a focused window against a single tier — a `{game, exe?, title?}[]`
 // list. `exe` values match the process's executable basename; `title` values
-// are case-insensitive substrings of the window title. Returns the game name of
-// the first entry that hits, or null.
+// are case-insensitive substrings of the window title.
+//
+// An exe hit is exact, so the first one wins. Title hits are substring matches
+// and therefore ambiguous — a Steam library containing both "Counter-Strike"
+// and "Counter-Strike 2" would match the shorter, wrong entry for a window
+// titled "Counter-Strike 2" purely on manifest ordering. The LONGEST matching
+// title wins instead, which is always the more specific entry.
 function matchTier(tier, procBase, title) {
   if (!Array.isArray(tier)) return null;
+  let bestTitleGame = null;
+  let bestTitleLength = 0;
   for (const entry of tier) {
     if (!entry) continue;
-    const exeHit =
-      procBase && Array.isArray(entry.exe) && entry.exe.some((e) => stripExe(e) === procBase);
-    const titleHit =
-      title && Array.isArray(entry.title) && entry.title.some((t) => t && title.includes(t));
-    if (exeHit || titleHit) return entry.game;
+    if (procBase && Array.isArray(entry.exe) && entry.exe.some((e) => stripExe(e) === procBase)) {
+      return entry.game;
+    }
+    if (title && Array.isArray(entry.title)) {
+      for (const t of entry.title) {
+        if (t && title.includes(t) && t.length > bestTitleLength) {
+          bestTitleLength = t.length;
+          bestTitleGame = entry.game;
+        }
+      }
+    }
   }
-  return null;
+  return bestTitleGame;
 }
 
 // Pure classifier. Returns { detectedGame: string | null, confidence: 'high' | 'low' }.
@@ -139,12 +152,13 @@ class GameDetector {
     // an actually-installed game outranks the hand-picked six. Starts empty and
     // is replaced wholesale by each successful scan.
     this._localTier = [];
-    // Most recent poll that detected a real game, plus the time it was seen.
-    // forcePoll() falls back to it when an on-demand recheck lands on a
-    // denylisted foreground (see forcePoll). Injectable clock keeps it testable.
+    // Most recent poll whose foreground was NOT a denylisted app, plus the time
+    // it was seen. forcePoll() falls back to it when an on-demand recheck lands
+    // on a denylisted foreground (see forcePoll). Injectable clock keeps it
+    // testable.
     this._lastGoodTtlMs = lastGoodTtlMs;
     this._now = typeof now === 'function' ? now : () => Date.now();
-    this._lastDetected = null;
+    this._lastForeground = null;
   }
 
   start() {
@@ -216,9 +230,14 @@ class GameDetector {
   // DENYLIST. A naive fresh poll then lands on that denylisted app and returns
   // null, masking the game the background poll already caught while the user was
   // actually playing. So: when the freshly-sampled foreground is a known
-  // non-game app AND we have a recent real detection, hand back that instead.
-  // A genuinely unknown *game* (unrecognized exe, not denylisted) is NOT
-  // overridden — it falls through as null so the dock can offer catalog search.
+  // non-game app, hand back the last non-denylisted foreground instead.
+  //
+  // The fallback keeps unrecognized foregrounds too, not just classified games:
+  // processName/windowTitle are what the dock turns into a Twitch-catalog
+  // search, and OBS's own window title would resolve to nothing.
+  //
+  // A genuinely unknown *game* in the foreground (unrecognized exe, not
+  // denylisted) is NOT overridden — it falls through with its own process/title.
   async forcePoll() {
     await this._poll();
     const snapshot = this.getSnapshot();
@@ -226,8 +245,8 @@ class GameDetector {
 
     const procBase = snapshot.processName ? stripExe(snapshot.processName) : '';
     const focusStolen = procBase && DENYLIST.has(procBase);
-    if (focusStolen && this._lastDetected) {
-      const { at, ...lastGood } = this._lastDetected;
+    if (focusStolen && this._lastForeground) {
+      const { at, ...lastGood } = this._lastForeground;
       if (this._now() - at <= this._lastGoodTtlMs) return lastGood;
     }
     return snapshot;
@@ -284,9 +303,12 @@ class GameDetector {
         detectedGame,
         confidence,
       };
-      // Remember the last poll that saw a real game so an on-demand recheck
-      // fired from OBS (which steals focus) can fall back to it.
-      if (detectedGame) this._lastDetected = { ...this._snapshot, at: this._now() };
+      // Remember the last poll whose foreground wasn't a denylisted app so an
+      // on-demand recheck fired from OBS (which steals focus) can fall back to it.
+      const procBase = processName ? stripExe(processName) : '';
+      if (procBase && !DENYLIST.has(procBase)) {
+        this._lastForeground = { ...this._snapshot, at: this._now() };
+      }
     } catch (err) {
       console.error(`[GameDetection] poll failed: ${err.message}`);
     } finally {

@@ -88,6 +88,19 @@ describe('buildTier (game names → classifier tier)', () => {
       { game: 'Portal', title: ['portal'] },
     ])
   })
+
+  test('indexes the Arabic spelling of a trailing Roman numeral too', () => {
+    // Twitch's category is "Slay the Spire II"; Steam/window titles say
+    // "Slay the Spire 2". Without the extra variant the tier never matches, and
+    // the base game (a substring of that title) wins instead.
+    expect(buildTier(['Slay the Spire II'])).toEqual([
+      { game: 'Slay the Spire II', title: ['slay the spire ii', 'slay the spire 2'] },
+    ])
+  })
+
+  test('leaves an ambiguous single-letter numeral alone', () => {
+    expect(buildTier(['Mega Man X'])).toEqual([{ game: 'Mega Man X', title: ['mega man x'] }])
+  })
 })
 
 describe('PreliveClient.setApiKey + fetch', () => {
