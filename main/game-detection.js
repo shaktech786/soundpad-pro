@@ -28,6 +28,39 @@ const DENYLIST = new Set([
   'pwsh', 'cmd', 'conhost', 'alacritty', 'wezterm-gui',
 ]);
 
+// Game launchers, storefronts, overlays, and installers. These own transient
+// windows ("Launching <Game>...", "Updating <Game>", a splash dialog) that appear
+// for a few seconds during game startup. Their titles routinely CONTAIN a real
+// game name, so without this they substring-match a detection tier and get
+// reported as the game — and worse, get cached as the last-good foreground and
+// served long after the dialog is gone. Kept separate from DENYLIST because the
+// intent differs: DENYLIST is "this app is not a game", this is "this window is
+// a transient artifact of starting a game".
+const LAUNCHER_PROCESSES = new Set([
+  // Steam
+  'steam', 'steamwebhelper', 'steamerrorreporter', 'gameoverlayui', 'steamservice',
+  // Epic
+  'epicgameslauncher', 'epicwebhelper',
+  // Battle.net
+  'battle.net', 'battle.net helper', 'blizzardbrowser', 'blizzarderror',
+  // GOG / Ubisoft / EA / Riot
+  'galaxyclient', 'galaxyclient helper', 'upc', 'ubisoftconnect', 'ubisoftgamelauncher',
+  'uplaywebcore', 'eadesktop', 'eabackgroundservice', 'ealauncher', 'origin',
+  'riotclientservices', 'riotclientux', 'riotclientuxrender', 'riotclientcrashhandler',
+  // generic installers / updaters
+  'setup', 'installer', 'msiexec', 'unins000', 'uninstall',
+]);
+
+// Window titles that describe an in-progress operation rather than a running
+// game. Anchored at the start so a game legitimately named e.g. "Starbound" is
+// unaffected (`\b` after the verb prevents "Starting" matching "Starbound").
+const LAUNCHER_TITLE_PATTERN =
+  /^(?:launching|starting|preparing|updating|installing|downloading|verifying|validating|extracting|unpacking|syncing|configuring|initializing|loading|checking|please wait)\b/i;
+
+// Progress dialogs end in an ellipsis ("Launching...", "Syncing files…"). A real
+// game window title effectively never does.
+const PROGRESS_ELLIPSIS_PATTERN = /(?:\.{3}|…)\s*$/;
+
 // exe-name / title-substring -> human-readable game name. Deliberately a starter
 // set; extend by adding entries. `exe` values are matched against the focused
 // process's executable basename; `title` values are case-insensitive substrings
@@ -37,6 +70,12 @@ const GAME_ALLOWLIST = [
   { game: 'League of Legends', exe: ['league of legends.exe', 'leagueclient.exe'], title: ['league of legends'] },
   { game: 'VALORANT', exe: ['valorant.exe', 'valorant-win64-shipping.exe'], title: ['valorant'] },
   { game: 'Counter-Strike 2', exe: ['cs2.exe'], title: ['counter-strike 2'] },
+  // CS 1.6 runs as hl.exe (GoldSrc) with the window title "Counter-Strike". No
+  // exe entry: hl.exe is also plain Half-Life, so only the title identifies it.
+  // "counter-strike" is a substring of the CS2 / CS:GO titles too, but
+  // longest-title-wins in matchTier means those still resolve to their own entry.
+  { game: 'Counter-Strike', title: ['counter-strike 1.6', 'counter-strike'] },
+  { game: 'Counter-Strike: Global Offensive', title: ['counter-strike: global offensive'] },
   { game: 'Fortnite', exe: ['fortniteclient-win64-shipping.exe'], title: ['fortnite'] },
   { game: 'Minecraft', exe: ['minecraft.exe', 'minecraftlauncher.exe'], title: ['minecraft'] },
   { game: 'Apex Legends', exe: ['r5apex.exe'], title: ['apex legends'] },
@@ -45,6 +84,32 @@ const GAME_ALLOWLIST = [
 function stripExe(name) {
   const lower = name.toLowerCase();
   return lower.endsWith('.exe') ? lower.slice(0, -4) : lower;
+}
+
+// A transient launcher/installer window: the storefront process itself, or any
+// window whose title reads as an in-progress operation. Checked independently of
+// process name because Steam's "Launching <Game>..." dialog is owned by
+// steamwebhelper.exe on some builds and by the game's own bootstrapper on others.
+function isTransientLauncherWindow(procBase, title) {
+  if (procBase && LAUNCHER_PROCESSES.has(procBase)) return true;
+  if (!title) return false;
+  return LAUNCHER_TITLE_PATTERN.test(title) || PROGRESS_ELLIPSIS_PATTERN.test(title);
+}
+
+/**
+ * Whether a foreground window must never be classified as, or remembered as, a
+ * game. Covers both "this app is not a game" (DENYLIST) and "this window is a
+ * transient artifact of launching one" (LAUNCHER_*).
+ *
+ * Shared by the classifier, the `_lastForeground` cache write, and the
+ * focus-stolen fallback so all three agree on what counts as unusable — a window
+ * the classifier refuses must also never poison the cache.
+ */
+function isRejectedForeground(processName, windowTitle) {
+  const procBase = processName ? stripExe(String(processName).trim()) : '';
+  const title = (windowTitle || '').trim();
+  if (procBase && DENYLIST.has(procBase)) return true;
+  return isTransientLauncherWindow(procBase, title);
 }
 
 // Match a focused window against a single tier — a `{game, exe?, title?}[]`
@@ -91,8 +156,9 @@ function detectGame(processName, windowTitle, tiers = [GAME_ALLOWLIST]) {
   const title = (windowTitle || '').trim().toLowerCase();
   if (!proc && !title) return { detectedGame: null, confidence: 'low' };
 
-  // Denylist wins: a game name in a browser tab or Discord status never counts.
-  if (proc && DENYLIST.has(stripExe(proc))) {
+  // Rejection wins: a game name in a browser tab, a Discord status, or a Steam
+  // "Launching <Game>..." dialog never counts.
+  if (isRejectedForeground(proc, windowTitle)) {
     return { detectedGame: null, confidence: 'low' };
   }
 
@@ -229,8 +295,10 @@ class GameDetector {
   // click that fires it pulls OS focus onto OBS (or the browser), both on the
   // DENYLIST. A naive fresh poll then lands on that denylisted app and returns
   // null, masking the game the background poll already caught while the user was
-  // actually playing. So: when the freshly-sampled foreground is a known
-  // non-game app, hand back the last non-denylisted foreground instead.
+  // actually playing. So: when the freshly-sampled foreground is unusable (a
+  // known non-game app, or a transient launcher/installer dialog), hand back the
+  // last usable foreground instead — which, because the cache write applies the
+  // same rejection, is always a window backed by a real process.
   //
   // The fallback keeps unrecognized foregrounds too, not just classified games:
   // processName/windowTitle are what the dock turns into a Twitch-catalog
@@ -243,9 +311,8 @@ class GameDetector {
     const snapshot = this.getSnapshot();
     if (snapshot.detectedGame) return snapshot;
 
-    const procBase = snapshot.processName ? stripExe(snapshot.processName) : '';
-    const focusStolen = procBase && DENYLIST.has(procBase);
-    if (focusStolen && this._lastForeground) {
+    const unusable = isRejectedForeground(snapshot.processName, snapshot.windowTitle);
+    if (unusable && this._lastForeground) {
       const { at, ...lastGood } = this._lastForeground;
       if (this._now() - at <= this._lastGoodTtlMs) return lastGood;
     }
@@ -303,10 +370,12 @@ class GameDetector {
         detectedGame,
         confidence,
       };
-      // Remember the last poll whose foreground wasn't a denylisted app so an
-      // on-demand recheck fired from OBS (which steals focus) can fall back to it.
-      const procBase = processName ? stripExe(processName) : '';
-      if (procBase && !DENYLIST.has(procBase)) {
+      // Remember the last usable foreground so an on-demand recheck fired from
+      // OBS (which steals focus) can fall back to it. A rejected read must leave
+      // the previous value intact: caching a Steam "Launching <Game>..." dialog
+      // here made every subsequent recheck report the launcher instead of the
+      // game that was actually running.
+      if (processName && !isRejectedForeground(processName, windowTitle)) {
         this._lastForeground = { ...this._snapshot, at: this._now() };
       }
     } catch (err) {
@@ -321,8 +390,10 @@ module.exports = {
   GameDetector,
   detectGame,
   matchTier,
+  isRejectedForeground,
   GAME_ALLOWLIST,
   DENYLIST,
+  LAUNCHER_PROCESSES,
   EMPTY_SNAPSHOT,
   DEFAULT_SCAN_INTERVAL_MS,
 };

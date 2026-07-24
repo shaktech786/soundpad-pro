@@ -179,6 +179,104 @@ describe('detectGame (prelive > local-scan > curated priority)', () => {
   })
 })
 
+describe('detectGame (transient launcher windows)', () => {
+  // A Steam "Launching <Game>..." splash dialog contains a real game name, so a
+  // title-substring tier happily matched it and reported the launcher as the game.
+  const preliveTier = [
+    { game: 'Over It', title: ['over it'] },
+    { game: 'Counter-Strike', title: ['counter-strike'] },
+  ]
+
+  it('never classifies a Steam "Launching <Game>..." dialog as that game', () => {
+    expect(
+      detectGame('steamwebhelper.exe', 'Launching Over It...', [preliveTier, GAME_ALLOWLIST])
+    ).toEqual({ detectedGame: null, confidence: 'low' })
+  })
+
+  it('rejects launcher/storefront/overlay processes regardless of title', () => {
+    for (const proc of [
+      'steam.exe',
+      'steamwebhelper.exe',
+      'gameoverlayui.exe',
+      'EpicGamesLauncher.exe',
+      'Battle.net.exe',
+      'GalaxyClient.exe',
+      'UbisoftConnect.exe',
+      'EADesktop.exe',
+      'RiotClientServices.exe',
+      'setup.exe',
+      'msiexec.exe',
+    ]) {
+      expect(detectGame(proc, 'Counter-Strike', [preliveTier, GAME_ALLOWLIST])).toEqual({
+        detectedGame: null,
+        confidence: 'low',
+      })
+    }
+  })
+
+  it('rejects in-progress operation titles from any process', () => {
+    for (const title of [
+      'Launching Over It...',
+      'Starting Counter-Strike',
+      'Preparing to launch Counter-Strike',
+      'Updating Counter-Strike',
+      'Installing Counter-Strike',
+      'Downloading Counter-Strike',
+      'Verifying Counter-Strike',
+      'Syncing Counter-Strike…',
+      'Counter-Strike...',
+    ]) {
+      expect(detectGame('unknownbootstrapper.exe', title, [preliveTier, GAME_ALLOWLIST]).detectedGame).toBeNull()
+    }
+  })
+
+  it('does not reject real games whose name merely begins with a launcher verb prefix', () => {
+    // Word-boundary anchoring: "Starbound" must not trip the "starting" pattern.
+    const tier = [{ game: 'Starbound', title: ['starbound'] }, { game: 'Loadout', title: ['loadout'] }]
+    expect(detectGame('starbound.exe', 'Starbound', [tier]).detectedGame).toBe('Starbound')
+    expect(detectGame('loadout.exe', 'Loadout', [tier]).detectedGame).toBe('Loadout')
+  })
+})
+
+describe('detectGame (Counter-Strike 1.6 discrimination)', () => {
+  it('resolves the CS 1.6 window (hl.exe / "Counter-Strike") to Counter-Strike', () => {
+    expect(detectGame('hl.exe', 'Counter-Strike')).toEqual({
+      detectedGame: 'Counter-Strike',
+      confidence: 'high',
+    })
+    expect(detectGame('hl.exe', 'Counter-Strike 1.6').detectedGame).toBe('Counter-Strike')
+  })
+
+  it('does not let the CS 1.6 window resolve to CS2 or CS:GO', () => {
+    const detected = detectGame('hl.exe', 'Counter-Strike').detectedGame
+    expect(detected).not.toBe('Counter-Strike 2')
+    expect(detected).not.toBe('Counter-Strike: Global Offensive')
+  })
+
+  it('still resolves CS2 and CS:GO windows to their own entries', () => {
+    expect(detectGame('cs2.exe', 'Counter-Strike 2').detectedGame).toBe('Counter-Strike 2')
+    expect(detectGame('unknown.exe', 'Counter-Strike 2').detectedGame).toBe('Counter-Strike 2')
+    expect(detectGame('unknown.exe', 'Counter-Strike: Global Offensive').detectedGame).toBe(
+      'Counter-Strike: Global Offensive'
+    )
+  })
+
+  it('resolves CS 1.6 from a Steam local-scan tier (manifest name "Counter-Strike")', () => {
+    // Ground truth from the real machine: Steam's library lists both
+    // "Counter-Strike" (appid 10) and "Counter-Strike 2" as title-only entries.
+    const localTier = [
+      { game: 'Counter-Strike', title: ['counter-strike'] },
+      { game: 'Counter-Strike 2', title: ['counter-strike 2'] },
+    ]
+    expect(detectGame('hl.exe', 'Counter-Strike', [localTier, GAME_ALLOWLIST]).detectedGame).toBe(
+      'Counter-Strike'
+    )
+    expect(detectGame('cs2.exe', 'Counter-Strike 2', [localTier, GAME_ALLOWLIST]).detectedGame).toBe(
+      'Counter-Strike 2'
+    )
+  })
+})
+
 describe('GameDetector (polling wrapper, active-win mocked)', () => {
   const makeDetector = (winResult: unknown) =>
     new GameDetector({ intervalMs: 10_000, activeWindow: async () => winResult })
@@ -401,6 +499,43 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     const snap = await detector.forcePoll()
     expect(snap.detectedGame).toBeNull()
     expect(snap.processName).toBe('obscure-indie.exe')
+  })
+
+  it('a launcher dialog never poisons the last-good cache (reproduces the "Launching Over It..." bug)', async () => {
+    // Observed live on the reporter's machine: every POST /current-game/recheck
+    // returned {steamwebhelper.exe, "Launching..."} while CS 1.6 was the running
+    // game, because the Steam launch dialog had been cached as _lastForeground
+    // and the recheck click always steals focus to a denylisted app.
+    let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Steam\\steamapps\\common\\Half-Life\\hl.exe' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+
+    await detector._poll() // caches the real game as last-good
+    expect(detector.getSnapshot().detectedGame).toBe('Counter-Strike')
+
+    // Steam's transient launch dialog takes focus during a background poll.
+    win = { title: 'Launching Over It...', owner: { name: 'steamwebhelper.exe', path: 'C:\\Program Files (x86)\\Steam\\bin\\cef\\steamwebhelper.exe' } }
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBeNull() // not classified
+
+    // The user clicks recheck in the OBS dock, so OBS steals focus. The fallback
+    // must serve the real game, not the launcher dialog the cache would have held.
+    win = { title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } }
+    const snap = await detector.forcePoll()
+    expect(snap.processName).toBe('hl.exe')
+    expect(snap.windowTitle).toBe('Counter-Strike')
+    expect(snap.detectedGame).toBe('Counter-Strike')
+  })
+
+  it('falls back to the last real foreground when the recheck itself lands on the launcher', async () => {
+    let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Games\\hl.exe' } }
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    await detector._poll()
+
+    // A transient launcher window is unusable, exactly like a denylisted app.
+    win = { title: 'Launching Over It...', owner: { name: 'steamwebhelper.exe', path: 'C:\\Steam\\steamwebhelper.exe' } }
+    const snap = await detector.forcePoll()
+    expect(snap.detectedGame).toBe('Counter-Strike')
+    expect(snap.windowTitle).toBe('Counter-Strike')
   })
 
   it('leaves the background polling interval and its 3000ms cadence untouched', async () => {
