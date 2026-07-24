@@ -6,6 +6,7 @@ export interface PreliveStatus {
   connected: boolean
   error: string | null
   gameCount: number
+  games: string[]
   lastFetchAt: number | null
 }
 
@@ -16,6 +17,7 @@ interface PreliveContextType {
   connecting: boolean
   error: string | null
   gameCount: number
+  games: string[]
   lastFetchAt: number | null
   // Store a key and fetch the history immediately; resolves once status settles.
   setApiKey: (key: string) => Promise<void>
@@ -45,6 +47,7 @@ export const PreliveProvider: React.FC<PreliveProviderProps> = ({ children }) =>
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [gameCount, setGameCount] = useState(0)
+  const [games, setGames] = useState<string[]>([])
   const [lastFetchAt, setLastFetchAt] = useState<number | null>(null)
 
   const applyStatus = useCallback((s: PreliveStatus | null | undefined) => {
@@ -52,6 +55,7 @@ export const PreliveProvider: React.FC<PreliveProviderProps> = ({ children }) =>
     setConnected(!!s.connected)
     setError(s.error ?? null)
     setGameCount(s.gameCount ?? 0)
+    setGames(Array.isArray(s.games) ? s.games : [])
     setLastFetchAt(s.lastFetchAt ?? null)
   }, [])
 
@@ -95,6 +99,7 @@ export const PreliveProvider: React.FC<PreliveProviderProps> = ({ children }) =>
     connecting,
     error,
     gameCount,
+    games,
     lastFetchAt,
     setApiKey,
     disconnect,

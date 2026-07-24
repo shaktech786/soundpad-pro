@@ -7,7 +7,7 @@ interface PreliveSettingsProps {
 }
 
 export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => {
-  const { connected, connecting, error, gameCount, setApiKey, disconnect } = usePrelive()
+  const { connected, connecting, error, gameCount, games, setApiKey, disconnect } = usePrelive()
   const { theme } = useTheme()
 
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -150,6 +150,20 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
             <div className={`font-bold ${headingClass}`}>
               {gameCount} game{gameCount === 1 ? '' : 's'}
             </div>
+            {games.length > 0 && (
+              <ul className="mt-3 max-h-48 overflow-y-auto space-y-1 pr-1">
+                {games.map((game) => (
+                  <li
+                    key={game}
+                    className={`text-sm px-3 py-1.5 rounded ${
+                      theme === 'light' ? 'bg-white text-gray-700' : 'bg-gray-900 text-gray-200'
+                    }`}
+                  >
+                    {game}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <button

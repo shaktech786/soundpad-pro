@@ -158,6 +158,7 @@ class PreliveClient extends EventEmitter {
       connected: this._connected,
       error: this._error,
       gameCount: this._tier.length,
+      games: this._tier.map((entry) => entry.game),
       lastFetchAt: this._lastFetchAt,
     };
   }

@@ -147,7 +147,14 @@ describe('PreliveClient.setApiKey + fetch', () => {
     const { client } = makeClient(async () => ({ data: { games: ['Halo'] } }))
     await client.setApiKey('prl_live_secret')
     const status = client.getStatus()
-    expect(Object.keys(status).sort()).toEqual(['connected', 'error', 'gameCount', 'lastFetchAt'])
+    expect(Object.keys(status).sort()).toEqual([
+      'connected',
+      'error',
+      'gameCount',
+      'games',
+      'lastFetchAt',
+    ])
+    expect(status.games).toEqual(['Halo'])
     expect(JSON.stringify(status)).not.toContain('prl_live_secret')
   })
 
@@ -229,7 +236,7 @@ describe('PreliveClient error handling', () => {
     const client = new PreliveClient({ store: makeStore(), logger: silentLogger, httpGetJson })
     const status = await client.refresh()
     expect(httpGetJson).not.toHaveBeenCalled()
-    expect(status).toEqual({ connected: false, error: null, gameCount: 0, lastFetchAt: null })
+    expect(status).toEqual({ connected: false, error: null, gameCount: 0, games: [], lastFetchAt: null })
   })
 })
 
@@ -241,7 +248,7 @@ describe('PreliveClient.disconnect', () => {
 
     const status = client.disconnect()
     expect(store.get(API_KEY_STORE_KEY)).toBeUndefined()
-    expect(status).toEqual({ connected: false, error: null, gameCount: 0, lastFetchAt: null })
+    expect(status).toEqual({ connected: false, error: null, gameCount: 0, games: [], lastFetchAt: null })
     expect(client.getTier()).toEqual([])
     expect(client.hasApiKey()).toBe(false)
   })
@@ -268,7 +275,7 @@ describe('PreliveClient status events', () => {
     expect(events[events.length - 1]).toMatchObject({ connected: true, gameCount: 1 })
     // No emitted status object ever carries the key.
     for (const e of events) {
-      expect(Object.keys(e).sort()).toEqual(['connected', 'error', 'gameCount', 'lastFetchAt'])
+      expect(Object.keys(e).sort()).toEqual(['connected', 'error', 'gameCount', 'games', 'lastFetchAt'])
     }
   })
 })

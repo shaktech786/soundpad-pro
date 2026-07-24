@@ -173,6 +173,7 @@ interface PreliveStatus {
   connected: boolean
   error: string | null
   gameCount: number
+  games: string[]
   lastFetchAt: number | null
 }
 
