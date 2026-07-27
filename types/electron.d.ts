@@ -99,6 +99,10 @@ interface ElectronAPI {
   preliveDisconnect: () => Promise<PreliveStatus>
   onPreliveStatusChanged: (callback: (status: PreliveStatus) => void) => (() => void)
 
+  // OBS Setup tool (bundled standalone binary — PRE-392)
+  obsSetupRun: () => Promise<{ success: boolean; error?: string }>
+  obsSetupGetVersionInfo: () => Promise<ObsSetupVersionInfo | null>
+
   // Auto-updater (silent background download, user-gated install)
   getUpdateStatus: () => Promise<UpdateStatus>
   quitAndInstall: () => Promise<{ success: boolean }>
@@ -117,6 +121,14 @@ interface UpdateStatus {
   state: UpdateState
   version: string | null
   error: string | null
+}
+
+interface ObsSetupVersionInfo {
+  version: string
+  tag: string
+  asset: string
+  publishedAt: string | null
+  fetchedAt: string
 }
 
 type DiscordConnectionStatus =
