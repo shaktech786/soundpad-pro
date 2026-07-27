@@ -84,8 +84,13 @@ jobs:
           LAST_TAG="${{ steps.bump.outputs.last_tag }}"
           NEW="${{ steps.bump.outputs.new }}"
 
+          # Randomised delimiter: everything written between it is derived from
+          # commit messages, so a fixed marker could be closed early by a commit
+          # message containing that literal line, letting it write arbitrary
+          # GITHUB_OUTPUT keys for later steps to consume.
+          NOTES_DELIM="RELEASE_EOF_$(openssl rand -hex 16)"
           {
-            echo "body<<RELEASE_EOF"
+            echo "body<<${NOTES_DELIM}"
             echo "## What's Changed"
             echo ""
 
@@ -116,8 +121,8 @@ jobs:
             if [ -n "$LAST_TAG" ]; then
               echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...v${NEW}"
             fi
-            echo "RELEASE_EOF"
-          } >> $GITHUB_OUTPUT
+            echo "${NOTES_DELIM}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Bump version in package.json
         shell: bash
