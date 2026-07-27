@@ -31,8 +31,16 @@ export interface BoardProfile {
   drumPadButtons: number[]
 }
 
-export interface LayoutPreset {
+export type BoardTemplateCategory = 'leverless' | 'arcade' | 'gamepad' | 'grid'
+
+export interface BoardTemplate {
+  id: string
   name: string
   description: string
   layout: ButtonPosition[]
+  buttonShape: ButtonShape
+  category: BoardTemplateCategory
 }
+
+/** @deprecated use BoardTemplate — kept as an alias so old imports keep compiling. */
+export type LayoutPreset = BoardTemplate
