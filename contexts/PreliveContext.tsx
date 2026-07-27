@@ -23,6 +23,9 @@ interface PreliveContextType {
   setApiKey: (key: string) => Promise<void>
   // Clear the stored key + cached tier; detection falls back to local + curated.
   disconnect: () => Promise<void>
+  // Open prelive's API-keys page in the user's default browser (main-process
+  // shell.openExternal — never renderer navigation).
+  openApiKeysPage: () => Promise<void>
 }
 
 const PreliveContext = createContext<PreliveContextType | undefined>(undefined)
@@ -80,6 +83,11 @@ export const PreliveProvider: React.FC<PreliveProviderProps> = ({ children }) =>
     applyStatus(result)
   }, [applyStatus])
 
+  const openApiKeysPage = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.electronAPI?.preliveOpenApiKeysPage) return
+    await window.electronAPI.preliveOpenApiKeysPage()
+  }, [])
+
   // Subscribe to pushed status changes (background refreshes, auth failures) and
   // seed the initial status on mount.
   useEffect(() => {
@@ -103,6 +111,7 @@ export const PreliveProvider: React.FC<PreliveProviderProps> = ({ children }) =>
     lastFetchAt,
     setApiKey,
     disconnect,
+    openApiKeysPage,
   }
 
   return <PreliveContext.Provider value={value}>{children}</PreliveContext.Provider>
