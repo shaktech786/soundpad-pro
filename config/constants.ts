@@ -88,6 +88,37 @@ export const APP_CONFIG = {
   },
 }
 
+// The only controller this app has a trusted identity for today: the HID
+// poller in main/hid-gamepad.js exclusively opens this VID/PID (see its
+// POKKEN_VID/POKKEN_PID constants). Do not add other devices here without
+// also teaching the main process to open them — a supportedDevices entry
+// with no matching HID connection can never resolve to "connected".
+export const HAUTE42_DEVICE_ID = { vid: 0x0f0d, pid: 0x0092 }
+
+// Default Haute42 button mapping: visual pad id -> physical HID button id,
+// using the ID space documented in main/hid-gamepad.js (0-13 digital
+// buttons, 300-303 hat switch). Deliberately NOT sourced from
+// ACTION_TO_GAMEPAD_INDEX in main/gp2040ce-api.js — that table is a nominal
+// standard-mode mapping and does not agree with the Switch-mode bit order
+// hid-gamepad.js actually decodes.
+//
+// The 16 HAUTE42_LAYOUT pads split evenly: the first 12 (array order) take
+// the 12 non-system digital buttons — Y,B,A,X,L,R,ZL,ZR,Minus,Plus,L3,R3,
+// i.e. ids 0-11 — skipping Home/Capture (12,13), which aren't
+// soundboard-appropriate. The last 4 pads take the hat switch directions
+// (300 Up, 301 Right, 302 Down, 303 Left), standing in for the leverless
+// board's lack of an analog stick.
+//
+// This is a default, not a confirmed fact: DEFAULT_SOURCE_TO_ID in
+// hid-gamepad.js is explicitly inferred pending PRE-366's calibration run.
+// It is only applied to a profile when the connected device has already
+// been calibrated at least once — see utils/templateMapping.ts.
+export const HAUTE42_DEFAULT_BUTTON_MAPPING: [number, number][] = [
+  [0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 7],
+  [8, 8], [9, 9], [10, 10], [11, 11],
+  [12, 300], [13, 301], [14, 302], [15, 303],
+]
+
 // Haute42 original 16-button layout
 export const HAUTE42_LAYOUT: ButtonPosition[] = [
   { id: 0, x: 191, y: 125 },
@@ -209,6 +240,8 @@ export const BOARD_TEMPLATES: BoardTemplate[] = [
     layout: HAUTE42_LAYOUT,
     buttonShape: 'circle',
     category: 'leverless',
+    defaultButtonMapping: HAUTE42_DEFAULT_BUTTON_MAPPING,
+    supportedDevices: [HAUTE42_DEVICE_ID],
   },
   {
     id: 'hitbox-12',
