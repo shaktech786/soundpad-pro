@@ -84,8 +84,13 @@ jobs:
           LAST_TAG="${{ steps.bump.outputs.last_tag }}"
           NEW="${{ steps.bump.outputs.new }}"
 
+          # Randomised delimiter: everything written between it is derived from
+          # commit messages, so a fixed marker could be closed early by a commit
+          # message containing that literal line, letting it write arbitrary
+          # GITHUB_OUTPUT keys for later steps to consume.
+          NOTES_DELIM="RELEASE_EOF_$(openssl rand -hex 16)"
           {
-            echo "body<<RELEASE_EOF"
+            echo "body<<${NOTES_DELIM}"
             echo "## What's Changed"
             echo ""
 
@@ -116,8 +121,8 @@ jobs:
             if [ -n "$LAST_TAG" ]; then
               echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...v${NEW}"
             fi
-            echo "RELEASE_EOF"
-          } >> $GITHUB_OUTPUT
+            echo "${NOTES_DELIM}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Bump version in package.json
         shell: bash
@@ -139,6 +144,46 @@ jobs:
         run: npm run generate:secrets
         env:
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+
+      # PRE-392: downloads the newest "obs-setup-v*" release's Windows binary
+      # from the public shaktech786/prelive-releases repo into build/obs-setup/
+      # so .electron-builder.config.js's extraResources can bundle it into the
+      # installer (see scripts/fetch-obs-setup-binary.js for why this can't use
+      # /releases/latest). Fails the job on any error — a missing or failed
+      # download must never silently ship an installer without the tool.
+      - name: Fetch bundled OBS Setup tool
+        id: obs_setup
+        shell: bash
+        run: |
+          npm run fetch:obs-setup
+          VERSION=$(node -p "require('./build/obs-setup/version.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Runs after "Fetch bundled OBS Setup tool" so it can append the bundled
+      # tool's version to the notes "Generate release notes" produced earlier.
+      # The notes body is derived from commit messages, i.e. attacker-influenceable
+      # text. It is passed through `env:` rather than interpolated into the script
+      # with ${{ }}: a `${{ }}` expansion is pasted in as raw source before bash
+      # runs, so a crafted commit message would execute as code in a job that holds
+      # RELEASES_REPO_TOKEN and DISCORD_CLIENT_SECRET. Via env it is only ever data.
+      # The heredoc delimiter is randomised for the same reason — a body containing
+      # the literal delimiter would otherwise let it write arbitrary GITHUB_OUTPUT keys.
+      - name: Append bundled OBS Setup version to release notes
+        id: notes_full
+        shell: bash
+        env:
+          NOTES_BODY: ${{ steps.notes.outputs.body }}
+          OBS_SETUP_VERSION: ${{ steps.obs_setup.outputs.version }}
+        run: |
+          DELIM="RELEASE_EOF_$(openssl rand -hex 16)"
+          {
+            echo "body<<${DELIM}"
+            printf '%s\n' "$NOTES_BODY"
+            echo ""
+            echo "---"
+            printf 'Bundles OBS Setup v%s.\n' "$OBS_SETUP_VERSION"
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build Electron (Windows)
         run: npx electron-builder --win --config .electron-builder.config.js --publish never
@@ -177,7 +222,7 @@ jobs:
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
           tag_name: deck-${{ steps.bump.outputs.new }}
           name: Prelive Deck v${{ steps.bump.outputs.new }}
-          body: ${{ steps.notes.outputs.body }}
+          body: ${{ steps.notes_full.outputs.body }}
           draft: false
           # Never contend with obs-setup's releases for the repo-wide "latest"
           # slot — our auto-update feed is pinned to the deck-latest release

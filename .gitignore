@@ -4,7 +4,6 @@ node_modules/
 .pnp.js
 
 # Production
-/build
 /dist
 /out
 /.next/
@@ -37,11 +36,15 @@ yarn-error.log*
 # Next.js
 .next/
 out/
-build/
 
 # Electron
 dist/
 release/
+
+# PRE-392: downloaded obs-setup binary staged for electron-builder's
+# extraResources — build/installer.nsh IS tracked (see .electron-builder.config.js
+# buildResources), only this fetched artifact should be ignored.
+/build/obs-setup/
 
 # Misc
 *.log
