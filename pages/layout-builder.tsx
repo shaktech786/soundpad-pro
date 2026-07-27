@@ -34,7 +34,7 @@ export default function LayoutBuilderPage() {
   return (
     <>
       <Head>
-        <title>Layout Builder - SoundPad Pro</title>
+        <title>Layout Builder - Prelive Deck</title>
       </Head>
 
       <div className="min-h-screen bg-gray-950 py-8">

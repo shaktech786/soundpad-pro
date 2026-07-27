@@ -1,4 +1,4 @@
-# SoundPad Pro - User Flows
+# Prelive Deck - User Flows
 
 Complete reference for all user interaction paths. Use as a basis for manual QA or Playwright E2E tests.
 

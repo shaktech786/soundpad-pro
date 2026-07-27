@@ -1,13 +1,13 @@
 # Discord Integration
 
-SoundPad Pro connects to your locally running Discord desktop app over Discord's
+Prelive Deck connects to your locally running Discord desktop app over Discord's
 RPC protocol. It establishes a **connection and one-time authorization**, then
 lets you map controller pads to **mute / deafen / push-to-talk** actions that
 change your live Discord voice state.
 
 ## How It Works
 
-- SoundPad Pro talks to Discord through the local IPC named pipe
+- Prelive Deck talks to Discord through the local IPC named pipe
   (`\\?\pipe\discord-ipc-0` … `-9`) using a direct Node implementation of the
   Discord RPC handshake — no browser, no external service.
 - The Discord Application's **Client ID and Client Secret are both baked into
@@ -18,12 +18,12 @@ change your live Discord voice state.
   secret at package time rather than committed to this public repo. See
   Technical Details below.
 - On first connect, Discord shows its **native authorization popup** asking you
-  to approve SoundPad Pro (scopes: `rpc`, `identify`, `rpc.voice.write`). The
-  `rpc.voice.write` scope is what allows SoundPad Pro to set your mute/deafen
+  to approve Prelive Deck (scopes: `rpc`, `identify`, `rpc.voice.write`). The
+  `rpc.voice.write` scope is what allows Prelive Deck to set your mute/deafen
   state.
 - The resulting access token is stored locally so future launches reconnect
   **silently** (the token is refreshed automatically when it expires).
-- If Discord isn't running, SoundPad Pro retries every 10 seconds in the
+- If Discord isn't running, Prelive Deck retries every 10 seconds in the
   background. It never blocks app startup.
 
 ## Setup
@@ -35,7 +35,7 @@ Nothing to configure — no Client ID, no Client Secret, no pasting.
 3. Discord shows an **Authorize** popup — approve it
 4. The badge turns green and shows your Discord account name
 
-That's it. On later launches SoundPad Pro reconnects automatically without
+That's it. On later launches Prelive Deck reconnects automatically without
 prompting again.
 
 ## Voice Actions
@@ -67,13 +67,13 @@ controller button for a sustained talk).
 Voice control needs the `rpc.voice.write` OAuth scope. If you authorized SoundPad
 Pro **before** this scope existed, your stored token lacks it. The first time you
 trigger a mute/deafen/push-to-talk action, Discord rejects the command with a
-permissions error and SoundPad Pro **automatically re-opens the authorization
+permissions error and Prelive Deck **automatically re-opens the authorization
 popup** so you can grant the new scope. Approve it once; the refreshed token is
 saved and subsequent actions work without prompting.
 
 ## Rich Presence (Now Playing)
 
-When connected, SoundPad Pro can show the **currently playing sound** as your
+When connected, Prelive Deck can show the **currently playing sound** as your
 Discord Rich Presence — the "Playing a game / listening to…" status on your
 profile.
 
@@ -128,7 +128,7 @@ to source and never stored on the user's machine — see Technical Details below
 1. Make sure the **Discord desktop app** is running (the web app in a browser
    does not expose the RPC pipe)
 2. Sign in to Discord
-3. SoundPad Pro retries every 10 seconds — start Discord and it will connect
+3. Prelive Deck retries every 10 seconds — start Discord and it will connect
 
 ### Authorization popup never appears
 

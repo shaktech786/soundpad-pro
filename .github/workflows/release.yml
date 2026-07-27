@@ -176,7 +176,7 @@ jobs:
           repository: shaktech786/prelive-releases
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
           tag_name: deck-${{ steps.bump.outputs.new }}
-          name: SoundPad Pro v${{ steps.bump.outputs.new }}
+          name: Prelive Deck v${{ steps.bump.outputs.new }}
           body: ${{ steps.notes.outputs.body }}
           draft: false
           # Never contend with obs-setup's releases for the repo-wide "latest"
@@ -184,8 +184,8 @@ jobs:
           # below, not GitHub's ambiguous /releases/latest endpoint.
           make_latest: false
           files: |
-            dist/SoundPad-Pro-Setup.exe
-            dist/SoundPad-Pro-Setup.exe.blockmap
+            dist/Prelive-Deck-Setup.exe
+            dist/Prelive-Deck-Setup.exe.blockmap
             dist/latest.yml
 
       # TRANSITIONAL — also publish to THIS repo's releases.
@@ -206,13 +206,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump.outputs.new }}
-          name: SoundPad Pro v${{ steps.bump.outputs.new }}
+          # Named for what the build now is. Old clients find this release by
+          # polling /releases/latest on this repo, not by matching its title.
+          name: Prelive Deck v${{ steps.bump.outputs.new }} (formerly SoundPad Pro)
           body: ${{ steps.notes.outputs.body }}
           draft: false
           make_latest: true
+          # Must track the renamed artifact — after this story the installer is
+          # Prelive-Deck-Setup.exe, and latest.yml references it by that name.
+          # Leaving the old filename here would fail the step and break the very
+          # migration path this bridge exists to provide.
           files: |
-            dist/SoundPad-Pro-Setup.exe
-            dist/SoundPad-Pro-Setup.exe.blockmap
+            dist/Prelive-Deck-Setup.exe
+            dist/Prelive-Deck-Setup.exe.blockmap
             dist/latest.yml
 
       # Rolling pointer release: same assets, fixed tag. This is the URL
@@ -226,7 +232,7 @@ jobs:
           repository: shaktech786/prelive-releases
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
           tag_name: deck-latest
-          name: "SoundPad Pro — latest (auto-update feed)"
+          name: "Prelive Deck — latest (auto-update feed)"
           body: |
             Rolling pointer consumed by the in-app auto-updater. Not for manual
             download — see the `deck-${{ steps.bump.outputs.new }}` release for
@@ -234,6 +240,6 @@ jobs:
           draft: false
           make_latest: false
           files: |
-            dist/SoundPad-Pro-Setup.exe
-            dist/SoundPad-Pro-Setup.exe.blockmap
+            dist/Prelive-Deck-Setup.exe
+            dist/Prelive-Deck-Setup.exe.blockmap
             dist/latest.yml

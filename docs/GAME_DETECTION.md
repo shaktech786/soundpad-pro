@@ -1,6 +1,6 @@
 # Foreground Game Detection
 
-SoundPad Pro detects which game currently has OS focus and exposes it over the
+Prelive Deck detects which game currently has OS focus and exposes it over the
 same local HTTP server used for now-playing attribution
 (`http://127.0.0.1:3006`, `127.0.0.1`-only, never exposed to the network).
 
@@ -128,7 +128,7 @@ than a plain error string.
 
 ### Security
 
-- **Treat the key like a password.** It is a credential: SoundPad Pro stores it
+- **Treat the key like a password.** It is a credential: Prelive Deck stores it
   locally, **never logs it**, and **never returns it to the UI** once stored —
   the status the renderer sees only reports whether a key is configured, the
   last fetch's success, and the cached game count, never the key itself.

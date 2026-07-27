@@ -1,6 +1,6 @@
 # OBS Studio Integration
 
-SoundPad Pro now supports full integration with OBS Studio, allowing you to control your stream directly from your Haute42 controller!
+Prelive Deck now supports full integration with OBS Studio, allowing you to control your stream directly from your Haute42 controller!
 
 ## Features
 
@@ -24,9 +24,9 @@ SoundPad Pro now supports full integration with OBS Studio, allowing you to cont
 5. Set a **Server Password** (recommended for security)
 6. Click **OK**
 
-### 2. Connect SoundPad Pro to OBS
+### 2. Connect Prelive Deck to OBS
 
-1. In SoundPad Pro, click the **CONNECT TO OBS** button
+1. In Prelive Deck, click the **CONNECT TO OBS** button
 2. Enter your OBS connection details:
    - **Server Address**: `localhost` (if OBS is on the same computer)
    - **Port**: `4455` (or your custom port)
@@ -199,16 +199,16 @@ For issues or feature requests:
 
 ## OBS Dock Mode
 
-SoundPad Pro includes a compact dock mode designed specifically for OBS browser docks. This lets you control your soundpad directly from within OBS!
+Prelive Deck includes a compact dock mode designed specifically for OBS browser docks. This lets you control your soundpad directly from within OBS!
 
 ### Setting Up the OBS Dock
 
-1. **Ensure SoundPad Pro is running** (or set it to auto-start - see below)
+1. **Ensure Prelive Deck is running** (or set it to auto-start - see below)
 
 2. **Add Custom Browser Dock in OBS:**
    - Go to **View** > **Docks** > **Custom Browser Docks**
    - Add a new dock:
-     - **Dock Name**: `SoundPad Pro`
+     - **Dock Name**: `Prelive Deck`
      - **URL**: `http://localhost:3005/dock`
    - Click **Apply**
 
@@ -216,9 +216,9 @@ SoundPad Pro includes a compact dock mode designed specifically for OBS browser 
 
 OBS will remember this dock and load it automatically on future launches.
 
-### Auto-Start SoundPad Pro with Windows
+### Auto-Start Prelive Deck with Windows
 
-For the dock to work, SoundPad Pro must be running before OBS tries to load it.
+For the dock to work, Prelive Deck must be running before OBS tries to load it.
 
 **Option 1: Run the Auto-Start Setup Script**
 \`\`\`powershell
@@ -227,7 +227,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-auto-start.ps1
 
 **Option 2: Manual Setup**
 1. Press Win+R, type shell:startup, press Enter
-2. Create a shortcut to SoundPad Pro.exe in this folder
+2. Create a shortcut to Prelive Deck.exe in this folder
 
 ### Start Both Apps Together
 
@@ -238,7 +238,7 @@ scripts\start-streaming.bat
 \`\`\`
 
 This script:
-1. Launches SoundPad Pro
+1. Launches Prelive Deck
 2. Waits 4 seconds for it to initialize
 3. Launches OBS Studio
 
@@ -263,4 +263,4 @@ The OBS browser dock has some limitations compared to the full app:
 - No gamepad API (controller buttons work via main app)
 - Limited keyboard shortcuts
 
-**Recommendation:** Keep the main SoundPad Pro window open (can be minimized) and use the OBS dock for quick access during streams.
+**Recommendation:** Keep the main Prelive Deck window open (can be minimized) and use the OBS dock for quick access during streams.

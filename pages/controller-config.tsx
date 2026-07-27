@@ -148,7 +148,7 @@ export default function ControllerConfigPage() {
   return (
     <>
       <Head>
-        <title>Controller Config - SoundPad Pro</title>
+        <title>Controller Config - Prelive Deck</title>
       </Head>
 
       <div className="min-h-screen bg-gray-950 py-8">
