@@ -3,6 +3,7 @@ import Head from 'next/head'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
 import { useRouter } from 'next/router'
 import { BoardBuilder } from '../components/BoardBuilder'
+import { TemplateMappingNotice } from '../components/TemplateMappingNotice'
 import { useProfileManager } from '../hooks/useProfileManager'
 import { usePersistentStorage } from '../hooks/usePersistentStorage'
 import { ButtonPosition, ButtonShape } from '../types/profile'
@@ -52,6 +53,15 @@ export default function OnboardingPage() {
 
   // Step 2: Board builder result
   const [boardLayout, setBoardLayout] = useState<ButtonPosition[]>(HAUTE42_LAYOUT)
+
+  // Mapping resolved by a template pick in board-builder (see BoardBuilder's
+  // onSave): null = no template mapping to offer, [] = a template promised
+  // one but it couldn't be trusted for the connected device, non-empty =
+  // ready to use as-is.
+  const [templateMapping, setTemplateMapping] = useState<[number, number][] | null>(null)
+  const [mappingChoiceMade, setMappingChoiceMade] = useState(false)
+  const templateNeedsCalibration = templateMapping !== null && templateMapping.length === 0
+  const showTemplateChoice = !!templateMapping && templateMapping.length > 0 && !mappingChoiceMade
 
   // Step 3: Button mapping
   const [currentMappingStep, setCurrentMappingStep] = useState(0)
@@ -132,10 +142,23 @@ export default function OnboardingPage() {
     prevStatesRef.current = new Map(buttonStates)
   }, [buttonStates, isMappingComplete, isReady, step, mappingOrder, totalButtons])
 
-  const handleBoardSave = (layout: ButtonPosition[], shape: ButtonShape) => {
+  const handleBoardSave = (
+    layout: ButtonPosition[],
+    shape: ButtonShape,
+    appliedButtonMapping: [number, number][] | null
+  ) => {
     setBoardLayout(layout)
     setButtonShape(shape)
+    setTemplateMapping(appliedButtonMapping)
+    setMappingChoiceMade(false)
     setStep('button-mapping')
+  }
+
+  const useTemplateMapping = () => {
+    if (!templateMapping) return
+    setMapping(new Map(templateMapping))
+    setMappingChoiceMade(true)
+    setIsMappingComplete(true)
   }
 
   const saveAndContinue = async () => {
@@ -175,6 +198,7 @@ export default function OnboardingPage() {
     setMapping(new Map())
     setIsMappingComplete(false)
     setIsReady(false)
+    setMappingChoiceMade(false)
     prevStatesRef.current = new Map()
     lastMappingTime.current = 0
   }
@@ -332,7 +356,38 @@ export default function OnboardingPage() {
           {/* Step 3: Button Mapping */}
           {step === 'button-mapping' && (
             <>
-              {!isMappingComplete ? (
+              {templateNeedsCalibration && (
+                <div className="max-w-2xl mx-auto mb-6">
+                  <TemplateMappingNotice
+                    status="needs-calibration"
+                    onCalibrate={() => navigateTo('/calibrate')}
+                  />
+                </div>
+              )}
+
+              {showTemplateChoice ? (
+                <div className="bg-gray-900 rounded-xl p-8 max-w-2xl mx-auto text-center">
+                  <h2 className="text-2xl font-bold text-white mb-3">Default Mapping Available</h2>
+                  <p className="text-gray-300 mb-6">
+                    Your template shipped a default button mapping for your connected Haute42.
+                    Use it as-is, or walk through mapping every button manually below.
+                  </p>
+                  <div className="flex justify-center gap-4">
+                    <button
+                      onClick={useTemplateMapping}
+                      className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-lg transition-colors"
+                    >
+                      Use Template Mapping
+                    </button>
+                    <button
+                      onClick={() => setMappingChoiceMade(true)}
+                      className="px-8 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-lg transition-colors"
+                    >
+                      Map Manually Instead
+                    </button>
+                  </div>
+                </div>
+              ) : !isMappingComplete ? (
                 <>
                   <div className="bg-gray-900 rounded-xl p-6 mb-6">
                     <h2 className="text-2xl font-bold text-white mb-4">

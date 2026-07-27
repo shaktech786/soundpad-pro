@@ -150,6 +150,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   preliveSetApiKey: (apiKey) => ipcRenderer.invoke('prelive:set-api-key', apiKey),
   preliveGetStatus: () => ipcRenderer.invoke('prelive:get-status'),
   preliveDisconnect: () => ipcRenderer.invoke('prelive:disconnect'),
+  preliveOpenApiKeysPage: () => ipcRenderer.invoke('prelive:open-api-keys-page'),
   onPreliveStatusChanged: (callback) => {
     const handler = (event, status) => callback(status);
     ipcRenderer.on('prelive:status-changed', handler);

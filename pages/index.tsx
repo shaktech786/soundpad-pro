@@ -1438,9 +1438,15 @@ export default function Home() {
             <BoardBuilder
               initialLayout={boardLayout}
               initialShape={buttonShape}
-              onSave={(layout, shape) => {
+              onSave={(layout, shape, appliedButtonMapping) => {
                 setBoardLayout(layout)
                 setButtonShape(shape)
+                // setButtonMapping persists to the 'haute42-button-mapping'
+                // working-state key itself (see usePersistentStorage) — no
+                // separate storeSet needed for it.
+                if (appliedButtonMapping !== null) {
+                  setButtonMapping(new Map(appliedButtonMapping))
+                }
                 const storeSet = (window as any).electronAPI?.storeSet
                 if (storeSet) {
                   storeSet(APP_CONFIG.PROFILES.STORAGE_KEYS.BOARD_LAYOUT, layout)

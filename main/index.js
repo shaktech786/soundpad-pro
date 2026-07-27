@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session, powerSaveBlocker, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const { spawn } = require('child_process');
@@ -1019,6 +1019,10 @@ ipcMain.handle('discord:refresh-activity', async (event, enabled) => {
 
 // --- Prelive API-key pairing IPC Handlers ---
 
+// Where a user creates a games:read API key. Opened via shell.openExternal
+// (never renderer navigation) so the packaged app's window isn't hijacked.
+const PRELIVE_API_KEYS_URL = 'https://prelive.ai/settings?tab=api-keys';
+
 // Store the pasted games:read key, trigger an immediate fetch, and return the
 // resulting status. The key is never returned to the renderer.
 ipcMain.handle('prelive:set-api-key', async (event, apiKey) => {
@@ -1090,6 +1094,14 @@ ipcMain.handle('obs-setup:get-version-info', async () => {
   } catch {
     return null;
   }
+});
+
+// Open prelive's API-keys page in the user's default browser so pairing is
+// discoverable from inside the app instead of requiring the user to already
+// know where to go.
+ipcMain.handle('prelive:open-api-keys-page', async () => {
+  await shell.openExternal(PRELIVE_API_KEYS_URL);
+  return { success: true };
 });
 
 // --- Auto-updater IPC Handlers ---
