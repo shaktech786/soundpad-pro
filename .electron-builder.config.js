@@ -29,6 +29,20 @@ module.exports = {
     "node_modules/node-hid/**/*",
     "node_modules/active-win/**/*"
   ],
+
+  // PRE-392: bundle the standalone OBS Setup tool (fetched by
+  // scripts/fetch-obs-setup-binary.js into build/obs-setup/ before this config
+  // is read — see package.json's build:win / build:win:portable) so the
+  // installer can offer to run it (build/installer.nsh's customFinishPage) and
+  // the app itself can spawn it later (main/obs-setup-binary-path.js resolves
+  // this same "resources/obs-setup" location once packaged).
+  extraResources: [
+    {
+      from: "build/obs-setup",
+      to: "obs-setup"
+    }
+  ],
+
   compression: "maximum",
   npmRebuild: true,
   nodeGypRebuild: false,
