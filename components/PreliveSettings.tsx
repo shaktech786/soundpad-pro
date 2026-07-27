@@ -7,7 +7,8 @@ interface PreliveSettingsProps {
 }
 
 export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => {
-  const { connected, connecting, error, gameCount, games, setApiKey, disconnect } = usePrelive()
+  const { connected, connecting, error, gameCount, games, lastFetchAt, setApiKey, disconnect, openApiKeysPage } =
+    usePrelive()
   const { theme } = useTheme()
 
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -25,11 +26,25 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
     setApiKeyInput('')
   }
 
+  const handleOpenApiKeysPage = () => {
+    void openApiKeysPage()
+  }
+
+  // A rejected/revoked key (HTTP 401/403) surfaces its own error message from
+  // prelive-client.js ("API key was rejected…"). Treat that as a distinct
+  // "reconnect" state rather than a generic error line — the fix is different
+  // (mint a new key) from a transient network blip, which should stay generic.
+  const keyRejected = !connected && !connecting && !!error && /rejected/i.test(error)
+
   const statusLabel = connected
     ? `Connected — ${gameCount} game${gameCount === 1 ? '' : 's'}`
     : connecting
       ? 'Connecting…'
-      : 'Not Connected'
+      : keyRejected
+        ? 'Key Rejected'
+        : 'Not Connected'
+
+  const lastSyncLabel = lastFetchAt ? new Date(lastFetchAt).toLocaleString() : null
 
   const cardClass = theme === 'light' ? 'bg-gray-100' : 'bg-gray-800'
   const headingClass = theme === 'light' ? 'text-gray-900' : 'text-white'
@@ -65,7 +80,9 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
                 ? 'bg-green-500 animate-pulse'
                 : connecting
                   ? 'bg-yellow-500 animate-pulse'
-                  : 'bg-red-500'
+                  : keyRejected
+                    ? 'bg-amber-500'
+                    : 'bg-red-500'
             }`}
           />
           <div className="flex-1">
@@ -75,7 +92,12 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
                 Your streamed-game history is the top game-detection source.
               </div>
             )}
-            {error && !connecting && (
+            {keyRejected && (
+              <div className="text-amber-400 text-sm mt-1">
+                This key was rejected by prelive. Create a new one below and reconnect.
+              </div>
+            )}
+            {error && !connecting && !keyRejected && (
               <div className="text-red-400 text-sm mt-1">{error}</div>
             )}
           </div>
@@ -84,6 +106,18 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
 
       {!connected && (
         <div className="space-y-4 mb-6">
+          <button
+            type="button"
+            onClick={handleOpenApiKeysPage}
+            className={`w-full px-6 py-3 font-bold rounded-lg transition-colors border ${
+              theme === 'light'
+                ? 'bg-gray-50 border-gray-300 text-gray-900 hover:bg-gray-100'
+                : 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700'
+            }`}
+          >
+            Open Prelive API Keys ↗
+          </button>
+
           <div>
             <label className={`block text-sm font-semibold mb-2 ${headingClass}`} htmlFor="prelive-api-key">
               API Key
@@ -114,24 +148,24 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
               theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
             }`}
           >
-            {connecting ? 'Connecting…' : 'Connect'}
+            {connecting ? 'Connecting…' : keyRejected ? 'Reconnect' : 'Connect'}
           </button>
 
           {/* Setup Instructions */}
           <div className={`mt-4 p-4 rounded-lg ${cardClass}`}>
             <div className={`text-sm ${labelClass}`}>
-              <div className={`font-bold mb-2 ${headingClass}`}>Setup Instructions:</div>
+              <div className={`font-bold mb-2 ${headingClass}`}>Setup:</div>
               <ol className="list-decimal list-inside space-y-1">
                 <li>
-                  Go to{' '}
-                  <span className={`font-semibold ${headingClass}`}>prelive.ai/settings?tab=api-keys</span>
-                </li>
-                <li>
-                  Create a new key and check <span className={`font-semibold ${headingClass}`}>ONLY</span>{' '}
+                  Click <span className={`font-semibold ${headingClass}`}>Open Prelive API Keys</span> above,
+                  create a new key, and check <span className={`font-semibold ${headingClass}`}>ONLY</span>{' '}
                   the <span className={`font-semibold ${headingClass}`}>games:read</span> scope
                 </li>
                 <li>Copy the key (it&apos;s shown only once)</li>
-                <li>Paste it here and click <span className={`font-semibold ${headingClass}`}>Connect</span></li>
+                <li>
+                  Paste it here and click{' '}
+                  <span className={`font-semibold ${headingClass}`}>{keyRejected ? 'Reconnect' : 'Connect'}</span>
+                </li>
               </ol>
               <div className={`mt-3 pt-3 border-t ${theme === 'light' ? 'border-gray-300' : 'border-gray-700'}`}>
                 Treat the key like a password — it&apos;s stored locally and never shown again. Grant it
@@ -150,6 +184,9 @@ export const PreliveSettings: React.FC<PreliveSettingsProps> = ({ onClose }) => 
             <div className={`font-bold ${headingClass}`}>
               {gameCount} game{gameCount === 1 ? '' : 's'}
             </div>
+            {lastSyncLabel && (
+              <div className={`text-xs mt-1 ${labelClass}`}>Last synced {lastSyncLabel}</div>
+            )}
             {games.length > 0 && (
               <ul className="mt-3 max-h-48 overflow-y-auto space-y-1 pr-1">
                 {games.map((game) => (
