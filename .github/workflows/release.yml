@@ -140,6 +140,35 @@ jobs:
         env:
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
 
+      # PRE-392: downloads the newest "obs-setup-v*" release's Windows binary
+      # from the public shaktech786/prelive-releases repo into build/obs-setup/
+      # so .electron-builder.config.js's extraResources can bundle it into the
+      # installer (see scripts/fetch-obs-setup-binary.js for why this can't use
+      # /releases/latest). Fails the job on any error — a missing or failed
+      # download must never silently ship an installer without the tool.
+      - name: Fetch bundled OBS Setup tool
+        id: obs_setup
+        shell: bash
+        run: |
+          npm run fetch:obs-setup
+          VERSION=$(node -p "require('./build/obs-setup/version.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Runs after "Fetch bundled OBS Setup tool" so it can append the bundled
+      # tool's version to the notes "Generate release notes" produced earlier.
+      - name: Append bundled OBS Setup version to release notes
+        id: notes_full
+        shell: bash
+        run: |
+          {
+            echo "body<<RELEASE_EOF"
+            echo "${{ steps.notes.outputs.body }}"
+            echo ""
+            echo "---"
+            echo "Bundles OBS Setup v${{ steps.obs_setup.outputs.version }}."
+            echo "RELEASE_EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Build Electron (Windows)
         run: npx electron-builder --win --config .electron-builder.config.js --publish never
 
@@ -177,7 +206,7 @@ jobs:
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
           tag_name: deck-${{ steps.bump.outputs.new }}
           name: Prelive Deck v${{ steps.bump.outputs.new }}
-          body: ${{ steps.notes.outputs.body }}
+          body: ${{ steps.notes_full.outputs.body }}
           draft: false
           # Never contend with obs-setup's releases for the repo-wide "latest"
           # slot — our auto-update feed is pinned to the deck-latest release
