@@ -36,14 +36,28 @@ module.exports = {
   removePackageScripts: true,
 
   // Auto-update feed. electron-builder uses this to (a) emit the `latest.yml`
-  // metadata and `.blockmap` that electron-updater reads from the GitHub Release
-  // to detect/download updates, and (b) bake an app-update.yml into the package
-  // so the runtime knows where to look. Releases are published by the manual
+  // metadata and `.blockmap` that electron-updater reads to detect/download
+  // updates, and (b) bake an app-update.yml into the package so the runtime
+  // knows where to look. Releases are published by the manual
   // .github/workflows/release.yml workflow. See docs/AUTO_UPDATE.md.
+  //
+  // Feed lives in shaktech786/prelive-releases, a repo SHARED with the
+  // sibling "obs-setup" product (its releases use an `obs-setup-*` tag
+  // prefix; ours use `deck-*`). This is deliberately `generic`, not `github`:
+  // electron-updater's github provider resolves the update via GitHub's
+  // `/repos/{owner}/{repo}/releases/latest` API, which returns the single
+  // most-recently-published release for the WHOLE repo — not scoped by tag
+  // prefix or product. In a shared repo that means checkForUpdates() would
+  // start failing (or resolving the wrong product's release) as soon as an
+  // obs-setup release landed more recently than ours. Pointing `generic` at
+  // a fixed, non-moving `deck-latest` release side-steps that entirely: it
+  // fetches latest.yml from a URL we own and control, with no repo-wide
+  // "latest" ambiguity. The release workflow publishes/updates BOTH a
+  // versioned `deck-x.y.z` release (changelog, installer for manual
+  // download) and this `deck-latest` pointer (same assets, feed target).
   publish: {
-    provider: "github",
-    owner: "shaktech786",
-    repo: "soundpad-pro"
+    provider: "generic",
+    url: "https://github.com/shaktech786/prelive-releases/releases/download/deck-latest/"
   },
 
   win: {

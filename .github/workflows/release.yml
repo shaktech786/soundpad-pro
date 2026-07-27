@@ -152,16 +152,61 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.bump.outputs.new }}"
           git push
 
-      - name: Create GitHub Release
+      # Local git tag in THIS (soundpad-pro) repo — separate from the deck-*
+      # GitHub Release tag below, which lives in prelive-releases and is never
+      # fetched into this checkout. Without this, "Determine version bump"'s
+      # `git describe --tags --abbrev=0` would stop finding new tags after this
+      # story ships, and every future changelog range would grow unbounded from
+      # v2.32.0 instead of the previous release.
+      - name: Tag version bump
+        shell: bash
+        run: |
+          NEW="${{ steps.bump.outputs.new }}"
+          git tag "v$NEW"
+          git push origin "v$NEW"
+
+      # Releases are published cross-repo to shaktech786/prelive-releases, which
+      # is SHARED with the sibling "obs-setup" product. secrets.GITHUB_TOKEN only
+      # grants write access to this (soundpad-pro) repo, so publishing there
+      # requires a PAT with `contents: write` on prelive-releases, stored as the
+      # RELEASES_REPO_TOKEN repo secret (must be created manually — see PR body).
+      - name: Create GitHub Release (versioned)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.bump.outputs.new }}
+          repository: shaktech786/prelive-releases
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          tag_name: deck-${{ steps.bump.outputs.new }}
           name: SoundPad Pro v${{ steps.bump.outputs.new }}
           body: ${{ steps.notes.outputs.body }}
           draft: false
+          # Never contend with obs-setup's releases for the repo-wide "latest"
+          # slot — our auto-update feed is pinned to the deck-latest release
+          # below, not GitHub's ambiguous /releases/latest endpoint.
+          make_latest: false
           files: |
             dist/SoundPad-Pro-Setup.exe
             dist/SoundPad-Pro-Setup.exe.blockmap
             dist/latest.yml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Rolling pointer release: same assets, fixed tag. This is the URL
+      # .electron-builder.config.js's `publish.url` points at, so electron-updater
+      # always resolves the newest build deterministically regardless of what
+      # obs-setup publishes in between. Not for manual download — see the
+      # versioned release above for changelog + installer.
+      - name: Update deck-latest pointer release (auto-update feed target)
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: shaktech786/prelive-releases
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          tag_name: deck-latest
+          name: "SoundPad Pro — latest (auto-update feed)"
+          body: |
+            Rolling pointer consumed by the in-app auto-updater. Not for manual
+            download — see the `deck-${{ steps.bump.outputs.new }}` release for
+            release notes and the installer.
+          draft: false
+          make_latest: false
+          files: |
+            dist/SoundPad-Pro-Setup.exe
+            dist/SoundPad-Pro-Setup.exe.blockmap
+            dist/latest.yml

@@ -17,11 +17,23 @@ action** — the app never restarts itself mid-session.
 - The publish target is configured in `.electron-builder.config.js`:
 
   ```js
-  publish: { provider: "github", owner: "shaktech786", repo: "soundpad-pro" }
+  publish: {
+    provider: "generic",
+    url: "https://github.com/shaktech786/prelive-releases/releases/download/deck-latest/"
+  }
   ```
 
   At build time electron-builder bakes an `app-update.yml` into the package so
-  the runtime knows which repo to poll.
+  the runtime knows where to fetch `latest.yml` from. This points at a fixed
+  `deck-latest` release in `shaktech786/prelive-releases` — a repo **shared**
+  with the sibling `obs-setup` product — rather than using the `github`
+  provider's automatic "latest release" resolution. That resolution is
+  scoped to the whole repo (GitHub's `/releases/latest` API, not per-tag-prefix),
+  so in a shared repo it would intermittently resolve to whichever product
+  published most recently. Pointing `generic` at our own non-moving
+  `deck-latest` release sidesteps that ambiguity entirely. See
+  [Publishing releases](#publishing-releases) below for how that release stays
+  current.
 - On the main process (`main/auto-updater.js`, wired up in `main/index.js`):
   - **On launch**, ~5 seconds after startup (so it never blocks the window from
     opening), the app calls `autoUpdater.checkForUpdates()`.
@@ -58,18 +70,31 @@ The only two ways an update is ever applied:
 
 ## Publishing releases
 
-Unchanged from before this feature. Releases are cut by the manual
-`workflow_dispatch` GitHub Actions workflow (`.github/workflows/release.yml`):
+Releases are cut by the manual `workflow_dispatch` GitHub Actions workflow
+(`.github/workflows/release.yml`), and are published **cross-repo** to
+`shaktech786/prelive-releases` (shared with the sibling `obs-setup` product):
 
 1. Trigger the **Release** workflow from the Actions tab (optionally choosing the
    version bump; `auto` reads commit messages).
 2. It bumps the version, builds the Next.js renderer and the Electron NSIS
-   installer with `--publish never`, commits the version bump, and creates a
-   GitHub Release.
-3. It uploads `SoundPad-Pro-Setup.exe`, `SoundPad-Pro-Setup.exe.blockmap`, and
-   `latest.yml` as release assets. All three are required for auto-update to
-   work — `electron-updater` reads `latest.yml` from the release to decide
-   whether an update is available.
+   installer with `--publish never`, and commits the version bump to
+   `soundpad-pro`.
+3. It creates/updates **two** releases in `shaktech786/prelive-releases`, both
+   with `SoundPad-Pro-Setup.exe`, `SoundPad-Pro-Setup.exe.blockmap`, and
+   `latest.yml` as assets:
+   - `deck-x.y.z` — the versioned, human-facing release with changelog notes.
+     Tag prefix `deck-` distinguishes it from the sibling product's
+     `obs-setup-*` tags in the same repo.
+   - `deck-latest` — a rolling pointer release (same assets, fixed tag) that
+     is what the app's auto-update feed actually polls (see
+     [How it works](#how-it-works)). Not meant for manual download.
+   Both use `make_latest: false` so neither product fights the other for
+   GitHub's repo-wide "latest release" flag — irrelevant to us anyway, since
+   the feed is pinned to `deck-latest` by URL, not by that flag.
+4. Publishing cross-repo requires a token with `contents: write` on
+   `shaktech786/prelive-releases` — the default `GITHUB_TOKEN` only covers
+   `soundpad-pro`. The workflow reads this from the `RELEASES_REPO_TOKEN` repo
+   secret (a PAT, created manually; not committed anywhere).
 
 Installed clients pick up the new release on their next launch or 4-hour check.
 
