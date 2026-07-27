@@ -1,21 +1,48 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useSimpleGamepad } from '../hooks/useSimpleGamepad'
-import { ButtonPosition, ButtonShape } from '../types/profile'
-import { LAYOUT_PRESETS } from '../config/constants'
+import { ButtonPosition, ButtonShape, BoardTemplate, BoardTemplateCategory } from '../types/profile'
+import { BOARD_TEMPLATES } from '../config/constants'
+import { connectedDeviceId, resolveTemplateMapping } from '../utils/templateMapping'
+import { TemplateMappingNotice, TemplateMappingStatus } from './TemplateMappingNotice'
+
+const CATEGORY_LABELS: Record<BoardTemplateCategory, string> = {
+  leverless: 'Leverless',
+  arcade: 'Arcade',
+  gamepad: 'Gamepad',
+  grid: 'Grid',
+}
+
+const CATEGORY_ORDER: BoardTemplateCategory[] = ['leverless', 'arcade', 'gamepad', 'grid']
+
+function groupTemplatesByCategory(templates: BoardTemplate[]): [BoardTemplateCategory, BoardTemplate[]][] {
+  return CATEGORY_ORDER
+    .map((category): [BoardTemplateCategory, BoardTemplate[]] => [
+      category,
+      templates.filter(t => t.category === category),
+    ])
+    .filter(([, items]) => items.length > 0)
+}
 
 interface BoardBuilderProps {
   initialLayout: ButtonPosition[]
   initialShape: ButtonShape
-  onSave: (layout: ButtonPosition[], shape: ButtonShape) => void
+  /**
+   * buttonMapping is null unless the save resulted from a template pick that
+   * carried a default mapping: null means "leave whatever mapping already
+   * exists alone", [] means "a template promised a mapping but it couldn't
+   * be trusted for the connected device — clear it and prompt to calibrate",
+   * and a non-empty array is the resolved mapping to apply.
+   */
+  onSave: (layout: ButtonPosition[], shape: ButtonShape, buttonMapping: [number, number][] | null) => void
   onCancel?: () => void
   showPresets?: boolean
 }
 
-const CANVAS_WIDTH = 800
-const CANVAS_HEIGHT = 500
-const BUTTON_SIZE = 56
+export const CANVAS_WIDTH = 800
+export const CANVAS_HEIGHT = 500
+export const BUTTON_SIZE = 56
 const GRID_SIZE = 20
-const MAX_BUTTONS = 32
+export const MAX_BUTTONS = 32
 
 export const BoardBuilder: React.FC<BoardBuilderProps> = ({
   initialLayout,
@@ -31,7 +58,38 @@ export const BoardBuilder: React.FC<BoardBuilderProps> = ({
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [snapToGrid, setSnapToGrid] = useState(false)
   const [hoveredButton, setHoveredButton] = useState<number | null>(null)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  const [isCalibrated, setIsCalibrated] = useState(false)
+  const [appliedMapping, setAppliedMapping] = useState<[number, number][] | null>(null)
+  const [needsCalibration, setNeedsCalibration] = useState(false)
+  const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Whether the connected device has ever had calibration run — see
+  // utils/templateMapping.ts for why an inferred-but-uncalibrated mapping
+  // isn't trusted.
+  useEffect(() => {
+    let cancelled = false
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    api?.hidGetCalibration?.().then(res => {
+      if (!cancelled && res?.success) {
+        setIsCalibrated(Object.keys(res.overrides || {}).length > 0)
+      }
+    }).catch(() => { /* main not ready yet; default to uncalibrated */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const mappingStatus: TemplateMappingStatus = needsCalibration
+    ? 'needs-calibration'
+    : appliedMapping && appliedMapping.length > 0
+      ? 'applied'
+      : null
+
+  const clearAppliedMapping = useCallback(() => {
+    setAppliedMapping(null)
+    setNeedsCalibration(false)
+    setAppliedTemplateName(null)
+  }, [])
 
   const snapPosition = useCallback((val: number): number => {
     if (!snapToGrid) return val
@@ -52,15 +110,27 @@ export const BoardBuilder: React.FC<BoardBuilderProps> = ({
     const centerX = (CANVAS_WIDTH - BUTTON_SIZE) / 2
     const centerY = (CANVAS_HEIGHT - BUTTON_SIZE) / 2
     setPositions(prev => [...prev, { id, x: snapPosition(centerX), y: snapPosition(centerY) }])
-  }, [positions.length, getNextId, snapPosition])
+    // The pad-id set just changed, so any previously applied template
+    // mapping may no longer line up with what's on the board.
+    clearAppliedMapping()
+  }, [positions.length, getNextId, snapPosition, clearAppliedMapping])
 
   const removeButton = useCallback((id: number) => {
     setPositions(prev => prev.filter(b => b.id !== id))
-  }, [])
+    clearAppliedMapping()
+  }, [clearAppliedMapping])
 
-  const applyPreset = useCallback((presetLayout: ButtonPosition[]) => {
-    setPositions([...presetLayout])
-  }, [])
+  const applyTemplate = useCallback((template: BoardTemplate) => {
+    setPositions([...template.layout])
+    setButtonShape(template.buttonShape)
+    setShowTemplatePicker(false)
+
+    const device = connectedDeviceId(connected)
+    const resolved = resolveTemplateMapping(template, device, isCalibrated)
+    setAppliedMapping(resolved.buttonMapping)
+    setNeedsCalibration(resolved.needsCalibration)
+    setAppliedTemplateName(resolved.buttonMapping !== null ? template.name : null)
+  }, [connected, isCalibrated])
 
   const handleMouseDown = useCallback((e: React.MouseEvent, buttonId: number) => {
     e.stopPropagation()
@@ -146,23 +216,63 @@ export const BoardBuilder: React.FC<BoardBuilderProps> = ({
           </span>
         </div>
 
-        {/* Presets */}
+        {/* Templates */}
         {showPresets && (
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 text-sm">Presets:</span>
-            {LAYOUT_PRESETS.map(preset => (
-              <button
-                key={preset.name}
-                onClick={() => applyPreset(preset.layout)}
-                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-lg transition-colors"
-                title={preset.description}
-              >
-                {preset.name}
-              </button>
-            ))}
+          <div className="relative">
+            <button
+              onClick={() => setShowTemplatePicker(prev => !prev)}
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
+              aria-expanded={showTemplatePicker}
+            >
+              Templates {showTemplatePicker ? '▲' : '▼'}
+            </button>
           </div>
         )}
       </div>
+
+      {/* Template picker panel */}
+      {showPresets && showTemplatePicker && (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 space-y-4">
+          {groupTemplatesByCategory(BOARD_TEMPLATES).map(([category, templates]) => (
+            <div key={category}>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                {CATEGORY_LABELS[category]}
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {templates.map(template => (
+                  <button
+                    key={template.id}
+                    onClick={() => applyTemplate(template)}
+                    className="text-left px-3 py-2 bg-gray-900 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
+                    title={template.description}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-white">{template.name}</span>
+                      <span className="text-xs text-gray-500 shrink-0">
+                        {template.layout.length} button{template.layout.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">{template.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Template mapping feedback */}
+      {showPresets && (
+        <TemplateMappingNotice
+          status={mappingStatus}
+          templateName={appliedTemplateName}
+          onCalibrate={() => {
+            if (typeof window !== 'undefined' && window.electronAPI?.navigate) {
+              window.electronAPI.navigate('/calibrate')
+            }
+          }}
+        />
+      )}
 
       {/* Controller status */}
       <div className="flex items-center gap-2">
@@ -284,7 +394,7 @@ export const BoardBuilder: React.FC<BoardBuilderProps> = ({
             </button>
           )}
           <button
-            onClick={() => onSave(positions, buttonShape)}
+            onClick={() => onSave(positions, buttonShape, appliedMapping)}
             disabled={positions.length === 0}
             className="px-6 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium rounded-lg transition-colors"
           >

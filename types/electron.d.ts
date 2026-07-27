@@ -97,6 +97,7 @@ interface ElectronAPI {
   preliveSetApiKey: (apiKey: string) => Promise<PreliveStatus>
   preliveGetStatus: () => Promise<PreliveStatus>
   preliveDisconnect: () => Promise<PreliveStatus>
+  preliveOpenApiKeysPage: () => Promise<{ success: boolean }>
   onPreliveStatusChanged: (callback: (status: PreliveStatus) => void) => (() => void)
 
   // Auto-updater (silent background download, user-gated install)

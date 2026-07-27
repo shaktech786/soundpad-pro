@@ -38,6 +38,66 @@ describe('useProfileManager', () => {
     expect(result.current.profiles[0].buttonMapping).toEqual([[0, 5], [1, 6]])
   })
 
+  test('updateProfileLayout with a buttonMapping arg persists it on the profile record', async () => {
+    const { result } = renderHook(() => useProfileManager())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => {
+      result.current.createProfile('Layout Test', [], 'circle')
+    })
+    await waitFor(() => expect(result.current.profiles).toHaveLength(1))
+    const id = result.current.profiles[0].id
+
+    act(() => {
+      result.current.updateProfileLayout(id, [{ id: 0, x: 0, y: 0 }], 'square', [[0, 3]])
+    })
+
+    await waitFor(() => expect(result.current.profiles[0].buttonMapping).toEqual([[0, 3]]))
+    expect(result.current.profiles[0].boardLayout).toEqual([{ id: 0, x: 0, y: 0 }])
+    expect(result.current.profiles[0].buttonShape).toBe('square')
+  })
+
+  test('updateProfileLayout without a buttonMapping arg leaves the existing mapping untouched', async () => {
+    const { result } = renderHook(() => useProfileManager())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => {
+      result.current.createProfile('Layout Test', [], 'circle', [[0, 9]])
+    })
+    await waitFor(() => expect(result.current.profiles).toHaveLength(1))
+    const id = result.current.profiles[0].id
+
+    act(() => {
+      result.current.updateProfileLayout(id, [{ id: 0, x: 5, y: 5 }], 'circle')
+    })
+
+    await waitFor(() => expect(result.current.profiles[0].boardLayout).toEqual([{ id: 0, x: 5, y: 5 }]))
+    expect(result.current.profiles[0].buttonMapping).toEqual([[0, 9]])
+  })
+
+  test('updateProfileLayout writes buttonMapping into the working-state store key for the active profile', async () => {
+    const storeSet = vi.fn().mockResolvedValue(true)
+    ;(window as any).electronAPI = { storeSet, storeGet: vi.fn().mockResolvedValue(undefined) }
+
+    const { result } = renderHook(() => useProfileManager())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => {
+      result.current.createProfile('Working State Test', [], 'circle')
+    })
+    await waitFor(() => expect(result.current.profiles).toHaveLength(1))
+    const id = result.current.profiles[0].id
+    storeSet.mockClear()
+
+    act(() => {
+      result.current.updateProfileLayout(id, [{ id: 0, x: 0, y: 0 }], 'circle', [[0, 7]])
+    })
+
+    await waitFor(() => expect(storeSet).toHaveBeenCalledWith('haute42-button-mapping', [[0, 7]]))
+
+    delete (window as any).electronAPI
+  })
+
   test('renameProfile updates name and updatedAt', async () => {
     const { result } = renderHook(() => useProfileManager())
     await waitFor(() => expect(result.current.isLoading).toBe(false))

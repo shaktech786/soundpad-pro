@@ -85,13 +85,27 @@ endpoint returns names only, no executable info.
 
 ### Setup
 
-1. Go to **prelive.ai/settings?tab=api-keys**.
-2. Create a new key and check **only** the **`games:read`** scope.
-3. Copy the key (it is shown in plaintext only once — format `prl_live_…` /
-   `prl_test_…`).
-4. In Prelive Deck, open **Integrations → Prelive**, paste the key, and click
-   **Connect**. Once the first fetch succeeds the panel shows
-   **"Connected — N games"**.
+The Prelive pairing panel (**Integrations → Prelive**) has an **"Open Prelive
+API Keys"** button so the user never has to already know where key management
+lives — it opens `https://prelive.ai/settings?tab=api-keys` in the default
+browser via `shell.openExternal` in the main process (`prelive:open-api-keys-page`
+IPC handler, `main/index.js`; exposed to the renderer as
+`electronAPI.preliveOpenApiKeysPage()`). Packaged-app renderers are static
+files, so this deliberately never uses `window.open`/renderer navigation —
+navigating the app window itself away would break it.
+
+1. Click **Open Prelive API Keys** in the panel (or go to
+   **prelive.ai/settings?tab=api-keys** directly).
+2. Create a new key and check **only** the **`games:read`** scope, then copy
+   it (it is shown in plaintext only once — format `prl_live_…` / `prl_test_…`).
+3. Paste it into the panel's API Key field and click **Connect**. Once the
+   first fetch succeeds the panel shows **"Connected — N games"** along with
+   the last-sync time.
+
+If a previously-paired key is later revoked or loses its `games:read` scope,
+the panel distinguishes that from a generic error: it shows a **"Key
+Rejected"** state prompting the user to mint a new key and reconnect, rather
+than a plain error string.
 
 ### How it fetches
 

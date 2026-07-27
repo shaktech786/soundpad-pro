@@ -188,6 +188,39 @@ jobs:
             dist/Prelive-Deck-Setup.exe.blockmap
             dist/latest.yml
 
+      # TRANSITIONAL — also publish to THIS repo's releases.
+      #
+      # Every already-installed client has an app-update.yml baked in at build
+      # time that points at shaktech786/soundpad-pro. They poll *this* repo, not
+      # prelive-releases. If the feed-migration build were published only to
+      # prelive-releases, those clients would never see it, would never receive
+      # the build whose app-update.yml points at the new feed, and would be
+      # stranded on a dead channel permanently — the exact outcome this story
+      # exists to prevent.
+      #
+      # So the migration build must land where the old clients are already
+      # looking. Keep this step until telemetry (or simply enough elapsed time)
+      # says the old-feed population has drained, then delete it; new installs
+      # never read this repo's releases.
+      - name: Create GitHub Release on the legacy feed (migration bridge)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump.outputs.new }}
+          # Named for what the build now is. Old clients find this release by
+          # polling /releases/latest on this repo, not by matching its title.
+          name: Prelive Deck v${{ steps.bump.outputs.new }} (formerly SoundPad Pro)
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          make_latest: true
+          # Must track the renamed artifact — after this story the installer is
+          # Prelive-Deck-Setup.exe, and latest.yml references it by that name.
+          # Leaving the old filename here would fail the step and break the very
+          # migration path this bridge exists to provide.
+          files: |
+            dist/Prelive-Deck-Setup.exe
+            dist/Prelive-Deck-Setup.exe.blockmap
+            dist/latest.yml
+
       # Rolling pointer release: same assets, fixed tag. This is the URL
       # .electron-builder.config.js's `publish.url` points at, so electron-updater
       # always resolves the newest build deterministically regardless of what
