@@ -1,8 +1,8 @@
 import React from 'react'
-import { render, screen, fireEvent, within } from '@testing-library/react'
-import { describe, test, expect, vi } from 'vitest'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { describe, test, expect, vi, afterEach } from 'vitest'
 import { BoardBuilder } from '../components/BoardBuilder'
-import { BOARD_TEMPLATES } from '../config/constants'
+import { BOARD_TEMPLATES, HAUTE42_DEFAULT_BUTTON_MAPPING } from '../config/constants'
 import type { ButtonPosition, ButtonShape } from '../types/profile'
 
 // obs-websocket-js is imported transitively: types/profile → OBSContext → obs-websocket-js
@@ -85,5 +85,90 @@ describe('BoardBuilder — template picker', () => {
     const [savedLayout]: [ButtonPosition[]] = onSave.mock.calls[0]
     expect(savedLayout.some(b => b.id === 99)).toBe(false)
     expect(savedLayout).toHaveLength(haute42.layout.length)
+  })
+})
+
+describe('BoardBuilder — template default button mapping', () => {
+  afterEach(() => {
+    delete (window as any).electronAPI
+  })
+
+  test('a template without a defaultButtonMapping saves a null mapping and shows no notice', () => {
+    const { onSave } = renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /Templates/i }))
+
+    const vewlix = BOARD_TEMPLATES.find(t => t.id === 'vewlix-8')!
+    expect(vewlix.defaultButtonMapping).toBeUndefined()
+    fireEvent.click(screen.getByText(vewlix.name))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Layout/i }))
+    const [, , buttonMapping] = onSave.mock.calls[0]
+    expect(buttonMapping).toBeNull()
+  })
+
+  test('the Haute42 template with no controller connected saves an empty mapping and prompts calibration', () => {
+    // No window.electronAPI at all — useSimpleGamepad reports disconnected
+    // and BoardBuilder's own calibration check no-ops.
+    const { onSave } = renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /Templates/i }))
+
+    const haute42 = BOARD_TEMPLATES.find(t => t.id === 'haute42-16')!
+    fireEvent.click(screen.getByText(haute42.name))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/can't confirm it matches your controller/i)
+    expect(screen.getByRole('button', { name: /Run Calibration/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Layout/i }))
+    const [, , buttonMapping] = onSave.mock.calls[0]
+    expect(buttonMapping).toEqual([])
+  })
+
+  test('the Haute42 template with a connected, calibrated Haute42 saves the full default mapping', async () => {
+    ;(window as any).electronAPI = {
+      onHidButtons: vi.fn(() => () => {}),
+      onHidConnectionChanged: vi.fn(() => () => {}),
+      hidGetState: vi.fn().mockResolvedValue({ success: true, connected: true, buttonIds: [] }),
+      hidGetCalibration: vi.fn().mockResolvedValue({
+        success: true,
+        defaults: {},
+        overrides: { 'b0.0': 0 },
+      }),
+    }
+
+    const { onSave } = renderBuilder()
+
+    await waitFor(() => expect((window as any).electronAPI.hidGetCalibration).toHaveBeenCalled())
+    await waitFor(() => expect((window as any).electronAPI.hidGetState).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: /Templates/i }))
+    const haute42 = BOARD_TEMPLATES.find(t => t.id === 'haute42-16')!
+    fireEvent.click(screen.getByText(haute42.name))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/shipped a default button mapping/i))
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Layout/i }))
+    const [, , buttonMapping] = onSave.mock.calls[0]
+    expect(buttonMapping).toEqual(HAUTE42_DEFAULT_BUTTON_MAPPING)
+    expect(buttonMapping!.length).toBeGreaterThan(0)
+  })
+
+  test('adding a button after applying a template invalidates the applied mapping', () => {
+    const { onSave } = renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /Templates/i }))
+    const haute42 = BOARD_TEMPLATES.find(t => t.id === 'haute42-16')!
+    fireEvent.click(screen.getByText(haute42.name))
+
+    // Even though gating would have withheld it (no device), the notice
+    // should disappear once the button set changes underneath the template.
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Button/i }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Layout/i }))
+    const [, , buttonMapping] = onSave.mock.calls[0]
+    expect(buttonMapping).toBeNull()
   })
 })

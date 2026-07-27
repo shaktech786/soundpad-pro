@@ -216,12 +216,22 @@ export function useProfileManager() {
   const updateProfileLayout = useCallback((
     profileId: string,
     boardLayout: ButtonPosition[],
-    buttonShape: ButtonShape
+    buttonShape: ButtonShape,
+    // undefined = leave the profile's existing buttonMapping untouched (a
+    // plain layout/shape edit). Pass [] to explicitly clear it, or a
+    // resolved template mapping to replace it.
+    buttonMapping?: [number, number][]
   ) => {
     setProfiles(prev =>
       prev.map(p =>
         p.id === profileId
-          ? { ...p, boardLayout, buttonShape, updatedAt: Date.now() }
+          ? {
+              ...p,
+              boardLayout,
+              buttonShape,
+              ...(buttonMapping !== undefined ? { buttonMapping } : {}),
+              updatedAt: Date.now(),
+            }
           : p
       )
     )
@@ -231,6 +241,9 @@ export function useProfileManager() {
       if (storeSet) {
         storeSet(STORAGE_KEYS.BOARD_LAYOUT, boardLayout)
         storeSet(STORAGE_KEYS.BUTTON_SHAPE, buttonShape)
+        if (buttonMapping !== undefined) {
+          storeSet('haute42-button-mapping', buttonMapping)
+        }
       }
     }
   }, [setProfiles, activeProfileId])

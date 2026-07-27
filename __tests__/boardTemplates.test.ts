@@ -53,4 +53,36 @@ describe('BOARD_TEMPLATES catalog', () => {
       expect(['circle', 'square']).toContain(template.buttonShape)
     }
   })
+
+  test('the Haute42 template ships a non-empty default mapping scoped to the Haute42 device', () => {
+    const haute42 = BOARD_TEMPLATES.find(t => t.id === 'haute42-16')!
+    expect(haute42.defaultButtonMapping).toBeDefined()
+    expect(haute42.defaultButtonMapping!.length).toBeGreaterThan(0)
+    expect(haute42.supportedDevices).toEqual([{ vid: 0x0f0d, pid: 0x0092 }])
+  })
+
+  test('every defaultButtonMapping only references visual ids present in that template\'s layout', () => {
+    for (const template of BOARD_TEMPLATES) {
+      if (!template.defaultButtonMapping) continue
+      const layoutIds = new Set(template.layout.map(b => b.id))
+      for (const [visualId] of template.defaultButtonMapping) {
+        expect(layoutIds.has(visualId)).toBe(true)
+      }
+    }
+  })
+
+  test('a template with defaultButtonMapping also declares supportedDevices', () => {
+    for (const template of BOARD_TEMPLATES) {
+      if (template.defaultButtonMapping && template.defaultButtonMapping.length > 0) {
+        expect(template.supportedDevices).toBeDefined()
+      }
+    }
+  })
+
+  test('templates other than the Haute42 do not ship a default mapping', () => {
+    for (const template of BOARD_TEMPLATES) {
+      if (template.id === 'haute42-16') continue
+      expect(template.defaultButtonMapping ?? []).toHaveLength(0)
+    }
+  })
 })

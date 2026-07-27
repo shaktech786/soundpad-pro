@@ -16,13 +16,19 @@ export default function LayoutBuilderPage() {
   )
   const { activeProfileId, updateProfileLayout } = useProfileManager()
 
-  const handleSave = (layout: ButtonPosition[], shape: ButtonShape) => {
+  const handleSave = (layout: ButtonPosition[], shape: ButtonShape, buttonMapping: [number, number][] | null) => {
     setBoardLayout(layout)
     setButtonShape(shape)
     if (activeProfileId) {
-      updateProfileLayout(activeProfileId, layout, shape)
+      updateProfileLayout(activeProfileId, layout, shape, buttonMapping ?? undefined)
     }
-    alert('Layout saved!')
+    if (buttonMapping && buttonMapping.length > 0) {
+      alert('Layout saved! Your template\'s default button mapping was applied too.')
+    } else if (buttonMapping !== null) {
+      alert('Layout saved. This template\'s mapping could not be confirmed for your controller — run calibration or map buttons manually.')
+    } else {
+      alert('Layout saved!')
+    }
   }
 
   return (
