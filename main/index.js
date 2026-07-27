@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, globalShortcut, dialog, session, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const { spawn } = require('child_process');
 const isDev = require('electron-is-dev');
 const Store = require('electron-store');
 const {
@@ -18,6 +19,10 @@ const { DiscordRpcClient } = require('./discord-rpc-client');
 const { PreliveClient } = require('./prelive-client');
 const { AutoUpdaterManager } = require('./auto-updater');
 const { resolveLegacyUserDataPath } = require('./user-data-path');
+const {
+  resolveObsSetupBinaryPath,
+  resolveObsSetupVersionFilePath,
+} = require('./obs-setup-binary-path');
 
 // PRE-385 (rename to Prelive Deck): pin userData to the pre-rename path BEFORE
 // anything below reads or writes it — the Store constructed a few lines down,
@@ -1028,6 +1033,63 @@ ipcMain.handle('prelive:get-status', async () => {
 // Clear the stored key and cached tier; detection falls back to local + curated.
 ipcMain.handle('prelive:disconnect', async () => {
   return preliveClient.disconnect();
+});
+
+// --- OBS Setup tool IPC Handlers (PRE-392) ---
+//
+// The bundled standalone binary (see scripts/fetch-obs-setup-binary.js,
+// .electron-builder.config.js's extraResources, and
+// main/obs-setup-binary-path.js for where it lives in dev vs packaged) is
+// normally launched from the installer's finish page
+// (build/installer.nsh's customFinishPage). This is the fallback for anyone
+// who skipped that checkbox or reinstalled OBS afterwards — see
+// components/OBSSettings.tsx's "Set up my OBS" button.
+
+const obsSetupProjectRoot = path.join(__dirname, '..');
+
+// Spawns the bundled binary detached from this process (so it survives even
+// if Prelive Deck is closed mid-setup) and unreferenced (so it doesn't keep
+// the Electron event loop alive). The tool manages its own UI/browser flow;
+// this handler only needs to know whether the spawn itself succeeded.
+ipcMain.handle('obs-setup:run', async () => {
+  const binaryPath = resolveObsSetupBinaryPath(app, obsSetupProjectRoot);
+
+  try {
+    await fs.access(binaryPath);
+  } catch {
+    return {
+      success: false,
+      error: `OBS Setup tool not found at ${binaryPath}. It may not have been bundled with this build.`,
+    };
+  }
+
+  try {
+    const child = spawn(binaryPath, [], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: path.dirname(binaryPath),
+    });
+    child.unref();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Bundled version metadata (written by scripts/fetch-obs-setup-binary.js
+// alongside the binary) so the settings UI can show which version shipped
+// with this install. Returns null rather than throwing when absent — a dev
+// checkout that hasn't run `npm run fetch:obs-setup` is a normal state, not
+// an error.
+ipcMain.handle('obs-setup:get-version-info', async () => {
+  const versionFilePath = resolveObsSetupVersionFilePath(app, obsSetupProjectRoot);
+
+  try {
+    const contents = await fs.readFile(versionFilePath, 'utf8');
+    return JSON.parse(contents);
+  } catch {
+    return null;
+  }
 });
 
 // --- Auto-updater IPC Handlers ---

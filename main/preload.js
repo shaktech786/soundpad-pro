@@ -156,6 +156,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('prelive:status-changed', handler);
   },
 
+  // OBS Setup tool (bundled standalone binary — PRE-392)
+  obsSetupRun: () => ipcRenderer.invoke('obs-setup:run'),
+  obsSetupGetVersionInfo: () => ipcRenderer.invoke('obs-setup:get-version-info'),
+
   // Auto-updater (silent background download, user-gated install)
   getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
   quitAndInstall: () => ipcRenderer.invoke('app:quit-and-install'),
