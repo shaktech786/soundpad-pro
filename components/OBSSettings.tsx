@@ -6,6 +6,19 @@ interface OBSSettingsProps {
   onClose?: () => void
 }
 
+// Mirrors types/electron.d.ts's ObsSetupVersionInfo — that file's top-level
+// interfaces aren't importable (it ends in `export {}`, which scopes them to
+// that module), so consumers redeclare the shape locally. Same pattern as
+// contexts/DiscordContext.tsx's DiscordStatus and
+// contexts/PreliveContext.tsx's PreliveStatus.
+interface ObsSetupVersionInfo {
+  version: string
+  tag: string
+  asset: string
+  publishedAt: string | null
+  fetchedAt: string
+}
+
 export const OBSSettings: React.FC<OBSSettingsProps> = ({ onClose }) => {
   const { connected, connecting, error, obsState, connect, disconnect } = useOBS()
   const { theme } = useTheme()
@@ -15,6 +28,38 @@ export const OBSSettings: React.FC<OBSSettingsProps> = ({ onClose }) => {
     port: '4455',
     password: ''
   })
+
+  // PRE-392: bundled standalone OBS Setup tool. Normally launched from the
+  // installer's finish page (build/installer.nsh), so this button is the
+  // fallback for anyone who skipped that checkbox or reinstalled OBS since.
+  const [obsSetupVersion, setObsSetupVersion] = useState<ObsSetupVersionInfo | null>(null)
+  const [obsSetupRunning, setObsSetupRunning] = useState(false)
+  const [obsSetupError, setObsSetupError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const loadObsSetupVersion = async () => {
+      if (typeof window === 'undefined' || !(window as any).electronAPI?.obsSetupGetVersionInfo) return
+      const info = await (window as any).electronAPI.obsSetupGetVersionInfo()
+      setObsSetupVersion(info)
+    }
+    loadObsSetupVersion()
+  }, [])
+
+  const handleRunObsSetup = async () => {
+    if (typeof window === 'undefined' || !(window as any).electronAPI?.obsSetupRun) return
+    setObsSetupRunning(true)
+    setObsSetupError(null)
+    try {
+      const result = await (window as any).electronAPI.obsSetupRun()
+      if (!result.success) {
+        setObsSetupError(result.error || 'Failed to launch OBS Setup.')
+      }
+    } catch (err) {
+      setObsSetupError(err instanceof Error ? err.message : 'Failed to launch OBS Setup.')
+    } finally {
+      setObsSetupRunning(false)
+    }
+  }
 
   // Load saved config from electron-store or localStorage
   useEffect(() => {
@@ -80,6 +125,31 @@ export const OBSSettings: React.FC<OBSSettingsProps> = ({ onClose }) => {
             Close
           </button>
         )}
+      </div>
+
+      {/* Bundled OBS Setup tool (PRE-392) */}
+      <div className={`mb-6 p-4 rounded-lg ${cardClass}`}>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className={`font-bold ${headingClass}`}>Set up my OBS</div>
+            <div className={`text-sm ${labelClass}`}>
+              Runs the bundled tool that configures OBS scenes, sources and settings automatically.
+              {obsSetupVersion && ` Bundled version: v${obsSetupVersion.version}.`}
+            </div>
+            {obsSetupError && (
+              <div className="text-red-400 text-sm mt-1">{obsSetupError}</div>
+            )}
+          </div>
+          <button
+            onClick={handleRunObsSetup}
+            disabled={obsSetupRunning}
+            className={`px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors whitespace-nowrap ${
+              theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
+            }`}
+          >
+            {obsSetupRunning ? 'Launching...' : 'Set up my OBS'}
+          </button>
+        </div>
       </div>
 
       {/* Connection Status */}
