@@ -184,7 +184,7 @@ export default function OnboardingPage() {
   return (
     <>
       <Head>
-        <title>{isRemapOnly ? 'Remap Buttons' : 'Setup'} - SoundPad Pro</title>
+        <title>{isRemapOnly ? 'Remap Buttons' : 'Setup'} - Prelive Deck</title>
       </Head>
 
       <div className="min-h-screen bg-gray-950 py-8">
@@ -192,7 +192,7 @@ export default function OnboardingPage() {
           {/* Header */}
           <div className="text-center mb-6">
             <h1 className="text-4xl font-bold text-white mb-4">
-              {isRemapOnly ? 'Remap Buttons' : 'SoundPad Pro Setup'}
+              {isRemapOnly ? 'Remap Buttons' : 'Prelive Deck Setup'}
             </h1>
 
             {/* Step indicator (hidden in remap mode) */}

@@ -33,6 +33,6 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SoundPad-Pro-Setup
-          path: dist/SoundPad-Pro-Setup.exe
+          name: Prelive-Deck-Setup
+          path: dist/Prelive-Deck-Setup.exe
           retention-days: 3

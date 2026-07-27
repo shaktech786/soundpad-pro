@@ -1,6 +1,6 @@
 # Auto-Update
 
-SoundPad Pro updates itself from its GitHub Releases using
+Prelive Deck updates itself from its GitHub Releases using
 [`electron-updater`](https://www.electron.build/auto-update). Updates download
 silently in the background and are **only ever installed on an explicit user
 action** — the app never restarts itself mid-session.
@@ -11,7 +11,7 @@ action** — the app never restarts itself mid-session.
   release workflow (see [Publishing releases](#publishing-releases)). Alongside
   the `.exe`, electron-builder emits two metadata files that the updater needs:
   - `latest.yml` — the update feed: current version + file hashes.
-  - `SoundPad-Pro-Setup.exe.blockmap` — a chunk map enabling differential
+  - `Prelive-Deck-Setup.exe.blockmap` — a chunk map enabling differential
     downloads (only the changed parts of the installer are fetched between
     versions).
 - The publish target is configured in `.electron-builder.config.js`:
@@ -66,7 +66,7 @@ enforced in code by two deliberate choices in `main/auto-updater.js`:
 The only two ways an update is ever applied:
 
 - The user clicks **"Restart to install"** (immediate, explicit), or
-- The user quits SoundPad Pro on their own (deferred, still user-initiated).
+- The user quits Prelive Deck on their own (deferred, still user-initiated).
 
 ## Publishing releases
 
@@ -80,7 +80,7 @@ Releases are cut by the manual `workflow_dispatch` GitHub Actions workflow
    installer with `--publish never`, and commits the version bump to
    `soundpad-pro`.
 3. It creates/updates **two** releases in `shaktech786/prelive-releases`, both
-   with `SoundPad-Pro-Setup.exe`, `SoundPad-Pro-Setup.exe.blockmap`, and
+   with `Prelive-Deck-Setup.exe`, `Prelive-Deck-Setup.exe.blockmap`, and
    `latest.yml` as assets:
    - `deck-x.y.z` — the versioned, human-facing release with changelog notes.
      Tag prefix `deck-` distinguishes it from the sibling product's
@@ -100,7 +100,7 @@ Installed clients pick up the new release on their next launch or 4-hour check.
 
 ## ⚠️ Known limitation — unsigned builds, relaxed signature verification
 
-**SoundPad Pro is not currently signed with a real code-signing certificate.**
+**Prelive Deck is not currently signed with a real code-signing certificate.**
 Local builds use a meaningless self-signed certificate (issuer == subject, no CA
 chain); CI does not sign at all.
 

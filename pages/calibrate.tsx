@@ -139,7 +139,7 @@ export default function CalibratePage() {
   const mismatches = resolved.filter((r) => defaults[r.source] !== r.chromeId)
 
   const report = [
-    '=== SoundPad Pro controller calibration ===',
+    '=== Prelive Deck controller calibration ===',
     `captured: ${resolved.length} inputs, ${mismatches.length} disagree with the inferred defaults`,
     '',
     'source   chrome-id   inferred   status      raw report',

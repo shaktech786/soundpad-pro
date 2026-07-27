@@ -1,8 +1,10 @@
-# SoundPad Pro
+# Prelive Deck
+
+*(Formerly named SoundPad Pro — same app, same install, new name. If you followed an old link here, you're in the right place.)*
 
 Professional soundboard application for streamers with gamepad/controller support. Features a Haute42-style 4x4 pad layout with color-coded rows and modern visual design. Doubles as a stream-control surface — a single pad can play a sound *and* switch an OBS scene, split a LiveSplit timer, or toggle your Discord mute at the same time.
 
-SoundPad Pro is the desktop companion to [prelive](https://prelive.ai) — see [Part of the Prelive Ecosystem](#part-of-the-prelive-ecosystem) below.
+Prelive Deck is part of **[Prelive](https://prelive.ai)** — see [Part of the Prelive Ecosystem](#part-of-the-prelive-ecosystem) below.
 
 ## Features
 
@@ -29,22 +31,22 @@ Each pad is dual-purpose: it can trigger a sound *and* an integration action on 
 
 ## Part of the Prelive Ecosystem
 
-SoundPad Pro is the desktop companion to **[prelive](https://prelive.ai)** — a web platform for stream prep, cross-posting, and OBS tooling for Twitch / YouTube / Kick streamers. The two apps integrate through a local-only HTTP server that SoundPad Pro runs on `127.0.0.1:3006` (bound to loopback, never exposed to the network):
+Prelive Deck is part of **[prelive](https://prelive.ai)** — a web platform for stream prep, cross-posting, and OBS tooling for Twitch / YouTube / Kick streamers. The two apps integrate through a local-only HTTP server that Prelive Deck runs on `127.0.0.1:3006` (bound to loopback, never exposed to the network):
 
-- **Music Attribution** — SoundPad Pro broadcasts the currently-playing sound (with any `attribution.json` credits) at `GET /now-playing`. Prelive's [Music Attribution OBS dock](https://prelive.ai/dock/music-attribution) polls it to auto-credit CC-BY music to YouTube descriptions and Twitch chat.
-- **Game / category auto-fill** — SoundPad Pro's [foreground game detection](docs/GAME_DETECTION.md) exposes the focused game at `GET /current-game`. Prelive's Quick Metadata Editor dock (`/dock/metadata`) uses it to auto-fill the streamer's currently-playing game/category.
-- **Downloads** — Prelive's settings (Downloads tab) links to SoundPad Pro's GitHub releases.
+- **Music Attribution** — Prelive Deck broadcasts the currently-playing sound (with any `attribution.json` credits) at `GET /now-playing`. Prelive's [Music Attribution OBS dock](https://prelive.ai/dock/music-attribution) polls it to auto-credit CC-BY music to YouTube descriptions and Twitch chat.
+- **Game / category auto-fill** — Prelive Deck's [foreground game detection](docs/GAME_DETECTION.md) exposes the focused game at `GET /current-game`. Prelive's Quick Metadata Editor dock (`/dock/metadata`) uses it to auto-fill the streamer's currently-playing game/category.
+- **Downloads** — Prelive's settings (Downloads tab) links to Prelive Deck's GitHub releases.
 
-SoundPad Pro's own [Discord integration](docs/DISCORD_INTEGRATION.md) (controller-mapped voice control + Rich Presence) is a distinct, complementary feature from prelive's Discord integration (account linking, community server, per-alert webhook routing); the two are not the same system.
+Prelive Deck's own [Discord integration](docs/DISCORD_INTEGRATION.md) (controller-mapped voice control + Rich Presence) is a distinct, complementary feature from prelive's Discord integration (account linking, community server, per-alert webhook routing); the two are not the same system.
 
-Neither the local server nor prelive is required to use SoundPad Pro as a standalone soundboard.
+Neither the local server nor prelive is required to use Prelive Deck as a standalone soundboard.
 
 ## Installation
 
 ### From Installer (Recommended)
 
 1. Run `npm run build:deploy` to build and create a desktop shortcut
-2. Double-click the "SoundPad Pro Installer" shortcut on your desktop
+2. Double-click the "Prelive Deck Installer" shortcut on your desktop
 3. The app will be installed and a shortcut created in your Start Menu
 
 ### Manual Build
@@ -145,6 +147,8 @@ soundpad-pro/
 └── dist/               # Build output (generated)
 ```
 
+*(The repo and package name remain `soundpad-pro` — only the product name and user-facing branding changed to Prelive Deck.)*
+
 ## Technologies
 
 - **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS
@@ -211,10 +215,10 @@ MIT
 
 ## Author
 
-SoundPad Pro Team
+Prelive Deck Team
 
 ---
 
-**Current Version**: 2.27.1
+**Current Version**: 2.32.0
 
 See the git commit log and GitHub releases for version history and updates.

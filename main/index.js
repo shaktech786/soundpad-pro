@@ -17,6 +17,15 @@ const { GameDetector } = require('./game-detection');
 const { DiscordRpcClient } = require('./discord-rpc-client');
 const { PreliveClient } = require('./prelive-client');
 const { AutoUpdaterManager } = require('./auto-updater');
+const { resolveLegacyUserDataPath } = require('./user-data-path');
+
+// PRE-385 (rename to Prelive Deck): pin userData to the pre-rename path BEFORE
+// anything below reads or writes it — the Store constructed a few lines down,
+// the Discord RPC client, and the prelive client all persist through this
+// directory. Electron derives userData from productName by default, so
+// without this the rename would move every existing user's data to an empty
+// folder. This must run before every consumer; see main/user-data-path.js.
+app.setPath('userData', resolveLegacyUserDataPath(app.getPath('appData')));
 
 let gp2040api = new GP2040ceApi();
 
@@ -260,7 +269,7 @@ function createWindow() {
   });
 
   mainWindow = new BrowserWindow({
-    title: 'SoundPad Pro',
+    title: 'Prelive Deck',
     ...windowBounds,
     minWidth: 800,
     minHeight: 600,
@@ -471,7 +480,7 @@ ipcMain.handle('get-audio-devices', async () => {
 ipcMain.handle('setup-virtual-audio', async () => {
   // We'll use the system audio and route it through Electron
   // This makes the app appear as an audio source to OBS
-  return { success: true, deviceName: 'SoundPad Pro Virtual Audio' };
+  return { success: true, deviceName: 'Prelive Deck Virtual Audio' };
 });
 
 // Controller support

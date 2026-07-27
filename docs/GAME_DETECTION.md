@@ -1,6 +1,6 @@
 # Foreground Game Detection
 
-SoundPad Pro detects which game currently has OS focus and exposes it over the
+Prelive Deck detects which game currently has OS focus and exposes it over the
 same local HTTP server used for now-playing attribution
 (`http://127.0.0.1:3006`, `127.0.0.1`-only, never exposed to the network).
 
@@ -89,7 +89,7 @@ endpoint returns names only, no executable info.
 2. Create a new key and check **only** the **`games:read`** scope.
 3. Copy the key (it is shown in plaintext only once — format `prl_live_…` /
    `prl_test_…`).
-4. In SoundPad Pro, open **Integrations → Prelive**, paste the key, and click
+4. In Prelive Deck, open **Integrations → Prelive**, paste the key, and click
    **Connect**. Once the first fetch succeeds the panel shows
    **"Connected — N games"**.
 
@@ -114,7 +114,7 @@ endpoint returns names only, no executable info.
 
 ### Security
 
-- **Treat the key like a password.** It is a credential: SoundPad Pro stores it
+- **Treat the key like a password.** It is a credential: Prelive Deck stores it
   locally, **never logs it**, and **never returns it to the UI** once stored —
   the status the renderer sees only reports whether a key is configured, the
   last fetch's success, and the cached game count, never the key itself.

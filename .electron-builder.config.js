@@ -1,5 +1,5 @@
 module.exports = {
-  productName: "SoundPad Pro",
+  productName: "Prelive Deck",
   appId: "com.soundpadpro.app",
   directories: {
     output: "dist",
@@ -70,7 +70,7 @@ module.exports = {
     icon: "icon.ico",
 
     // ⚠️ TEMPORARY, USER-ACCEPTED LIMITATION — update signature verification is
-    // relaxed because SoundPad Pro is not yet signed with a real code-signing
+    // relaxed because Prelive Deck is not yet signed with a real code-signing
     // certificate (local builds use a meaningless self-signed cert; CI does not
     // sign at all). With no genuine Authenticode publisher chain, electron-updater
     // would otherwise refuse to apply the downloaded installer. Setting this to
@@ -89,18 +89,18 @@ module.exports = {
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
     runAfterFinish: true,
-    shortcutName: "SoundPad Pro",
-    uninstallDisplayName: "SoundPad Pro",
-    artifactName: "SoundPad-Pro-Setup.${ext}",
+    shortcutName: "Prelive Deck",
+    uninstallDisplayName: "Prelive Deck",
+    artifactName: "Prelive-Deck-Setup.${ext}",
     installerIcon: "icon.ico",
     uninstallerIcon: "icon.ico",
     installerHeaderIcon: "icon.ico",
-    // Emit the differential-update blockmap (SoundPad-Pro-Setup.exe.blockmap)
+    // Emit the differential-update blockmap (Prelive-Deck-Setup.exe.blockmap)
     // so electron-updater can download only the changed chunks between versions.
     differentialPackage: true
   },
 
   portable: {
-    artifactName: "${productName}-Portable-${version}.${ext}"
+    artifactName: "Prelive-Deck-Portable-${version}.${ext}"
   }
 };

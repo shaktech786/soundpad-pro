@@ -733,7 +733,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>SoundPad Pro - Haute42</title>
+        <title>Prelive Deck - Haute42</title>
       </Head>
 
       <div className={`min-h-screen flex flex-col transition-colors duration-200 ${theme === 'light' ? 'bg-gray-100' : 'bg-gray-950'}`}>
@@ -743,7 +743,7 @@ export default function Home() {
         }`}>
           <div className="flex items-center gap-3">
             <h1 className={`text-lg font-bold ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
-              SoundPad Pro
+              Prelive Deck
               <span className={`ml-2 text-xs font-normal ${theme === 'light' ? 'text-gray-400' : 'text-gray-600'}`}>
                 v{process.env.APP_VERSION}
               </span>

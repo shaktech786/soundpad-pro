@@ -59,7 +59,7 @@ export const APP_CONFIG = {
     DEFAULT_HEIGHT: 900,
     MIN_WIDTH: 800,
     MIN_HEIGHT: 600,
-    TITLE: 'SoundPad Pro',
+    TITLE: 'Prelive Deck',
   },
   
   // Development settings

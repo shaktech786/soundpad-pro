@@ -1,12 +1,12 @@
 # Audio Routing Architecture
 
-How SoundPad Pro routes audio to VoiceMeeter Banana for streaming. Documents every approach tried and what finally worked after a month of iteration.
+How Prelive Deck routes audio to VoiceMeeter Banana for streaming. Documents every approach tried and what finally worked after a month of iteration.
 
 ---
 
 ## Goal
 
-Route SoundPad Pro's audio into VoiceMeeter Banana's virtual input so it appears in both:
+Route Prelive Deck's audio into VoiceMeeter Banana's virtual input so it appears in both:
 - **A1 (headphones)** - so the user hears the sound
 - **B1 (stream mix)** - so it goes to OBS/Discord as mic audio alongside the real microphone
 
@@ -57,7 +57,7 @@ Electron 27 / Chromium 118 on Windows has **completely broken `setSinkId()`**. B
 [audify](https://www.npmjs.com/package/audify) provides RtAudio bindings with native **ASIO support** on Windows. Unlike naudiodon/PortAudio, audify's RtAudio build includes ASIO.
 
 ```
-SoundPad Pro -> audify (RtAudio ASIO) -> VoiceMeeter AUX Virtual ASIO -> Strip[4] -> A1 + B1
+Prelive Deck -> audify (RtAudio ASIO) -> VoiceMeeter AUX Virtual ASIO -> Strip[4] -> A1 + B1
 ```
 
 - Target device: VoiceMeeter AUX Virtual ASIO (device index 1)
@@ -130,7 +130,7 @@ Main:     asioEngine.cachePcm() -> resample to 48kHz -> store in _soundCache
 | Strip[1] | Hardware In 2 (Razer Ripsaw) | Unused, muted |
 | Strip[2] | Hardware In 3 (CABLE Output) | WDM mode fallback |
 | Strip[3] | Virtual Input VAIO | General PC audio |
-| Strip[4] | Virtual Input AUX | **SoundPad Pro (ASIO)** |
+| Strip[4] | Virtual Input AUX | **Prelive Deck (ASIO)** |
 
 | Bus | Output | Routing |
 |-----|--------|---------|
@@ -140,7 +140,7 @@ Main:     asioEngine.cachePcm() -> resample to 48kHz -> store in _soundCache
 | B1 | Virtual Output | Stream mix (OBS mic input) |
 | B2 | Virtual Output 2 | - |
 
-**B1 composition:** Mic (Strip[0]) + SoundPad Pro (Strip[4]) = game mic / OBS mic
+**B1 composition:** Mic (Strip[0]) + Prelive Deck (Strip[4]) = game mic / OBS mic
 
 ---
 
