@@ -8,7 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned for the same reason as release.yml: windows-latest moved to an
+    # image whose Visual Studio install node-gyp can't find, so rebuilding the
+    # native deps (active-win, audify, node-hid) fails with "Could not find any
+    # Visual Studio installation to use".
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
