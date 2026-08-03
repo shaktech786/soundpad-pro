@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, vi, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
 import net from 'net'
 
@@ -14,16 +14,6 @@ const OP_FRAME = 1
 
 // Mirrors the hardcoded prelive Public Client ID in discord-rpc-client.js.
 const DEFAULT_CLIENT_ID = '1523146707725058048'
-
-// The Client Secret is baked into the build from the DISCORD_CLIENT_SECRET env
-// var (scripts/generate-discord-secret.js). Tests supply it the same way — env
-// first wins in embeddedClientSecret(). "No secret configured" tests delete it.
-beforeEach(() => {
-  process.env.DISCORD_CLIENT_SECRET = 'test-client-secret'
-})
-afterEach(() => {
-  delete process.env.DISCORD_CLIENT_SECRET
-})
 
 // A stand-in for a net.Socket: an EventEmitter that records writes and lets the
 // test drive the connect/error/data lifecycle by hand.
@@ -42,9 +32,8 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-// The Client Secret no longer lives in the store — it's build-embedded via the
-// DISCORD_CLIENT_SECRET env var (see the beforeEach above). The store only holds
-// the OAuth token (discord-rpc-auth).
+// No Client Secret is involved on this side at all — prelive's token endpoint
+// completes the grant. The store only holds the OAuth token (discord-rpc-auth).
 function makeStore(initial: Record<string, any> = {}) {
   const data: Record<string, any> = { ...initial }
   return {
@@ -243,7 +232,7 @@ describe('DiscordRpcClient connection/handshake', () => {
     expect(emptyToken.hasStoredAuth()).toBe(false)
   })
 
-  test('_exchangeCode posts the hardcoded client_id and the configured client_secret', async () => {
+  test('_exchangeCode sends only the authorization-code grant — no client credentials', async () => {
     const client = new DiscordRpcClient({ store: makeStore() })
     const tokenSpy = vi
       .spyOn(client as any, '_tokenRequest')
@@ -252,26 +241,15 @@ describe('DiscordRpcClient connection/handshake', () => {
     await (client as any)._exchangeCode('auth-code')
 
     expect(tokenSpy).toHaveBeenCalledTimes(1)
-    const params = tokenSpy.mock.calls[0][0]
-    expect(params).toEqual({
-      client_id: DEFAULT_CLIENT_ID,
-      client_secret: 'test-client-secret',
+    expect(tokenSpy.mock.calls[0][0]).toEqual({
       grant_type: 'authorization_code',
       code: 'auth-code',
-      redirect_uri: 'http://localhost',
     })
   })
 
-  test('_exchangeCode throws when no client_secret is embedded', async () => {
-    delete process.env.DISCORD_CLIENT_SECRET
-    const client = new DiscordRpcClient({ store: makeStore() })
-    await expect((client as any)._exchangeCode('auth-code')).rejects.toThrow(
-      'Discord Client Secret not configured',
-    )
-  })
-
-  test('_refreshToken posts the hardcoded client_id and the configured client_secret', async () => {
-    const client = new DiscordRpcClient({ store: makeStore() })
+  test('_refreshToken sends only the refresh grant and persists the new token', async () => {
+    const store = makeStore()
+    const client = new DiscordRpcClient({ store })
     const tokenSpy = vi
       .spyOn(client as any, '_tokenRequest')
       .mockResolvedValue({ access_token: 't2', refresh_token: 'r2', expires_in: 3600 })
@@ -279,36 +257,19 @@ describe('DiscordRpcClient connection/handshake', () => {
     await (client as any)._refreshToken('old-refresh')
 
     expect(tokenSpy).toHaveBeenCalledTimes(1)
-    const params = tokenSpy.mock.calls[0][0]
-    expect(params).toEqual({
-      client_id: DEFAULT_CLIENT_ID,
-      client_secret: 'test-client-secret',
+    expect(tokenSpy.mock.calls[0][0]).toEqual({
       grant_type: 'refresh_token',
       refresh_token: 'old-refresh',
     })
+    expect(store._data['discord-rpc-auth'].access_token).toBe('t2')
   })
 
-  test('_refreshToken resolves to null when no client_secret is embedded', async () => {
-    delete process.env.DISCORD_CLIENT_SECRET
+  test('_refreshToken resolves to null without a refresh token', async () => {
     const client = new DiscordRpcClient({ store: makeStore() })
-    await expect((client as any)._refreshToken('old-refresh')).resolves.toBeNull()
+    await expect((client as any)._refreshToken(null)).resolves.toBeNull()
   })
 
-  test('connect() surfaces an error status when no client_secret is embedded', async () => {
-    delete process.env.DISCORD_CLIENT_SECRET
-    const client = new DiscordRpcClient({ store: makeStore() })
-    const status = await client.connect()
-    expect(status.status).toBe('error')
-    expect(status.error).toMatch(/not configured/)
-  })
-
-  test('_getClientSecret reads the build-embedded env secret, trimmed', () => {
-    process.env.DISCORD_CLIENT_SECRET = '  env-secret  '
-    const client = new DiscordRpcClient({ store: makeStore() })
-    expect((client as any)._getClientSecret()).toBe('env-secret')
-  })
-
-  test('getPublicConfig reports only auth state, never the secret', () => {
+  test('getPublicConfig reports only auth state', () => {
     const client = new DiscordRpcClient({ store: makeStore() })
     expect(client.getPublicConfig()).toEqual({ hasAuth: false })
     expect('hasClientSecret' in client.getPublicConfig()).toBe(false)

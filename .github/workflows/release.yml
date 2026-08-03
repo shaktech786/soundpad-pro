@@ -140,11 +140,6 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
-      - name: Embed Discord Client Secret
-        run: npm run generate:secrets
-        env:
-          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
-
       # PRE-392: downloads the newest "obs-setup-v*" release's Windows binary
       # from the public shaktech786/prelive-releases repo into build/obs-setup/
       # so .electron-builder.config.js's extraResources can bundle it into the
@@ -165,7 +160,7 @@ jobs:
       # text. It is passed through `env:` rather than interpolated into the script
       # with ${{ }}: a `${{ }}` expansion is pasted in as raw source before bash
       # runs, so a crafted commit message would execute as code in a job that holds
-      # RELEASES_REPO_TOKEN and DISCORD_CLIENT_SECRET. Via env it is only ever data.
+      # RELEASES_REPO_TOKEN. Via env it is only ever data.
       # The heredoc delimiter is randomised for the same reason — a body containing
       # the literal delimiter would otherwise let it write arbitrary GITHUB_OUTPUT keys.
       - name: Append bundled OBS Setup version to release notes

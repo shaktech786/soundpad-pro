@@ -9,26 +9,22 @@
  *   frame = [opcode: int32 LE][length: int32 LE][payload: UTF-8 JSON]
  *
  * The Discord Application Client ID is hardcoded (it reuses prelive's Discord
- * app — not a secret, safe to embed). The Client Secret is NEVER committed to
- * this public repo, but it also is NOT entered by the user: Discord's RPC
- * AUTHORIZE command has no PKCE support (confirmed by testing "Public Client"
- * mode, which broke the exchange with "Missing code_verifier" — Discord's
- * server requires a code_verifier for public clients that the RPC popup flow
- * has no way to supply). So the app is a Confidential Client, and the Client
- * Secret is baked into the build from the DISCORD_CLIENT_SECRET env / CI secret
- * at package time (scripts/generate-discord-secret.js → gitignored
- * main/discord-secret.js, required below). A distributed desktop app's secret
- * is never truly secret regardless; this just keeps it out of source while
- * removing all user setup — see embeddedClientSecret().
+ * app — not a secret, safe to embed). The Client Secret is NOT in this app at
+ * all: Discord's RPC AUTHORIZE command has no PKCE support (confirmed by
+ * testing "Public Client" mode, which broke the exchange with "Missing
+ * code_verifier"), so the code-for-token exchange needs a Confidential Client.
+ * That exchange runs on prelive's server instead — POST to
+ * https://prelive.ai/api/discord/rpc-token, which holds the secret. Baking the
+ * secret into the build (the previous approach) meant any build packaged
+ * without DISCORD_CLIENT_SECRET set shipped a silently dead integration.
  *
  * Flow:
  *   1. Connect to the first pipe index that accepts a connection.
  *   2. Send opcode 0 HANDSHAKE with the hardcoded client_id, wait for the READY
  *      dispatch.
  *   3. AUTHENTICATE with a stored access token, or AUTHORIZE (pops Discord's
- *      native consent dialog) then exchange the returned code at
- *      https://discord.com/api/oauth2/token (with the locally-configured
- *      client_secret) for an access token.
+ *      native consent dialog) then exchange the returned code via prelive's
+ *      token endpoint for an access token.
  *   4. Persist the token so later launches skip re-authorization (refreshing
  *      silently via the refresh_token grant when expired).
  *
@@ -54,35 +50,20 @@ const SCOPES = ['rpc', 'identify', 'rpc.voice.write'];
 const RECONNECT_INTERVAL_MS = 10000;
 const REQUEST_TIMEOUT_MS = 15000;
 const AUTHORIZE_TIMEOUT_MS = 120000; // user has to click "Authorize" in Discord
-const DEFAULT_REDIRECT_URI = 'http://localhost';
 
 // prelive's Discord Application Client ID — reused so the user never has to
 // enter a Client ID. This is a public identifier, not a secret; safe to embed
-// in a public repo. The matching Client Secret is deliberately NOT here — see
-// the module header comment — it's user-provided local config instead.
+// in a public repo. It must stay in sync with the DISCORD_CLIENT_ID that
+// prelive's token endpoint exchanges with; a mismatch surfaces as Discord's
+// own "invalid_grant" from that endpoint.
 const DEFAULT_CLIENT_ID = '1523146707725058048';
 
-const AUTH_KEY = 'discord-rpc-auth';
+// prelive's token-exchange proxy — holds the Client Secret so this app doesn't
+// have to. Overridable for local prelive development.
+const TOKEN_EXCHANGE_URL =
+  process.env.PRELIVE_DISCORD_TOKEN_URL || 'https://prelive.ai/api/discord/rpc-token';
 
-/**
- * The Client Secret baked into the build. Precedence:
- *   1. process.env.DISCORD_CLIENT_SECRET — set directly (dev, or the build env).
- *   2. main/discord-secret.js — generated at package time from that same env
- *      var (gitignored; absent in a dev tree that never ran the generator).
- * Returns null when neither is present, in which case Discord stays inert.
- */
-function embeddedClientSecret() {
-  const fromEnv = process.env.DISCORD_CLIENT_SECRET;
-  if (typeof fromEnv === 'string' && fromEnv.trim()) return fromEnv.trim();
-  try {
-    const generated = require('./discord-secret');
-    const secret = generated && generated.DISCORD_CLIENT_SECRET;
-    if (typeof secret === 'string' && secret.trim()) return secret.trim();
-  } catch (_) {
-    // Not generated (dev without a build) — fall through to null.
-  }
-  return null;
-}
+const AUTH_KEY = 'discord-rpc-auth';
 
 // Valid status values: disconnected | connecting | awaiting-authorization | connected | error
 
@@ -151,15 +132,7 @@ class DiscordRpcClient extends EventEmitter {
     return !!(auth && auth.access_token);
   }
 
-  // --- client secret (baked into the build, never entered by the user) ----
-
-  /** The build-embedded Client Secret, or null if this build has none. Never
-   * logged, never handed back to the renderer. */
-  _getClientSecret() {
-    return embeddedClientSecret();
-  }
-
-  /** Config safe to hand to the renderer — never the secret itself. */
+  /** Config safe to hand to the renderer. */
   getPublicConfig() {
     return { hasAuth: this.hasStoredAuth() };
   }
@@ -178,10 +151,6 @@ class DiscordRpcClient extends EventEmitter {
 
   async connect() {
     this._desired = true;
-    if (!this._getClientSecret()) {
-      this._setStatus('error', 'Discord integration is not configured in this build');
-      return this.getStatus();
-    }
     if (this.status === 'connected' || this._connecting) return this.getStatus();
     await this._openConnection();
     return this.getStatus();
@@ -602,24 +571,12 @@ class DiscordRpcClient extends EventEmitter {
   }
 
   async _exchangeCode(code) {
-    const clientSecret = this._getClientSecret();
-    if (!clientSecret) throw new Error('Discord Client Secret not configured');
-    return this._tokenRequest({
-      client_id: DEFAULT_CLIENT_ID,
-      client_secret: clientSecret,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: DEFAULT_REDIRECT_URI,
-    });
+    return this._tokenRequest({ grant_type: 'authorization_code', code });
   }
 
   async _refreshToken(refreshToken) {
     if (!refreshToken) return null;
-    const clientSecret = this._getClientSecret();
-    if (!clientSecret) return null;
     const token = await this._tokenRequest({
-      client_id: DEFAULT_CLIENT_ID,
-      client_secret: clientSecret,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
@@ -627,16 +584,22 @@ class DiscordRpcClient extends EventEmitter {
     return token;
   }
 
+  /**
+   * Complete an OAuth grant through prelive's token endpoint, which supplies
+   * the Client Secret. Resolves with Discord's token response as forwarded by
+   * that endpoint; rejects with its error message on any failure.
+   */
   _tokenRequest(params) {
     return new Promise((resolve, reject) => {
-      const body = new URLSearchParams(params).toString();
+      const body = JSON.stringify(params);
+      const url = new URL(TOKEN_EXCHANGE_URL);
       const req = https.request(
         {
-          hostname: 'discord.com',
-          path: '/api/oauth2/token',
+          hostname: url.hostname,
+          path: url.pathname + url.search,
           method: 'POST',
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(body),
           },
           timeout: REQUEST_TIMEOUT_MS,
@@ -658,7 +621,7 @@ class DiscordRpcClient extends EventEmitter {
             } else {
               const msg =
                 (parsed && (parsed.error_description || parsed.error)) ||
-                `Discord token request failed (HTTP ${res.statusCode})`;
+                `Discord authorization failed (HTTP ${res.statusCode})`;
               reject(new Error(msg));
             }
           });
@@ -666,7 +629,7 @@ class DiscordRpcClient extends EventEmitter {
       );
       req.on('error', reject);
       req.on('timeout', () => {
-        req.destroy(new Error('Discord token request timed out'));
+        req.destroy(new Error('Discord authorization timed out'));
       });
       req.write(body);
       req.end();

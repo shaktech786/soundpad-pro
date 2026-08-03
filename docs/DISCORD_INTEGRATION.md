@@ -10,13 +10,13 @@ change your live Discord voice state.
 - Prelive Deck talks to Discord through the local IPC named pipe
   (`\\?\pipe\discord-ipc-0` … `-9`) using a direct Node implementation of the
   Discord RPC handshake — no browser, no external service.
-- The Discord Application's **Client ID and Client Secret are both baked into
-  the app** — you never enter anything. Discord's RPC authorization flow
-  requires a real client secret (it has no PKCE support, so a secret-free
-  "Public Client" exchange doesn't work here — confirmed by testing), so the
-  secret is injected from the `DISCORD_CLIENT_SECRET` build environment / CI
-  secret at package time rather than committed to this public repo. See
-  Technical Details below.
+- **You never enter a Client ID or a Client Secret.** The Client ID is a public
+  identifier hardcoded in the app. Discord's RPC authorization flow needs a real
+  client secret (it has no PKCE support, so a secret-free "Public Client"
+  exchange doesn't work here — confirmed by testing), and that secret lives on
+  prelive's server: the app posts the authorization code to
+  `https://prelive.ai/api/discord/rpc-token`, which completes the grant and
+  returns the token. See Technical Details below.
 - On first connect, Discord shows its **native authorization popup** asking you
   to approve Prelive Deck (scopes: `rpc`, `identify`, `rpc.voice.write`). The
   `rpc.voice.write` scope is what allows Prelive Deck to set your mute/deafen
@@ -113,13 +113,14 @@ The status updates automatically as Discord starts, stops, or is restarted.
 ## Where Things Are Stored
 
 The OAuth result is stored locally via `electron-store`, never committed
-anywhere and never sent anywhere except Discord's own OAuth token endpoint:
+anywhere and never sent anywhere except prelive's token endpoint (which forwards
+to Discord):
 
 - `discord-rpc-auth` — access token, refresh token, and expiry
 
 The Client ID is a hardcoded constant in the app (not a secret). The Client
-Secret is baked in at build time from `DISCORD_CLIENT_SECRET`, never committed
-to source and never stored on the user's machine — see Technical Details below.
+Secret is never in this app, in this repo, or on the user's machine — it stays
+on prelive's server. See Technical Details below.
 
 ## Troubleshooting
 
@@ -145,9 +146,10 @@ to source and never stored on the user's machine — see Technical Details below
 **Protocol**: Discord RPC over local IPC named pipe
 **Transport**: Node `net` (named pipe) — no native dependency
 **Frame format**: `[opcode int32 LE][length int32 LE][UTF-8 JSON]`
-**Auth**: OAuth2 authorization-code grant (Confidential Client — `client_secret` required) via `https://discord.com/api/oauth2/token`
-**Client ID**: hardcoded constant (`DEFAULT_CLIENT_ID` in `main/discord-rpc-client.js`) — not a secret
-**Client Secret**: build-injected from the `DISCORD_CLIENT_SECRET` env / CI secret by `scripts/generate-discord-secret.js` into a gitignored `main/discord-secret.js` (required by `embeddedClientSecret()`); never committed to this public repo and never stored on the user's machine. Discord's RPC `AUTHORIZE` command has no PKCE support, so a secret-free "Public Client" exchange doesn't work here (confirmed: it fails with "Missing code_verifier"), which is why a real secret is required. A distributed desktop app's embedded secret is not truly secret regardless — this approach just keeps it out of source and off the user.
+**Auth**: OAuth2 authorization-code grant (Confidential Client — `client_secret` required), completed server-side by `POST https://prelive.ai/api/discord/rpc-token`
+**Client ID**: hardcoded constant (`DEFAULT_CLIENT_ID` in `main/discord-rpc-client.js`) — not a secret. Must match prelive's `DISCORD_CLIENT_ID`; a mismatch surfaces as `invalid_grant` from the token endpoint.
+**Client Secret**: not present in this app. Discord's RPC `AUTHORIZE` command has no PKCE support, so a secret-free "Public Client" exchange doesn't work here (confirmed: it fails with "Missing code_verifier"). The secret therefore lives in prelive's server env (`DISCORD_CLIENT_SECRET`), and the desktop app posts the code/refresh-token to prelive's endpoint to complete the grant. This replaced an earlier build-time embed, which meant any build packaged without the env var set shipped a dead integration whose only symptom looked like a missing key.
+**Token endpoint override**: `PRELIVE_DISCORD_TOKEN_URL` (dev only)
 **Scopes**: `rpc`, `identify`, `rpc.voice.write`
 **Voice commands**: `SET_VOICE_SETTINGS` / `GET_VOICE_SETTINGS` (opcode 1 FRAME)
 **Rich Presence**: `SET_ACTIVITY` (opcode 1 FRAME; `activity: null` clears it)
@@ -156,13 +158,14 @@ to source and never stored on the user's machine — see Technical Details below
 ## Privacy & Security
 
 - The OAuth token is stored locally on your machine only, via `electron-store`
-  — never committed to source or sent anywhere except Discord's own OAuth
-  endpoint
-- The Client ID is a public identifier (not a secret); the Client Secret is
-  baked into the build and never stored on your machine
+  — never committed to source and never sent anywhere except prelive's token
+  endpoint, which exchanges it with Discord
+- The Client ID is a public identifier (not a secret); the Client Secret never
+  leaves prelive's server
 - The token never leaves the main process
 - The connection is entirely local (named pipe to your own Discord client)
-- No data is sent to external servers beyond Discord's own OAuth token endpoint
+- The only outbound request is the token exchange to prelive's endpoint, which
+  carries the Discord authorization code and nothing else
 
 ---
 
