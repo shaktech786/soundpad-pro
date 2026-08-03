@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { detectGame, GameDetector, GAME_ALLOWLIST } = require('../main/game-detection')
+const { detectGame, GameDetector, GAME_ALLOWLIST, isRejectedForeground } = require('../main/game-detection')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { NowPlayingServer } = require('../main/now-playing-server')
 
@@ -46,6 +46,21 @@ describe('detectGame (pure classifier)', () => {
   it('denylists browsers, Discord, OBS, and Explorer regardless of title', () => {
     for (const proc of ['chrome.exe', 'firefox.exe', 'msedge.exe', 'discord.exe', 'obs64.exe', 'explorer.exe']) {
       expect(detectGame(proc, 'anything')).toEqual({ detectedGame: null, confidence: 'low' })
+    }
+  })
+
+  // The deck serves the dock that triggers a recheck, so its own window is a
+  // routine foreground. Left off the denylist it classifies as an unrecognized
+  // game, which suppresses the last-good fallback and sends "Prelive Deck" to
+  // the catalog as a candidate. Observed live: {"processName":"Prelive Deck.exe",
+  // "windowTitle":"Prelive Deck - Haute42","detectedGame":null}.
+  it('denylists the deck itself, under both its names', () => {
+    for (const proc of ['Prelive Deck.exe', 'SoundPad Pro.exe']) {
+      expect(detectGame(proc, 'Prelive Deck - Haute42')).toEqual({
+        detectedGame: null,
+        confidence: 'low',
+      })
+      expect(isRejectedForeground(proc, 'Prelive Deck - Haute42')).toBe(true)
     }
   })
 

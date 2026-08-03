@@ -20,6 +20,9 @@ const DENYLIST = new Set([
   // chat / streaming / meeting tools
   'discord', 'discordptb', 'discordcanary', 'obs64', 'obs32', 'obs',
   'streamlabs obs', 'slack', 'teams', 'ms-teams', 'zoom', 'spotify',
+  // this app — it serves the dock that triggers rechecks, so its own window is a
+  // routine foreground. Both names: the packaged exe was renamed in PRE-385.
+  'prelive deck', 'soundpad pro',
   // shell / file manager / OS surfaces
   'explorer', 'searchhost', 'searchui', 'shellexperiencehost', 'startmenuexperiencehost',
   // IDEs / editors / terminals
