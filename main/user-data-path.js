@@ -15,7 +15,16 @@ const path = require('path');
 // client) can read or write to it. This module is the pure, dependency-free
 // piece of that decision so it can be unit-tested without requiring
 // 'electron' — see __tests__/user-data-path.test.ts.
-const LEGACY_USER_DATA_DIR_NAME = 'SoundPad Pro';
+//
+// The pre-rename folder is "soundpad-pro" — package.json's `name` — not the
+// "SoundPad Pro" display name. electron-builder keeps productName in
+// .electron-builder.config.js and never writes it into the bundled
+// package.json, so app.getName() always fell through to `name`. Pinning to the
+// display name pointed every install at an empty directory and presented the
+// first-run setup wizard, which is the exact orphaning this module exists to
+// prevent. Confirmed against the shipped bundle:
+//   asar extract-file app.asar package.json -> {"name":"soundpad-pro"}
+const LEGACY_USER_DATA_DIR_NAME = 'soundpad-pro';
 
 /**
  * @param {string} appDataPath - the OS-level roaming app-data root, i.e.
