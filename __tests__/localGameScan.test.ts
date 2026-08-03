@@ -9,7 +9,7 @@ const {
   parseAppManifest,
   parseEpicItem,
   resolveEpicManifestDir,
-  findShippingExe,
+  findGameExe,
   scanSteam,
   scanEpic,
   scanAll,
@@ -168,14 +168,14 @@ describe('scanSteam (fixture library on disk)', () => {
   })
 })
 
-describe('findShippingExe', () => {
+describe('findGameExe', () => {
   it('finds a *-Win64-Shipping.exe several levels deep (Unreal Engine layout)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-shipping-'))
     try {
       const deep = path.join(root, 'Pal', 'Binaries', 'Win64')
       fs.mkdirSync(deep, { recursive: true })
       fs.writeFileSync(path.join(deep, 'Palworld-Win64-Shipping.exe'), '')
-      expect(findShippingExe(root)).toBe('palworld-win64-shipping.exe')
+      expect(findGameExe(root)).toBe('palworld-win64-shipping.exe')
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -188,7 +188,55 @@ describe('findShippingExe', () => {
       fs.mkdirSync(engineDir, { recursive: true })
       fs.writeFileSync(path.join(engineDir, 'CrashReportClient.exe'), '')
       fs.writeFileSync(path.join(engineDir, 'EpicWebHelper.exe'), '')
-      expect(findShippingExe(root)).toBeNull()
+      expect(findGameExe(root)).toBeNull()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  // Godot/Unity/GameMaker titles ship no *-Shipping.exe, so without a
+  // name-derived match they fall back to window-title substring matching against
+  // the Steam manifest name — which fails whenever the game titles its window
+  // differently. Slay the Spire 2 is the real case: Steam's manifest says
+  // "Slay the Spire 2", the game brands itself "Slay the Spire II".
+  it('finds an exe named after the game when there is no shipping exe', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-named-'))
+    try {
+      fs.writeFileSync(path.join(root, 'SlayTheSpire2.exe'), '')
+      fs.writeFileSync(path.join(root, 'crashpad_handler.exe'), '')
+      expect(findGameExe(root, 'Slay the Spire 2')).toBe('slaythespire2.exe')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('matches a Roman-numeral exe against an Arabic-numeral game name', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-roman-'))
+    try {
+      fs.writeFileSync(path.join(root, 'SlayTheSpireII.exe'), '')
+      expect(findGameExe(root, 'Slay the Spire 2')).toBe('slaythespireii.exe')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prefers a shipping exe over a name match', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-both-'))
+    try {
+      fs.writeFileSync(path.join(root, 'Palworld.exe'), '')
+      fs.writeFileSync(path.join(root, 'Palworld-Win64-Shipping.exe'), '')
+      expect(findGameExe(root, 'Palworld')).toBe('palworld-win64-shipping.exe')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('never matches an exe unrelated to the game name', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spp-unrelated-'))
+    try {
+      fs.writeFileSync(path.join(root, 'crashpad_handler.exe'), '')
+      fs.writeFileSync(path.join(root, 'UnityCrashHandler64.exe'), '')
+      expect(findGameExe(root, 'Slay the Spire 2')).toBeNull()
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -200,11 +248,11 @@ describe('findShippingExe', () => {
       const tooDeep = path.join(root, 'a', 'b', 'c', 'd', 'e', 'f')
       fs.mkdirSync(tooDeep, { recursive: true })
       fs.writeFileSync(path.join(tooDeep, 'Game-Win64-Shipping.exe'), '')
-      expect(findShippingExe(root)).toBeNull()
+      expect(findGameExe(root)).toBeNull()
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
-    expect(findShippingExe(path.join(os.tmpdir(), 'does-not-exist-spp-shipping'))).toBeNull()
+    expect(findGameExe(path.join(os.tmpdir(), 'does-not-exist-spp-shipping'))).toBeNull()
   })
 })
 

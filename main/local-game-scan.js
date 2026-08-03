@@ -119,12 +119,51 @@ function parseAppManifest(vdfObject) {
 const SHIPPING_EXE_PATTERN = /-win(?:32|64)-shipping\.exe$/i;
 const MAX_SHIPPING_EXE_SCAN_DEPTH = 5;
 
-// Breadth-first, depth-bounded search for a *-Win64/32-Shipping.exe under an
-// install directory. Bounded depth + a single, narrow filename pattern keeps
-// this cheap even for large (many-GB) game installs, and the naming convention
-// is specific enough that a match is essentially guaranteed to be the actual
-// game executable, never engine tooling (CrashReportClient, EpicWebHelper, etc).
-function findShippingExe(rootDir) {
+// The shipping-exe convention is Unreal-only. Godot, Unity and GameMaker titles
+// name their executable after the game itself, so an exe whose filename matches
+// the Steam manifest name is just as reliable a signal and covers every other
+// engine. Slay the Spire 2 is the case that forced this: a Godot game shipping
+// SlayTheSpire2.exe, detected via nothing but a window-title substring of
+// "slay the spire 2" — which the game never produces, since it brands itself
+// "Slay the Spire II".
+//
+// Comparison is on alphanumerics only, with a trailing Roman numeral folded to
+// its Arabic form, so all the ways one game gets spelled line up:
+//   "Slay the Spire 2" (Steam manifest) / "SlayTheSpire2.exe" / "SlayTheSpireII.exe"
+// Folding is restricted to a trailing *word* — camel case and digit boundaries
+// split the exe name into words first — so a single-word name that merely ends
+// in numeral letters ("Phoenix.exe") is never mangled.
+const TRAILING_ROMAN = {
+  ii: '2', iii: '3', iv: '4', vi: '6', vii: '7', viii: '8', ix: '9',
+  xi: '11', xii: '12', xiii: '13',
+};
+
+function canonicalGameKey(name) {
+  const words = String(name || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Za-z])(\d)/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  if (words.length > 1) {
+    const arabic = TRAILING_ROMAN[words[words.length - 1]];
+    if (arabic) words[words.length - 1] = arabic;
+  }
+  return words.join('');
+}
+
+// Breadth-first, depth-bounded search for the real game executable under an
+// install directory. A *-Win64/32-Shipping.exe wins outright: the convention is
+// specific enough that a match is essentially guaranteed to be the game and
+// never engine tooling (CrashReportClient, EpicWebHelper, etc). Failing that,
+// and only when `gameName` is supplied, an exe whose filename canonicalises to
+// the same key as the game name is used. Bounded depth keeps this cheap even
+// for many-GB installs.
+function findGameExe(rootDir, gameName) {
+  const wantedKey = gameName ? canonicalGameKey(gameName) : '';
+  let nameMatch = null;
   let queue = [{ dir: rootDir, depth: 0 }];
   while (queue.length > 0) {
     const { dir, depth } = queue.shift();
@@ -135,8 +174,17 @@ function findShippingExe(rootDir) {
       continue; // unreadable/missing — skip this branch
     }
     for (const dirent of entries) {
-      if (dirent.isFile() && SHIPPING_EXE_PATTERN.test(dirent.name)) {
+      if (!dirent.isFile()) continue;
+      if (SHIPPING_EXE_PATTERN.test(dirent.name)) {
         return dirent.name.toLowerCase();
+      }
+      if (
+        !nameMatch &&
+        wantedKey &&
+        /\.exe$/i.test(dirent.name) &&
+        canonicalGameKey(dirent.name.slice(0, -4)) === wantedKey
+      ) {
+        nameMatch = dirent.name.toLowerCase();
       }
     }
     if (depth < MAX_SHIPPING_EXE_SCAN_DEPTH) {
@@ -147,7 +195,7 @@ function findShippingExe(rootDir) {
       }
     }
   }
-  return null;
+  return nameMatch;
 }
 
 // Scan every Steam library folder for installed apps. Steam manifests expose no
@@ -202,8 +250,8 @@ async function scanSteam({ steamPath } = {}) {
             // installdir comes from an on-disk manifest and is untrusted; reject
             // anything that resolves outside steamapps/common (e.g. "../../..").
             if (installDir === commonDir || installDir.startsWith(commonDir + path.sep)) {
-              const shippingExe = findShippingExe(installDir);
-              if (shippingExe) entry.exe = [shippingExe];
+              const gameExe = findGameExe(installDir, manifest.name);
+              if (gameExe) entry.exe = [gameExe];
             }
           }
           entries.push(entry);
@@ -330,7 +378,7 @@ module.exports = {
   parseSteamPathFromReg,
   parseLibraryFolders,
   parseAppManifest,
-  findShippingExe,
+  findGameExe,
   scanSteam,
   resolveEpicManifestDir,
   parseEpicItem,
