@@ -1,4 +1,5 @@
 const path = require('path');
+const { execFile } = require('child_process');
 
 // Foreground game detection that backs the `/current-game` endpoint.
 //
@@ -87,6 +88,46 @@ const GAME_ALLOWLIST = [
 function stripExe(name) {
   const lower = name.toLowerCase();
   return lower.endsWith('.exe') ? lower.slice(0, -4) : lower;
+}
+
+const PROCESS_CHECK_TIMEOUT_MS = 2000;
+
+/**
+ * Whether a process with this executable basename is still running.
+ *
+ * Tri-state on purpose: `true`/`false` are answers, `null` means "can't tell"
+ * (unsupported platform, spawn failure, timeout, unparseable output). Callers
+ * must treat null as "assume running" — a probe that cannot run must never make
+ * detection worse than it was before the probe existed.
+ *
+ * Only consulted on forcePoll's fallback path, so this costs one short-lived
+ * child process per recheck click, never one per background poll.
+ */
+function defaultIsProcessRunning(exeName) {
+  const name = String(exeName || '').trim();
+  if (!name) return Promise.resolve(null);
+
+  const windows = process.platform === 'win32';
+  const file = windows ? 'tasklist' : 'pgrep';
+  const args = windows
+    ? ['/FI', `IMAGENAME eq ${name}`, '/NH']
+    : ['-x', stripExe(name)];
+
+  return new Promise(resolve => {
+    execFile(file, args, { timeout: PROCESS_CHECK_TIMEOUT_MS, windowsHide: true }, (err, stdout) => {
+      if (windows) {
+        // tasklist exits 0 either way; a miss prints "INFO: No tasks are
+        // running which match the specified criteria."
+        if (err) return resolve(null);
+        const out = String(stdout || '');
+        if (/no tasks are running/i.test(out)) return resolve(false);
+        return resolve(out.toLowerCase().includes(name.toLowerCase()));
+      }
+      // pgrep: exit 0 = at least one match, 1 = none, anything else = broken.
+      if (!err) return resolve(true);
+      return resolve(err.code === 1 ? false : null);
+    });
+  });
 }
 
 // A transient launcher/installer window: the storefront process itself, or any
@@ -204,6 +245,7 @@ class GameDetector {
     scanLocalLibraries,
     getPreliveTier,
     lastGoodTtlMs = 5 * 60 * 1000,
+    isProcessRunning,
     now,
   } = {}) {
     this._intervalMs = intervalMs;
@@ -228,6 +270,8 @@ class GameDetector {
     this._lastGoodTtlMs = lastGoodTtlMs;
     this._now = typeof now === 'function' ? now : () => Date.now();
     this._lastForeground = null;
+    this._isProcessRunning =
+      typeof isProcessRunning === 'function' ? isProcessRunning : defaultIsProcessRunning;
   }
 
   start() {
@@ -317,9 +361,36 @@ class GameDetector {
     const unusable = isRejectedForeground(snapshot.processName, snapshot.windowTitle);
     if (unusable && this._lastForeground) {
       const { at, ...lastGood } = this._lastForeground;
-      if (this._now() - at <= this._lastGoodTtlMs) return lastGood;
+      if (this._now() - at <= this._lastGoodTtlMs && (await this._lastForegroundAlive(lastGood))) {
+        return lastGood;
+      }
     }
     return snapshot;
+  }
+
+  // The cached foreground is only worth serving while its process is still
+  // alive. Switching games is the case that matters: quit A, launch B, then hit
+  // recheck from the OBS dock before B has ever held focus for a poll tick — it
+  // is usually still on a launcher splash, which the cache write rejects — and
+  // every recheck confidently reported A for the full five-minute TTL. Pushing
+  // that publishes the previous game's category to a live stream.
+  //
+  // A probe that can't answer (unsupported platform, spawn failure, timeout)
+  // leaves the cache trusted, so a broken check never regresses detection.
+  async _lastForegroundAlive(lastGood) {
+    if (!lastGood.processName) return true;
+    let running;
+    try {
+      running = await this._isProcessRunning(lastGood.processName);
+    } catch (err) {
+      console.error(`[GameDetection] process liveness check failed: ${err.message}`);
+      return true;
+    }
+    if (running === false) {
+      this._lastForeground = null;
+      return false;
+    }
+    return true;
   }
 
   _resolveActiveWindow() {

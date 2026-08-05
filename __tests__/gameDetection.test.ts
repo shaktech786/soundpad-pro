@@ -431,9 +431,13 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
 })
 
 describe('GameDetector.forcePoll (on-demand recheck)', () => {
+  // The cached-foreground fallback now verifies the process is still running.
+  // These cases are about focus, not liveness, so the game is always alive —
+  // and stubbing it keeps the suite off the real `tasklist`/`pgrep`.
+  const alive = async () => true
   it('forces an immediate poll and returns the freshly-classified snapshot, not the cached one', async () => {
     let win: any = { title: 'Inbox - Chrome', owner: { name: 'chrome.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     // Prime the cache with a non-game window.
     await detector._poll()
@@ -459,7 +463,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // and clicks recheck — active-win now reports OBS (denylisted). On Windows
     // owner.name is the friendly name, so the exe basename must come from path.
     let win: any = { title: 'VALORANT', owner: { name: 'VALORANT-Win64-Shipping.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // primes _lastDetected with VALORANT
     expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
@@ -492,7 +496,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // focus. Remembering only classified detections handed back OBS's own
     // window, so the dock had nothing to search Twitch's catalog with.
     let win: any = { title: 'Slay the Spire 2', owner: { name: 'SlayTheSpire2.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll()
     expect(detector.getSnapshot().detectedGame).toBeNull() // not in any tier
@@ -507,7 +511,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // Switching to a genuinely unknown game must report null so the dock offers
     // catalog search — the last-good fallback only covers denylisted apps.
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // _lastDetected = VALORANT
     win = { title: 'Some Obscure Indie', owner: { name: 'obscure-indie.exe', path: '' } }
@@ -522,7 +526,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // game, because the Steam launch dialog had been cached as _lastForeground
     // and the recheck click always steals focus to a denylisted app.
     let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Steam\\steamapps\\common\\Half-Life\\hl.exe' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // caches the real game as last-good
     expect(detector.getSnapshot().detectedGame).toBe('Counter-Strike')
@@ -543,7 +547,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
 
   it('falls back to the last real foreground when the recheck itself lands on the launcher', async () => {
     let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Games\\hl.exe' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win })
+    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
     await detector._poll()
 
     // A transient launcher window is unusable, exactly like a denylisted app.
@@ -551,6 +555,84 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     const snap = await detector.forcePoll()
     expect(snap.detectedGame).toBe('Counter-Strike')
     expect(snap.windowTitle).toBe('Counter-Strike')
+  })
+
+  it('discards the cached game once its process has exited (switching games)', async () => {
+    // The reported bug: quit game A, launch B, then hit recheck from the OBS
+    // dock before B has ever held focus for a poll tick (it is still on its
+    // launcher splash, which the cache write rejects). Focus is on OBS, so the
+    // fallback fires — and used to hand back A for the whole five-minute TTL,
+    // which pushes the previous game's category to a live stream.
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    let running = true
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => running,
+    })
+
+    await detector._poll()
+    expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
+
+    running = false // the user quit VALORANT and launched something else
+    win = { title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } }
+    const snap = await detector.forcePoll()
+
+    expect(snap.detectedGame).toBeNull()
+    expect(snap.processName).toBe('obs64.exe')
+  })
+
+  it('does not re-serve a dead cache on later rechecks', async () => {
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    let running = true
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => running,
+    })
+    await detector._poll()
+
+    running = false
+    win = { title: 'OBS', owner: { name: 'OBS Studio', path: 'C:\\obs64.exe' } }
+    await detector.forcePoll()
+    // The stale entry is dropped, not merely skipped, so a probe that later
+    // reports "running" again can't resurrect a game the user already quit.
+    running = true
+    const snap = await detector.forcePoll()
+
+    expect(snap.detectedGame).toBeNull()
+  })
+
+  it('keeps trusting the cache when the liveness probe cannot answer', async () => {
+    // A probe that can't run (unsupported platform, spawn failure, timeout)
+    // must never make detection worse than it was before the probe existed.
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => null,
+    })
+    await detector._poll()
+
+    win = { title: 'OBS', owner: { name: 'OBS Studio', path: 'C:\\obs64.exe' } }
+    const snap = await detector.forcePoll()
+
+    expect(snap.detectedGame).toBe('VALORANT')
+  })
+
+  it('keeps trusting the cache when the liveness probe throws', async () => {
+    let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => { throw new Error('spawn ENOENT') },
+    })
+    await detector._poll()
+
+    win = { title: 'OBS', owner: { name: 'OBS Studio', path: 'C:\\obs64.exe' } }
+    const snap = await detector.forcePoll()
+
+    expect(snap.detectedGame).toBe('VALORANT')
   })
 
   it('leaves the background polling interval and its 3000ms cadence untouched', async () => {
