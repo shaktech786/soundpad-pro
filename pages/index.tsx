@@ -22,6 +22,7 @@ import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { APP_CONFIG, HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
 import logger from '../utils/logger'
+import { HotkeyScheme, getPadHotkeys, countRiskyPadHotkeys } from '../utils/hotkeyScheme'
 
 // --- Inline SVG icons ---
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -174,6 +175,7 @@ export default function Home() {
   const [configuringLinkedButtons, setConfiguringLinkedButtons] = useState(false)
   const [detectedGroup, setDetectedGroup] = useState<number[] | null>(null)
   const [globalHotkeysEnabled, setGlobalHotkeysEnabled] = useState(false)
+  const [hotkeyScheme, setHotkeyScheme] = useState<HotkeyScheme>('numpad')
   const [showOBSSettings, setShowOBSSettings] = useState(false)
   const [showLiveSplitSettings, setShowLiveSplitSettings] = useState(false)
   const [showDiscordSettings, setShowDiscordSettings] = useState(false)
@@ -224,6 +226,10 @@ export default function Home() {
     const savedGlobalHotkeys = localStorage.getItem('global-hotkeys-enabled')
     if (savedGlobalHotkeys) {
       setGlobalHotkeysEnabled(savedGlobalHotkeys === 'true')
+    }
+    const savedScheme = localStorage.getItem('global-hotkey-scheme')
+    if (savedScheme === 'numpad' || savedScheme === 'function-keys') {
+      setHotkeyScheme(savedScheme)
     }
   }, [])
 
@@ -313,16 +319,14 @@ export default function Home() {
 
     const registerHotkeys = async () => {
       if (globalHotkeysEnabled) {
-        const numpadKeys = [
-          'num0', 'num1', 'num2', 'num3',
-          'num4', 'num5', 'num6', 'num7',
-          'num8', 'num9', 'numdec', 'numadd',
-          'numsub', 'nummult', 'numdiv', 'numenter'
-        ]
+        const padHotkeys = getPadHotkeys(hotkeyScheme)
 
-        for (let i = 0; i < 16; i++) {
-          const key = `CommandOrControl+${numpadKeys[i]}`
+        for (let i = 0; i < padHotkeys.length; i++) {
+          const key = padHotkeys[i]
           try {
+            // Re-registering for the same button index unregisters whatever
+            // key was previously bound to it first (see main/index.js
+            // register-hotkey), so switching schemes fully clears the old set.
             await (window as any).electronAPI.registerHotkey(key, i)
             logger.log(`Registered global hotkey ${key} for pad ${i}`)
           } catch (err) {
@@ -346,7 +350,7 @@ export default function Home() {
     if ((window as any).electronAPI?.toggleGlobalHotkeys) {
       (window as any).electronAPI.toggleGlobalHotkeys(globalHotkeysEnabled)
     }
-  }, [globalHotkeysEnabled, stopButton])
+  }, [globalHotkeysEnabled, hotkeyScheme, stopButton])
 
   // Listen for global hotkey events
   useEffect(() => {
@@ -1142,8 +1146,36 @@ export default function Home() {
                 {/* Global hotkeys */}
                 <div className="space-y-1.5">
                   <label className={`text-xs font-medium ${theme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
-                    Global Hotkeys (Numpad)
+                    Global Hotkeys
                   </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => {
+                        setHotkeyScheme('numpad')
+                        localStorage.setItem('global-hotkey-scheme', 'numpad')
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                        hotkeyScheme === 'numpad'
+                          ? 'bg-blue-600 text-white'
+                          : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                      }`}
+                    >
+                      Numpad
+                    </button>
+                    <button
+                      onClick={() => {
+                        setHotkeyScheme('function-keys')
+                        localStorage.setItem('global-hotkey-scheme', 'function-keys')
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                        hotkeyScheme === 'function-keys'
+                          ? 'bg-blue-600 text-white'
+                          : theme === 'light' ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                      }`}
+                    >
+                      F13-F24 <span className="opacity-75">(Recommended)</span>
+                    </button>
+                  </div>
                   <button
                     onClick={() => {
                       const newValue = !globalHotkeysEnabled
@@ -1158,9 +1190,17 @@ export default function Home() {
                   >
                     <span>{globalHotkeysEnabled ? 'Enabled' : 'Disabled'}</span>
                     <span className={`text-[10px] font-normal ${globalHotkeysEnabled ? 'text-green-200' : theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Ctrl+Num0-9
+                      {hotkeyScheme === 'numpad' ? 'Ctrl+Num0-9' : 'F13-F24'}
                     </span>
                   </button>
+                  <p className={`text-[10px] leading-snug ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {(() => {
+                      const riskyCount = countRiskyPadHotkeys(hotkeyScheme)
+                      return riskyCount > 0
+                        ? `Windows limitation: ${riskyCount} of 16 Numpad hotkeys can also fire in-game. Games that read Raw Input/DirectInput see the bare numpad key regardless of the Ctrl modifier, so the pad and the game both react. Switch to F13-F24 to avoid this — those keys have no physical key on most keyboards, so games can't bind them.`
+                        : `F13-F24 have no physical key on most keyboards, so games never bind them — 0 of 16 hotkeys can leak into a game.`
+                    })()}
+                  </p>
                 </div>
               </SidebarSection>
 

@@ -6,6 +6,7 @@ import {
   isValidFileSize,
   sanitizePathForDisplay,
   isValidHotkey,
+  isGameRiskyHotkey,
   isValidVolume,
   sanitizeInput,
 } from '../utils/validation'
@@ -138,6 +139,74 @@ describe('isValidHotkey', () => {
   test('rejects unknown key names longer than one character', () => {
     expect(isValidHotkey('unknownkey')).toBe(false)
     expect(isValidHotkey('ctrl+unknownkey')).toBe(false)
+  })
+
+  test('accepts F13-F24', () => {
+    expect(isValidHotkey('f13')).toBe(true)
+    expect(isValidHotkey('f24')).toBe(true)
+    expect(isValidHotkey('ctrl+f20')).toBe(true)
+  })
+
+  test('accepts numpad key names', () => {
+    expect(isValidHotkey('ctrl+num0')).toBe(true)
+    expect(isValidHotkey('ctrl+numenter')).toBe(true)
+    expect(isValidHotkey('numadd')).toBe(true)
+  })
+})
+
+describe('isGameRiskyHotkey', () => {
+  test('warns on bare function keys F1-F12', () => {
+    expect(isGameRiskyHotkey('F5')).toBe(true)
+    expect(isGameRiskyHotkey('f1')).toBe(true)
+    expect(isGameRiskyHotkey('F12')).toBe(true)
+  })
+
+  test('warns on bare letters and digits', () => {
+    expect(isGameRiskyHotkey('M')).toBe(true)
+    expect(isGameRiskyHotkey('q')).toBe(true)
+    expect(isGameRiskyHotkey('1')).toBe(true)
+  })
+
+  test('warns on bare Tab, Space, Enter, and arrow keys', () => {
+    expect(isGameRiskyHotkey('Tab')).toBe(true)
+    expect(isGameRiskyHotkey('Space')).toBe(true)
+    expect(isGameRiskyHotkey('Enter')).toBe(true)
+    expect(isGameRiskyHotkey('Up')).toBe(true)
+    expect(isGameRiskyHotkey('Left')).toBe(true)
+  })
+
+  test('does not warn once a modifier is present', () => {
+    expect(isGameRiskyHotkey('Ctrl+Alt+F5')).toBe(false)
+    expect(isGameRiskyHotkey('Ctrl+M')).toBe(false)
+    expect(isGameRiskyHotkey('Shift+Tab')).toBe(false)
+  })
+
+  test('warns on numpad keys even with a modifier — Raw Input games read the bare scancode regardless of what else is held', () => {
+    expect(isGameRiskyHotkey('CommandOrControl+num0')).toBe(true)
+    expect(isGameRiskyHotkey('Ctrl+numenter')).toBe(true)
+    expect(isGameRiskyHotkey('num5')).toBe(true)
+    expect(isGameRiskyHotkey('numadd')).toBe(true)
+  })
+
+  test('never warns on F13-F24, with or without modifiers', () => {
+    expect(isGameRiskyHotkey('F13')).toBe(false)
+    expect(isGameRiskyHotkey('f24')).toBe(false)
+    expect(isGameRiskyHotkey('Ctrl+F15')).toBe(false)
+    expect(isGameRiskyHotkey('Shift+F13')).toBe(false)
+  })
+
+  test('is case-insensitive', () => {
+    expect(isGameRiskyHotkey('tab')).toBe(true)
+    expect(isGameRiskyHotkey('TAB')).toBe(true)
+  })
+
+  test('rejects empty or non-string input', () => {
+    expect(isGameRiskyHotkey('')).toBe(false)
+    expect(isGameRiskyHotkey(null as unknown as string)).toBe(false)
+  })
+
+  test('does not warn on keys outside the commonly-bound set', () => {
+    expect(isGameRiskyHotkey('Escape')).toBe(false)
   })
 })
 
