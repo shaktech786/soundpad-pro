@@ -124,10 +124,18 @@ class AutoUpdaterManager {
     }
   }
 
-  /** Apply a downloaded update now — quits and relaunches into the installer.
-   * Only ever called from the explicit user-facing "Restart to install" IPC. */
+  /** Apply a downloaded update now — quits and relaunches on the new version.
+   * Only ever called from the explicit user-facing "Restart to install" IPC.
+   * Silent + force-run-after: electron-updater's NSIS installer defaults to a
+   * full installer wizard (isSilent=false) when called with no args, which
+   * would dump the user into installer pages after a single button click.
+   * The user already consented by clicking "Restart to install" — this should
+   * feel like a normal app restart, matching autoInstallOnAppQuit's silent
+   * quit-time install (see BaseUpdater.addQuitHandler, which calls
+   * install(true, false) — same silence, minus the relaunch since quitting is
+   * the whole point there). */
   quitAndInstall() {
-    this.updater.quitAndInstall();
+    this.updater.quitAndInstall(true, true);
   }
 }
 

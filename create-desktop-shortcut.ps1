@@ -1,4 +1,4 @@
-# PowerShell script to create a desktop shortcut to the latest SoundPad Pro installer
+# PowerShell script to create a desktop shortcut to the latest Prelive Deck installer
 # This script should be run after building the Windows installer
 
 param(
@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "SoundPad Pro - Desktop Shortcut Creator" -ForegroundColor Cyan
+Write-Host "Prelive Deck - Desktop Shortcut Creator" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -23,8 +23,10 @@ if (-not (Test-Path $distFolder)) {
     exit 1
 }
 
-# Find the latest Setup installer (not portable)
-$setupFiles = Get-ChildItem -Path $distFolder -Filter "SoundPad Pro-Setup-*.exe" | Sort-Object LastWriteTime -Descending
+# Find the installer (artifactName in .electron-builder.config.js is a fixed
+# "Prelive-Deck-Setup.exe" — no version in the filename — so there is at most
+# one match; Sort-Object/-Descending just future-proofs against that changing.
+$setupFiles = Get-ChildItem -Path $distFolder -Filter "Prelive-Deck-Setup.exe" | Sort-Object LastWriteTime -Descending
 
 if ($setupFiles.Count -eq 0) {
     Write-Host "[ERROR] No installer files found in: $distFolder" -ForegroundColor Red
@@ -40,9 +42,14 @@ Write-Host "   Size: $([math]::Round($latestInstaller.Length / 1MB, 2)) MB" -For
 Write-Host "   Created: $($latestInstaller.LastWriteTime)" -ForegroundColor Gray
 Write-Host ""
 
+# Read the current version straight from package.json — the installer filename
+# no longer embeds it (artifactName is a fixed "Prelive-Deck-Setup.exe").
+$packageJsonPath = Join-Path $projectRoot "package.json"
+$appVersion = (Get-Content $packageJsonPath -Raw | ConvertFrom-Json).version
+
 # Desktop path
 $desktopPath = [Environment]::GetFolderPath("Desktop")
-$shortcutPath = Join-Path $desktopPath "SoundPad Pro Installer.lnk"
+$shortcutPath = Join-Path $desktopPath "Prelive Deck Installer.lnk"
 
 # Check if shortcut already exists
 if (Test-Path $shortcutPath) {
@@ -65,7 +72,7 @@ try {
     $Shortcut = $WScriptShell.CreateShortcut($shortcutPath)
     $Shortcut.TargetPath = $latestInstaller.FullName
     $Shortcut.WorkingDirectory = $distFolder
-    $Shortcut.Description = "Install or update SoundPad Pro - Professional Soundboard"
+    $Shortcut.Description = "Install or update Prelive Deck - Professional Soundboard"
     $Shortcut.IconLocation = $latestInstaller.FullName + ",0"
     $Shortcut.Save()
 
@@ -74,9 +81,11 @@ try {
     Write-Host ""
     Write-Host "Installer Details:" -ForegroundColor Cyan
     Write-Host "Name: $($latestInstaller.Name)" -ForegroundColor White
-    Write-Host "Version: $($latestInstaller.Name -replace '.*Setup-(\d+\.\d+\.\d+)\.exe', '$1')" -ForegroundColor White
+    Write-Host "Version: $appVersion" -ForegroundColor White
     Write-Host ""
-    Write-Host "You can now double-click the shortcut on your desktop to install/update SoundPad Pro!" -ForegroundColor Green
+    Write-Host "You can now double-click the shortcut on your desktop to install/update Prelive Deck!" -ForegroundColor Green
+    Write-Host "Note: once installed, the auto-updater keeps that installed copy current." -ForegroundColor Gray
+    Write-Host "Re-running this installer is only needed for a first install, not routine updates." -ForegroundColor Gray
 
 } catch {
     Write-Host "[ERROR] Error creating shortcut: $_" -ForegroundColor Red

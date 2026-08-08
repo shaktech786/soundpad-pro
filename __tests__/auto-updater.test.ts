@@ -145,10 +145,16 @@ describe('AutoUpdaterManager scheduling', () => {
 })
 
 describe('AutoUpdaterManager commands', () => {
-  test('quitAndInstall delegates to the updater', () => {
+  test('quitAndInstall delegates to the updater silently, then relaunches', () => {
     const { manager, updater } = makeManager()
     manager.quitAndInstall()
-    expect(updater.quitAndInstall).toHaveBeenCalledTimes(1)
+    // isSilent=true, isForceRunAfter=true: electron-updater's NSIS installer
+    // defaults to a full wizard (isSilent=false) if called with no args, which
+    // would dump the user into installer pages after they clicked a single
+    // "Restart to install" button. This is the explicit, user-initiated
+    // install path (see class doc) so it should feel like a normal app
+    // restart, not an install wizard.
+    expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true)
   })
 
   test('checkForUpdates swallows a rejected check without throwing', async () => {
