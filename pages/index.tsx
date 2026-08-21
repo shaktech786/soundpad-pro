@@ -707,6 +707,24 @@ export default function Home() {
     setPickerInitialDir(undefined)
   }, [assigningPickerPad, setSoundMappings, setCombinedActions])
 
+  // PRE-470: a file dropped from Explorer directly onto a pad. Haute42Layout
+  // has already run it through the main-process guard (extension check +
+  // folder rejection + granting its folder as an allowed root, mirroring
+  // dialog:openFile) before calling this — same assignment as
+  // handlePickerSelectFile, just skipping the picker UI entirely.
+  const handleDropSound = useCallback((index: number, filePath: string, _fileName: string) => {
+    setSoundMappings(prev => {
+      const newMap = new Map(prev)
+      newMap.set(index, filePath)
+      return newMap
+    })
+    setCombinedActions(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(index)
+      return newMap
+    })
+  }, [setSoundMappings, setCombinedActions])
+
   const handlePickerSelectUrl = useCallback((url: string, _name?: string) => {
     if (assigningPickerPad === null) return
     const index = assigningPickerPad
@@ -902,6 +920,7 @@ export default function Home() {
               onMapSoundFromUrl={handleMapSoundFromUrl}
               onAssignOBSAction={handleAssignOBSAction}
               onTriggerAction={handleTriggerAction}
+              onDropSound={handleDropSound}
               buttonMapping={buttonMapping}
               stopButton={stopButton}
               boardLayout={boardLayout}

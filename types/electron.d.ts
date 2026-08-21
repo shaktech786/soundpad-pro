@@ -31,6 +31,18 @@ interface ElectronAPI {
   // result still passes through listDirectory's own allowlist guard.
   pathDirname: (p: string) => Promise<string>
 
+  // Drag-and-drop (components/Haute42Layout.tsx, components/AudioFilePicker.tsx).
+  // getPathForFile is synchronous — it wraps Electron's webUtils.getPathForFile,
+  // not an IPC round-trip. prepareDroppedAudioFile runs the dropped path through
+  // the same allowlist/extension guard as read-audio-file and grants its folder
+  // (main/index.js's fs:prepareDroppedAudioFile), so it must be awaited before
+  // the file is treated as assignable.
+  getPathForFile: (file: File) => string
+  prepareDroppedAudioFile: (filePath: string) => Promise<
+    | { filePath: string; fileName: string }
+    | { error: 'folder' | 'unsupported' | 'not-found'; message: string }
+  >
+
   // Store management for persistent data
   storeGet: (key: string) => Promise<any>
   storeSet: (key: string, value: any) => Promise<boolean>

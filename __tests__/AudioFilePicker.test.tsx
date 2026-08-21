@@ -315,3 +315,71 @@ describe('AudioFilePicker — initialDirectory override', () => {
     expect(api.storeSet).not.toHaveBeenCalled()
   })
 })
+
+describe('AudioFilePicker — drag-and-drop (PRE-470)', () => {
+  function findDropZone(container: HTMLElement) {
+    const zone = container.querySelector('.custom-scrollbar')
+    if (!zone) throw new Error('drop zone not found')
+    return zone as HTMLElement
+  }
+
+  test('dropping a supported audio file selects it', async () => {
+    const { container, onSelect, api } = renderPicker({}, {
+      getPathForFile: vi.fn().mockReturnValue('C:\\Music\\kick.mp3'),
+      prepareDroppedAudioFile: vi.fn().mockResolvedValue({ filePath: 'C:\\Music\\kick.mp3', fileName: 'kick.mp3' }),
+      listDirectory: vi.fn().mockResolvedValue({ entries: [], error: null, truncated: false, totalCount: 0 }),
+    })
+    await screen.findByText('No audio files in this folder')
+
+    const file = new File(['data'], 'kick.mp3', { type: 'audio/mpeg' })
+    fireEvent.drop(findDropZone(container), { dataTransfer: { files: [file], types: ['Files'] } })
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('C:\\Music\\kick.mp3', 'kick'))
+    expect((api as any).prepareDroppedAudioFile).toHaveBeenCalledWith('C:\\Music\\kick.mp3')
+  })
+
+  test('dropping a folder is rejected with a visible message, not silently ignored', async () => {
+    const { container, onSelect } = renderPicker({}, {
+      getPathForFile: vi.fn().mockReturnValue('C:\\Music\\MySounds'),
+      prepareDroppedAudioFile: vi.fn().mockResolvedValue({
+        error: 'folder',
+        message: 'Folders aren\u2019t supported here — use the picker\u2019s "Browse..." to open one.',
+      }),
+      listDirectory: vi.fn().mockResolvedValue({ entries: [], error: null, truncated: false, totalCount: 0 }),
+    })
+    await screen.findByText('No audio files in this folder')
+
+    const file = new File(['data'], 'MySounds', { type: '' })
+    fireEvent.drop(findDropZone(container), { dataTransfer: { files: [file], types: ['Files'] } })
+
+    expect(await screen.findByText(/folder/i)).toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  test('dropping a non-audio file is rejected with a visible message', async () => {
+    const { container, onSelect } = renderPicker({}, {
+      getPathForFile: vi.fn().mockReturnValue('C:\\Music\\notes.txt'),
+      prepareDroppedAudioFile: vi.fn().mockResolvedValue({ error: 'unsupported', message: 'Unsupported file type.' }),
+      listDirectory: vi.fn().mockResolvedValue({ entries: [], error: null, truncated: false, totalCount: 0 }),
+    })
+    await screen.findByText('No audio files in this folder')
+
+    const file = new File(['data'], 'notes.txt', { type: 'text/plain' })
+    fireEvent.drop(findDropZone(container), { dataTransfer: { files: [file], types: ['Files'] } })
+
+    expect(await screen.findByText('Unsupported file type.')).toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  test('drag-over shows a visible affordance on the drop zone', async () => {
+    const { container } = renderPicker({}, {
+      listDirectory: vi.fn().mockResolvedValue({ entries: [], error: null, truncated: false, totalCount: 0 }),
+    })
+    await screen.findByText('No audio files in this folder')
+    const zone = findDropZone(container)
+
+    fireEvent.dragOver(zone, { dataTransfer: { types: ['Files'] } })
+
+    expect(zone.className).toContain('outline-green-400')
+  })
+})

@@ -43,6 +43,13 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
   const [showUrlModal, setShowUrlModal] = useState(false)
   const [upTarget, setUpTarget] = useState<string | null>(null)
 
+  // Drag-and-drop (PRE-470) — a second, optional drop target alongside the
+  // pads themselves. Same guard as a native pick: main/index.js's
+  // fs:prepareDroppedAudioFile checks the extension, rejects a dropped
+  // folder, and grants the file's folder before this resolves.
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
+
   const [filterText, setFilterText] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [isConfirming, setIsConfirming] = useState(false)
@@ -254,6 +261,61 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
       onSelect(result.filePath, result.fileName.replace(/\.[^/.]+$/, ''))
     }
   }
+
+  useEffect(() => {
+    if (!dropError) return
+    const timer = setTimeout(() => setDropError(null), 4000)
+    return () => clearTimeout(timer)
+  }, [dropError])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }, [])
+
+  // Only the first dropped file is used — the picker assigns one file at a
+  // time, same as clicking an entry in the list.
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    setDropError(null)
+
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+
+    if (!api?.getPathForFile || !api?.prepareDroppedAudioFile) {
+      setDropError('Drag-and-drop is unavailable in this build.')
+      return
+    }
+
+    const file = files[0]
+    let filePath: string
+    try {
+      filePath = api.getPathForFile(file)
+    } catch {
+      filePath = ''
+    }
+    if (!filePath) {
+      setDropError("Couldn't read the dropped file's location.")
+      return
+    }
+
+    api.prepareDroppedAudioFile(filePath).then((result: { filePath: string; fileName: string } | { error: string; message: string }) => {
+      if ('error' in result) {
+        setDropError(result.message)
+        return
+      }
+      stopPreview()
+      onSelect(result.filePath, result.fileName.replace(/\.[^/.]+$/, ''))
+    })
+  }, [api, onSelect, stopPreview])
 
   const handleUrlConfirm = (url: string, name?: string) => {
     stopPreview()
@@ -469,8 +531,21 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
           />
         </div>
 
-        {/* File list */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+        {/* File list — also a drop target: dragging a file from Explorer here
+            selects it, same as double-clicking an entry. */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`flex-1 overflow-y-auto custom-scrollbar p-2 transition-colors ${
+            isDragOver ? 'bg-green-500/10 outline-dashed outline-2 outline-green-400 -outline-offset-4' : ''
+          }`}
+        >
+          {dropError && (
+            <div className={`p-2 mb-2 text-xs rounded-lg text-center ${theme === 'light' ? 'bg-red-50 text-red-700' : 'bg-red-900/30 text-red-300'}`}>
+              {dropError}
+            </div>
+          )}
           {isLoading && (
             <div className="p-6 flex items-center justify-center gap-2 text-gray-500 text-sm">
               <span className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />

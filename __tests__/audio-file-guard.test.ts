@@ -13,6 +13,7 @@ const {
   isDriveRoot,
   readAudioFileGuarded,
   listDirectoryGuarded,
+  prepareDroppedAudioFileGuarded,
 } = require('../main/audio-file-guard')
 
 describe('resolveAllowedRoots', () => {
@@ -285,5 +286,74 @@ describe('listDirectoryGuarded', () => {
     expect(result.entries).toEqual([])
     expect(result.truncated).toBe(false)
     expect(result.totalCount).toBe(0)
+  })
+})
+
+// --- prepareDroppedAudioFileGuarded ---
+// Backs main/index.js's fs:prepareDroppedAudioFile IPC handler (PRE-470),
+// invoked when a file is dragged from Explorer onto a pad or the picker.
+// stat/grantRoot are injected so this is testable without booting Electron.
+
+describe('prepareDroppedAudioFileGuarded', () => {
+  test('assigns a supported audio file and grants its containing folder', async () => {
+    const stat = async () => ({ isDirectory: () => false })
+    let grantedWith: string | null = null
+    const grantRoot = (dirPath: string) => { grantedWith = dirPath }
+
+    const result = await prepareDroppedAudioFileGuarded(path.join(musicDir, 'kick.mp3'), { stat, grantRoot })
+
+    expect('error' in result).toBe(false)
+    expect((result as any).filePath).toBe(path.join(musicDir, 'kick.mp3'))
+    expect((result as any).fileName).toBe('kick.mp3')
+    expect(grantedWith).toBe(musicDir)
+  })
+
+  test('rejects a dropped folder without granting anything', async () => {
+    const stat = async () => ({ isDirectory: () => true })
+    let grantCalled = false
+    const grantRoot = () => { grantCalled = true }
+
+    const result = await prepareDroppedAudioFileGuarded(path.join(musicDir, 'MySounds'), { stat, grantRoot })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toBe('folder')
+    expect((result as any).message).toMatch(/folder/i)
+    expect(grantCalled).toBe(false)
+  })
+
+  test('rejects an unsupported extension without granting anything', async () => {
+    const stat = async () => ({ isDirectory: () => false })
+    let grantCalled = false
+    const grantRoot = () => { grantCalled = true }
+
+    const result = await prepareDroppedAudioFileGuarded(path.join(musicDir, 'notes.txt'), { stat, grantRoot })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toBe('unsupported')
+    expect(grantCalled).toBe(false)
+  })
+
+  test('returns a not-found error when stat rejects, without granting anything', async () => {
+    const stat = async () => { throw new Error('ENOENT') }
+    let grantCalled = false
+    const grantRoot = () => { grantCalled = true }
+
+    const result = await prepareDroppedAudioFileGuarded(path.join(musicDir, 'gone.mp3'), { stat, grantRoot })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toBe('not-found')
+    expect(grantCalled).toBe(false)
+  })
+
+  test('rejects an empty or non-string path without calling stat or granting anything', async () => {
+    const stat = () => { throw new Error('should not be called') }
+    let grantCalled = false
+    const grantRoot = () => { grantCalled = true }
+
+    const result = await prepareDroppedAudioFileGuarded('', { stat, grantRoot })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toBe('unsupported')
+    expect(grantCalled).toBe(false)
   })
 })

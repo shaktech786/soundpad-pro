@@ -1,8 +1,13 @@
-import React, { useMemo, memo } from 'react'
+import React, { useMemo, memo, useCallback, useEffect, useState } from 'react'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
 import { formatSoundError } from '../utils/soundErrors'
+import { SUPPORTED_EXTENSIONS } from '../config/audio-file-contract'
+
+// How long a drop-rejection message (wrong file type, folder, multi-file
+// notice) stays visible on the pad before it auto-clears.
+const DROP_MESSAGE_TIMEOUT_MS = 4000
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
@@ -15,6 +20,12 @@ interface Haute42LayoutProps {
   onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
   onTriggerAction?: (action: CombinedAction) => void
+  /**
+   * Optional: assigns a file dropped from Explorer directly to a pad (skips
+   * the picker). Absent in test/dev contexts that don't wire drag-and-drop —
+   * pads still render normally, they just won't accept a drop.
+   */
+  onDropSound?: (index: number, filePath: string, fileName: string) => void
   buttonMapping?: Map<number, number>
   stopButton?: number | null
   boardLayout?: ButtonPosition[]
@@ -38,6 +49,7 @@ interface PadButtonProps {
   onMapSoundFromUrl?: (index: number) => void
   onAssignOBSAction?: (index: number) => void
   onTriggerAction?: (action: CombinedAction) => void
+  onDropSound?: (index: number, filePath: string, fileName: string) => void
 }
 
 const BUTTON_RENDER_SIZE = 96 // w-24 = 96px
@@ -48,6 +60,17 @@ export function extractFilename(path: string): string {
   const parts = path.split(/[/\\#]/)
   const filename = parts[parts.length - 1] || parts[parts.length - 2] || 'Unknown'
   return filename.replace(/\.[^/.]+$/, '')
+}
+
+// Fast client-side reject for an obviously-wrong extension, checked against
+// the File's own name (no IPC round-trip needed). This is a pre-check only —
+// config/audio-file-contract.js's list is still the single source of truth,
+// imported rather than restated, and main/index.js's fs:prepareDroppedAudioFile
+// re-checks it authoritatively (and is what actually detects a dropped folder).
+function hasSupportedExtension(fileName: string): boolean {
+  const dot = fileName.lastIndexOf('.')
+  if (dot < 0) return false
+  return SUPPORTED_EXTENSIONS.includes(fileName.slice(dot).toLowerCase())
 }
 
 function labelStyle(name: string): { fontSize: string; lineClamp: string } {
@@ -76,9 +99,86 @@ const PadButton = memo(({
   onMapSoundFromUrl,
   onAssignOBSAction,
   onTriggerAction,
+  onDropSound,
 }: PadButtonProps) => {
   const hasSound = !!soundFile
   const hasOBSAction = !!obsAction
+
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [dropMessage, setDropMessage] = useState<string | null>(null)
+
+  // Auto-clear a rejection/notice message rather than leaving it stuck on
+  // the pad forever.
+  useEffect(() => {
+    if (!dropMessage) return
+    const timer = setTimeout(() => setDropMessage(null), DROP_MESSAGE_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [dropMessage])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!onDropSound) return
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+    setIsDragOver(true)
+  }, [onDropSound])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!onDropSound) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }, [onDropSound])
+
+  // Assigns the first dropped audio file to this pad. Multi-file drops
+  // assign only the first file — the rest are reported as ignored rather
+  // than silently discarded (a pad is a single-file target; scattering the
+  // remaining files across other pads elsewhere in the grid would be a
+  // surprising side effect of dropping onto THIS pad).
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!onDropSound) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (!api?.getPathForFile || !api?.prepareDroppedAudioFile) {
+      setDropMessage('Drag-and-drop is unavailable in this build.')
+      return
+    }
+
+    const [file, ...rest] = files
+    if (!hasSupportedExtension(file.name)) {
+      setDropMessage(`"${file.name}" isn't a supported audio file.`)
+      return
+    }
+
+    let filePath: string
+    try {
+      filePath = api.getPathForFile(file)
+    } catch {
+      filePath = ''
+    }
+    if (!filePath) {
+      setDropMessage("Couldn't read the dropped file's location.")
+      return
+    }
+
+    void api.prepareDroppedAudioFile(filePath).then((result) => {
+      if ('error' in result) {
+        setDropMessage(result.message)
+        return
+      }
+      onDropSound(index, result.filePath, result.fileName)
+      if (rest.length > 0) {
+        setDropMessage(`Assigned "${result.fileName}" — ${rest.length} other file${rest.length > 1 ? 's' : ''} ignored.`)
+      }
+    })
+  }, [onDropSound, index])
 
   const handleClick = (e: React.MouseEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -119,6 +219,9 @@ const PadButton = memo(({
     <button
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       title={fileError ? `⚠ ${formatSoundError(fileError)}` : hasSound ? extractFilename(soundFile!) : undefined}
       style={{
         position: 'absolute',
@@ -132,21 +235,23 @@ const PadButton = memo(({
         transition-all duration-100
         relative
         focus:outline-none focus:ring-4 focus:ring-purple-500/50
-        ${isPressed
-          ? isDrumPad
-            ? 'bg-orange-400 border-orange-200 scale-110 shadow-lg shadow-orange-400/50'
-            : 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
-          : isStopButton
-            ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:scale-105 shadow-lg shadow-red-500/30'
-            : isDrumPad
-              ? 'bg-orange-600 border-orange-500 hover:bg-orange-500 hover:scale-105'
-              : fileError
-                ? 'bg-amber-700 border-amber-500 hover:bg-amber-600 hover:scale-105'
-                : hasSound
-                  ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
-                  : theme === 'light'
-                    ? 'bg-gray-200 border-gray-300 hover:bg-gray-300 hover:scale-105'
-                    : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
+        ${isDragOver
+          ? 'ring-4 ring-green-400 border-green-400 scale-110 shadow-lg shadow-green-400/50'
+          : isPressed
+            ? isDrumPad
+              ? 'bg-orange-400 border-orange-200 scale-110 shadow-lg shadow-orange-400/50'
+              : 'bg-purple-500 border-purple-300 scale-110 shadow-lg shadow-purple-500/50'
+            : isStopButton
+              ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:scale-105 shadow-lg shadow-red-500/30'
+              : isDrumPad
+                ? 'bg-orange-600 border-orange-500 hover:bg-orange-500 hover:scale-105'
+                : fileError
+                  ? 'bg-amber-700 border-amber-500 hover:bg-amber-600 hover:scale-105'
+                  : hasSound
+                    ? 'bg-blue-600 border-blue-500 hover:bg-blue-500 hover:scale-105'
+                    : theme === 'light'
+                      ? 'bg-gray-200 border-gray-300 hover:bg-gray-300 hover:scale-105'
+                      : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
         }
       `}
       aria-label={fileError ? `${buttonLabel} — warning: ${formatSoundError(fileError)}` : buttonLabel}
@@ -206,6 +311,16 @@ const PadButton = memo(({
         </div>
       )}
 
+      {dropMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute -bottom-8 left-1/2 -translate-x-1/2 z-10 px-2 py-1 rounded-md bg-gray-900 border border-red-500 text-red-300 text-[10px] leading-tight text-center whitespace-nowrap shadow-lg pointer-events-none"
+        >
+          {dropMessage}
+        </div>
+      )}
+
       {isStopButton ? (
         <div className="text-white text-sm px-1 text-center font-bold">
           STOP
@@ -234,6 +349,7 @@ export const Haute42Layout = memo<Haute42LayoutProps>(({
   onMapSoundFromUrl,
   onAssignOBSAction,
   onTriggerAction,
+  onDropSound,
   buttonMapping,
   stopButton,
   boardLayout,
@@ -296,6 +412,7 @@ export const Haute42Layout = memo<Haute42LayoutProps>(({
               onMapSoundFromUrl={onMapSoundFromUrl}
               onAssignOBSAction={onAssignOBSAction}
               onTriggerAction={onTriggerAction}
+              onDropSound={onDropSound}
             />
           )
         })}

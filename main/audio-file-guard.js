@@ -191,6 +191,56 @@ async function listDirectoryGuarded(dirPath, deps) {
   }
 }
 
+/**
+ * Orchestrates the drag-and-drop guard (PRE-470): a file dropped onto a pad
+ * or the picker gets exactly the same treatment as one picked via
+ * dialog:openFile — stat it, reject directories (the renderer has no way to
+ * detect a dropped folder on its own; dataTransfer gives no isDirectory
+ * flag), reject an unsupported extension, then grant its containing folder
+ * so read-audio-file can read it back on this and future launches. `stat`/
+ * `grantRoot` are injected so this stays framework-free and unit-testable —
+ * main/index.js's fs:prepareDroppedAudioFile handler passes the real
+ * fs.promises.stat and its own grantAudioRoot.
+ * @param {unknown} filePath
+ * @param {{
+ *   stat: (p: string) => Promise<{ isDirectory(): boolean }>,
+ *   grantRoot: (dirPath: string) => void,
+ * }} deps
+ * @returns {Promise<
+ *   { filePath: string, fileName: string } |
+ *   { error: 'folder' | 'unsupported' | 'not-found', message: string }
+ * >}
+ */
+async function prepareDroppedAudioFileGuarded(filePath, deps) {
+  const { stat, grantRoot } = deps;
+
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    return { error: 'unsupported', message: 'Unsupported file.' };
+  }
+
+  let stats;
+  try {
+    stats = await stat(filePath);
+  } catch (statError) {
+    return { error: 'not-found', message: 'File not found.' };
+  }
+
+  if (stats.isDirectory()) {
+    return {
+      error: 'folder',
+      message: 'Folders aren’t supported here — use the picker’s "Browse..." to open one.',
+    };
+  }
+
+  if (!hasSupportedExtension(filePath)) {
+    return { error: 'unsupported', message: 'Unsupported file type.' };
+  }
+
+  grantRoot(path.dirname(filePath));
+
+  return { filePath, fileName: path.basename(filePath) };
+}
+
 module.exports = {
   resolveAllowedRoots,
   isPathAllowed,
@@ -198,4 +248,5 @@ module.exports = {
   isDriveRoot,
   readAudioFileGuarded,
   listDirectoryGuarded,
+  prepareDroppedAudioFileGuarded,
 };

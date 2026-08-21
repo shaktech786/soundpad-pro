@@ -1,6 +1,6 @@
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { Haute42Layout } from '../components/Haute42Layout'
 import { ThemeProvider } from '../contexts/ThemeContext'
 import type { ButtonPosition } from '../types/profile'
@@ -115,6 +115,113 @@ describe('Haute42Layout — file error indicators', () => {
     const button = screen.getByRole('button', { name: /Assign sound to pad/i })
     expect(button).toBeInTheDocument()
     expect(button.className).not.toContain('bg-amber-700')
+  })
+})
+
+describe('Haute42Layout — drag-and-drop (PRE-470)', () => {
+  function makeApi(overrides: Record<string, unknown> = {}) {
+    return {
+      getPathForFile: vi.fn((file: File) => `C:\\Music\\${file.name}`),
+      prepareDroppedAudioFile: vi.fn().mockResolvedValue({ filePath: 'C:\\Music\\kick.mp3', fileName: 'kick.mp3' }),
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    delete (window as any).electronAPI
+  })
+
+  test('drag-over shows a visible affordance on the target pad', () => {
+    renderLayout({ onDropSound: vi.fn() })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+
+    fireEvent.dragOver(button, { dataTransfer: { types: ['Files'] } })
+
+    expect(button.className).toContain('ring-green-400')
+  })
+
+  test('drag-leave clears the affordance', () => {
+    renderLayout({ onDropSound: vi.fn() })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+
+    fireEvent.dragOver(button, { dataTransfer: { types: ['Files'] } })
+    expect(button.className).toContain('ring-green-400')
+
+    fireEvent.dragLeave(button, { dataTransfer: { types: ['Files'] } })
+    expect(button.className).not.toContain('ring-green-400')
+  })
+
+  test('dropping a supported audio file assigns it to the pad', async () => {
+    (window as any).electronAPI = makeApi()
+    const onDropSound = vi.fn()
+    renderLayout({ onDropSound })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+    const file = new File(['data'], 'kick.mp3', { type: 'audio/mpeg' })
+
+    fireEvent.drop(button, { dataTransfer: { files: [file], types: ['Files'] } })
+
+    await waitFor(() => expect(onDropSound).toHaveBeenCalledWith(0, 'C:\\Music\\kick.mp3', 'kick.mp3'))
+  })
+
+  test('dropping a non-audio file is rejected with a visible message and no assignment', async () => {
+    (window as any).electronAPI = makeApi()
+    const onDropSound = vi.fn()
+    renderLayout({ onDropSound })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+    const file = new File(['data'], 'notes.txt', { type: 'text/plain' })
+
+    fireEvent.drop(button, { dataTransfer: { files: [file], types: ['Files'] } })
+
+    await screen.findByRole('status')
+    expect(screen.getByRole('status').textContent).toMatch(/supported audio file/i)
+    expect(onDropSound).not.toHaveBeenCalled()
+  })
+
+  test('dropping a folder is rejected with a message, not silently ignored', async () => {
+    (window as any).electronAPI = makeApi({
+      prepareDroppedAudioFile: vi.fn().mockResolvedValue({
+        error: 'folder',
+        message: 'Folders aren\u2019t supported here — use the picker\u2019s "Browse..." to open one.',
+      }),
+    })
+    const onDropSound = vi.fn()
+    renderLayout({ onDropSound })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+    // A dropped folder surfaces as a File whose name carries a supported-looking
+    // extension is not guaranteed — the authoritative folder check happens in
+    // the main process via prepareDroppedAudioFile, which this test's fake
+    // simulates returning a 'folder' error for.
+    const file = new File(['data'], 'MySounds.mp3', { type: '' })
+
+    fireEvent.drop(button, { dataTransfer: { files: [file], types: ['Files'] } })
+
+    const status = await screen.findByRole('status')
+    expect(status.textContent).toMatch(/folder/i)
+    expect(onDropSound).not.toHaveBeenCalled()
+  })
+
+  test('dropping multiple files assigns the first and reports the rest as ignored', async () => {
+    (window as any).electronAPI = makeApi()
+    const onDropSound = vi.fn()
+    renderLayout({ onDropSound })
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+    const file1 = new File(['data'], 'kick.mp3', { type: 'audio/mpeg' })
+    const file2 = new File(['data'], 'snare.mp3', { type: 'audio/mpeg' })
+
+    fireEvent.drop(button, { dataTransfer: { files: [file1, file2], types: ['Files'] } })
+
+    await waitFor(() => expect(onDropSound).toHaveBeenCalledWith(0, 'C:\\Music\\kick.mp3', 'kick.mp3'))
+    const status = await screen.findByRole('status')
+    expect(status.textContent).toMatch(/1 other file ignored/i)
+  })
+
+  test('pads with no onDropSound handler do not react to drag-over', () => {
+    renderLayout()
+    const button = screen.getByRole('button', { name: /Assign sound to pad/i })
+
+    fireEvent.dragOver(button, { dataTransfer: { types: ['Files'] } })
+
+    expect(button.className).not.toContain('ring-green-400')
   })
 })
 

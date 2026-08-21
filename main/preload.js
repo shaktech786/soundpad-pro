@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
@@ -21,6 +21,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listDirectory: (dirPath) => ipcRenderer.invoke('fs:listDirectory', dirPath),
   getDefaultAudioDir: () => ipcRenderer.invoke('fs:getDefaultAudioDir'),
   pathDirname: (p) => ipcRenderer.invoke('path:dirname', p),
+
+  // Drag-and-drop (PRE-470). File.path was removed from the renderer's File
+  // object in this Electron version — webUtils.getPathForFile() is the
+  // documented replacement, and (like webUtils itself) is only reachable
+  // from a preload script, not the sandboxed renderer. prepareDroppedAudioFile
+  // runs the same allowlist/extension guard as a native pick and grants the
+  // dropped file's folder — see main/index.js's fs:prepareDroppedAudioFile.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  prepareDroppedAudioFile: (filePath) => ipcRenderer.invoke('fs:prepareDroppedAudioFile', filePath),
 
   // Store management for persistent data
   storeGet: (key) => ipcRenderer.invoke('store:get', key),

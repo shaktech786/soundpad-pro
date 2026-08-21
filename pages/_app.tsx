@@ -45,6 +45,17 @@ function MyApp({ Component, pageProps }: AppProps) {
       window.addEventListener('unhandledrejection', (event) => {
         console.error('Unhandled promise rejection:', event.reason)
       })
+
+      // PRE-470: without this, dropping a file anywhere outside a drop
+      // target (or a drop target rejecting it) falls through to Chromium's
+      // default behaviour, which navigates the whole window to the
+      // dropped file. Drop targets (Haute42Layout pads, AudioFilePicker)
+      // call stopPropagation on their own dragover/drop handlers, so only
+      // stray drops reach this listener — this is a safety net, not the
+      // primary handling.
+      const preventNavigation = (event: DragEvent) => event.preventDefault()
+      window.addEventListener('dragover', preventNavigation)
+      window.addEventListener('drop', preventNavigation)
     }
   }, [])
 

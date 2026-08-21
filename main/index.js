@@ -597,6 +597,26 @@ ipcMain.handle('dialog:openFile', async () => {
   return null;
 });
 
+// Drag-and-drop from Explorer onto a pad or the picker (PRE-470). The
+// renderer can only hand us a raw filesystem path (via webUtils.getPathForFile
+// in preload) — it has no way to stat that path or know if it's a directory,
+// so all of that lives in audio-file-guard.js's prepareDroppedAudioFileGuarded,
+// in the same place dialog:openFile does it. A dropped file gets exactly the
+// same treatment as a natively-picked one: its extension is checked against
+// the shared contract and its containing folder is granted (grantAudioRoot
+// above) so read-audio-file can actually read it back afterward. Never
+// widens the allowlist beyond that one folder — grantAudioRoot already
+// refuses to grant a drive root, which is the known gap tracked as PRE-472
+// (e.g. a file dropped as `D:\song.mp3` has no grantable parent and stays
+// unreadable; the guard still returns a clean 'not-found'-shaped result for
+// it instead of throwing).
+ipcMain.handle('fs:prepareDroppedAudioFile', async (event, filePath) => {
+  return audioFileGuard.prepareDroppedAudioFileGuarded(filePath, {
+    stat: (p) => fs.stat(p),
+    grantRoot: (dirPath) => grantAudioRoot(dirPath),
+  });
+});
+
 // Read audio file and return as buffer. Enforces the same allowlist as
 // fs:listDirectory, plus a supported-extension check and a size cap —
 // stat()-ed BEFORE reading so an oversized file is never buffered into
