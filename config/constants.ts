@@ -1,4 +1,5 @@
 import { ButtonPosition, BoardTemplate } from '../types/profile'
+import { SUPPORTED_EXTENSIONS, MIME_BY_EXTENSION, MAX_FILE_SIZE_BYTES } from './audio-file-contract'
 
 // Application configuration constants
 
@@ -13,15 +14,14 @@ export const APP_CONFIG = {
     BUTTON_RELEASE_DELAY: 30, // ms
   },
   
-  // Audio settings
+  // Audio settings — derived from config/audio-file-contract.js, the single
+  // source of truth shared with main/index.js. SUPPORTED_FORMATS keeps its
+  // pre-existing shape (extension without the leading dot) so callers that
+  // already depend on it keep compiling.
   AUDIO: {
-    SUPPORTED_FORMATS: ['mp3', 'wav', 'ogg', 'webm', 'm4a', 'flac', 'aac', 'opus', 'weba'],
-    SUPPORTED_MIME_TYPES: [
-      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
-      'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac',
-      'audio/opus', 'audio/x-m4a'
-    ],
-    MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
+    SUPPORTED_FORMATS: SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1)),
+    SUPPORTED_MIME_TYPES: Array.from(new Set(Object.values(MIME_BY_EXTENSION))),
+    MAX_FILE_SIZE: MAX_FILE_SIZE_BYTES,
     PRELOAD: true,
     HTML5: true,
     DEFAULT_VOLUME: 1.0,

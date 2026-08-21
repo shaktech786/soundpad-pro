@@ -23,6 +23,13 @@ const {
   resolveObsSetupBinaryPath,
   resolveObsSetupVersionFilePath,
 } = require('./obs-setup-binary-path');
+const {
+  SUPPORTED_EXTENSIONS: AUDIO_SUPPORTED_EXTENSIONS,
+  MIME_BY_EXTENSION: AUDIO_MIME_BY_EXTENSION,
+  MAX_FILE_SIZE_BYTES: AUDIO_MAX_FILE_SIZE_BYTES,
+  MAX_DIRECTORY_ENTRIES: AUDIO_MAX_DIRECTORY_ENTRIES,
+} = require('../config/audio-file-contract');
+const audioFileGuard = require('./audio-file-guard');
 
 // PRE-385 (rename to Prelive Deck): pin userData to the pre-rename path BEFORE
 // anything below reads or writes it — the Store constructed a few lines down,
@@ -495,36 +502,61 @@ ipcMain.handle('get-controllers', async () => {
   return { enabled: true };
 });
 
-// File dialog for audio selection
-const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.flac', '.aac', '.opus', '.weba'])
+// File dialog for audio selection. Extensions/MIME/size come from
+// config/audio-file-contract.js (PRE-466) — the single source of truth
+// shared with config/constants.ts and utils/audioUtils.ts, so this list can
+// no longer drift out of sync with what the renderer thinks is supported.
+
+// The audio-file IPC boundary (`read-audio-file`, `fs:listDirectory`) only
+// trusts paths inside these roots — Music/Documents/Downloads/Desktop, the
+// user's pinned library folder (electron-store key `audioLibrary:defaultDir`,
+// set from the AudioFilePicker "pin as default" action), and any folder the
+// user has explicitly granted by picking it via dialog:openDirectory or
+// dialog:openFile (persisted below under `audioLibrary:grantedRoots`, so the
+// grant survives restarts — soundMappings themselves persist raw file paths
+// and get re-read via read-audio-file every launch). Recomputed on every
+// call rather than cached, since the store can change mid-session.
+function getAllowedAudioRoots() {
+  return audioFileGuard.resolveAllowedRoots([
+    app.getPath('music'),
+    app.getPath('documents'),
+    app.getPath('downloads'),
+    app.getPath('desktop'),
+    store.get('audioLibrary:defaultDir'),
+    ...(store.get('audioLibrary:grantedRoots') || []),
+  ])
+}
+
+// Persists `rootPath` as a granted root so future read-audio-file /
+// fs:listDirectory calls trust it too. Never grants a drive root ("C:\",
+// "D:\") even when the user explicitly picked one — the allowlist blocks
+// drive roots unconditionally (see main/audio-file-guard.js's isDriveRoot).
+function grantAudioRoot(rootPath) {
+  if (!rootPath || audioFileGuard.isDriveRoot(rootPath)) return
+  const resolved = path.resolve(rootPath)
+  const granted = store.get('audioLibrary:grantedRoots') || []
+  if (!granted.includes(resolved)) {
+    store.set('audioLibrary:grantedRoots', [...granted, resolved])
+  }
+}
 
 ipcMain.handle('dialog:openDirectory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
-  if (!result.canceled && result.filePaths.length > 0) return result.filePaths[0]
+  if (!result.canceled && result.filePaths.length > 0) {
+    const dirPath = result.filePaths[0]
+    grantAudioRoot(dirPath)
+    return dirPath
+  }
   return null
 })
 
 ipcMain.handle('fs:listDirectory', async (event, dirPath) => {
-  try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true })
-    const result = []
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      const fullPath = path.join(dirPath, entry.name)
-      if (entry.isDirectory()) {
-        result.push({ name: entry.name, path: fullPath, isDir: true })
-      } else if (entry.isFile() && AUDIO_EXTS.has(path.extname(entry.name).toLowerCase())) {
-        result.push({ name: entry.name, path: fullPath, isDir: false })
-      }
-    }
-    result.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-    })
-    return { entries: result, error: null }
-  } catch (err) {
-    return { entries: [], error: err.message }
-  }
+  return audioFileGuard.listDirectoryGuarded(dirPath, {
+    allowedRoots: getAllowedAudioRoots(),
+    audioExtensions: AUDIO_SUPPORTED_EXTENSIONS,
+    maxEntries: AUDIO_MAX_DIRECTORY_ENTRIES,
+    readdir: (p, opts) => fs.readdir(p, opts),
+  })
 })
 
 ipcMain.handle('fs:getDefaultAudioDir', () => app.getPath('music'))
@@ -533,13 +565,19 @@ ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'Audio Files', extensions: ['mp3', 'wav', 'ogg', 'webm', 'm4a', 'flac', 'aac', 'opus', 'weba'] },
+      { name: 'Audio Files', extensions: AUDIO_SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1)) },
       { name: 'All Files', extensions: ['*'] }
     ]
   });
 
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
+    // The user explicitly picked this file, so its containing folder becomes
+    // a granted root (unless that folder is itself a drive root — see
+    // grantAudioRoot). That's what lets read-audio-file succeed for it below
+    // and on every future launch, without widening the allowlist to
+    // "everything the user could ever pick".
+    grantAudioRoot(path.dirname(filePath));
     // Return the raw file path - it will be converted to URL in the renderer
     return {
       filePath: filePath,
@@ -549,34 +587,18 @@ ipcMain.handle('dialog:openFile', async () => {
   return null;
 });
 
-// Read audio file and return as buffer
+// Read audio file and return as buffer. Enforces the same allowlist as
+// fs:listDirectory, plus a supported-extension check and a size cap —
+// stat()-ed BEFORE reading so an oversized file is never buffered into
+// memory (PRE-466; MAX_FILE_SIZE was declared for years and never enforced).
 ipcMain.handle('read-audio-file', async (event, filePath) => {
-  try {
-    const buffer = await fs.readFile(filePath);
-    // Get file extension for MIME type
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes = {
-      '.mp3': 'audio/mpeg',
-      '.wav': 'audio/wav',
-      '.ogg': 'audio/ogg',
-      '.webm': 'audio/webm',
-      '.m4a': 'audio/mp4',
-      '.flac': 'audio/flac',
-      '.aac': 'audio/aac',
-      '.opus': 'audio/opus',
-      '.weba': 'audio/webm'
-    };
-    const mimeType = mimeTypes[ext] || 'audio/mpeg';
-
-    return {
-      buffer: buffer,
-      mimeType: mimeType,
-      fileName: path.basename(filePath)
-    };
-  } catch (error) {
-    console.error('Error reading audio file:', error);
-    return { error: error.message };
-  }
+  return audioFileGuard.readAudioFileGuarded(filePath, {
+    allowedRoots: getAllowedAudioRoots(),
+    maxFileSizeBytes: AUDIO_MAX_FILE_SIZE_BYTES,
+    mimeByExtension: AUDIO_MIME_BY_EXTENSION,
+    stat: (p) => fs.stat(p),
+    readFile: (p) => fs.readFile(p),
+  });
 });
 
 // Navigation handler for static export

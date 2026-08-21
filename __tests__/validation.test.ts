@@ -1,9 +1,6 @@
 import { describe, test, expect } from 'vitest'
 import {
   isValidButtonIndex,
-  isValidFilePath,
-  hasValidAudioExtension,
-  isValidFileSize,
   sanitizePathForDisplay,
   isValidHotkey,
   isGameRiskyHotkey,
@@ -32,88 +29,13 @@ describe('isValidButtonIndex', () => {
   })
 })
 
-describe('isValidFilePath', () => {
-  test('accepts Windows backslash paths', () => {
-    expect(isValidFilePath('C:\\Users\\shake\\sounds\\hello.mp3')).toBe(true)
-    expect(isValidFilePath('D:\\audio\\boom.ogg')).toBe(true)
-  })
-
-  test('accepts Unix paths', () => {
-    expect(isValidFilePath('/home/user/sounds/hello.ogg')).toBe(true)
-    expect(isValidFilePath('/tmp/audio.mp3')).toBe(true)
-  })
-
-  test('accepts URL schemes', () => {
-    expect(isValidFilePath('https://example.com/sound.mp3')).toBe(true)
-    expect(isValidFilePath('http://cdn.example.com/audio.wav')).toBe(true)
-    expect(isValidFilePath('file:///C:/sounds/hello.mp3')).toBe(true)
-    expect(isValidFilePath('blob:http://localhost/abc-123')).toBe(true)
-  })
-
-  test('rejects path traversal attempts', () => {
-    expect(isValidFilePath('../../../etc/passwd')).toBe(false)
-    expect(isValidFilePath('sounds/../../../system')).toBe(false)
-    expect(isValidFilePath('~/Documents/sound.mp3')).toBe(false)
-  })
-
-  test('rejects empty or non-string values', () => {
-    expect(isValidFilePath('')).toBe(false)
-    expect(isValidFilePath(null)).toBe(false)
-    expect(isValidFilePath(42)).toBe(false)
-  })
-})
-
-describe('hasValidAudioExtension', () => {
-  test('accepts supported extensions', () => {
-    expect(hasValidAudioExtension('sound.mp3')).toBe(true)
-    expect(hasValidAudioExtension('sound.wav')).toBe(true)
-    expect(hasValidAudioExtension('sound.ogg')).toBe(true)
-    expect(hasValidAudioExtension('sound.flac')).toBe(true)
-    expect(hasValidAudioExtension('sound.m4a')).toBe(true)
-    expect(hasValidAudioExtension('sound.aac')).toBe(true)
-    expect(hasValidAudioExtension('sound.opus')).toBe(true)
-    expect(hasValidAudioExtension('sound.webm')).toBe(true)
-    expect(hasValidAudioExtension('sound.weba')).toBe(true)
-  })
-
-  test('is case-insensitive', () => {
-    expect(hasValidAudioExtension('sound.MP3')).toBe(true)
-    expect(hasValidAudioExtension('sound.WAV')).toBe(true)
-    expect(hasValidAudioExtension('sound.OGG')).toBe(true)
-  })
-
-  test('rejects unsupported extensions', () => {
-    expect(hasValidAudioExtension('sound.txt')).toBe(false)
-    expect(hasValidAudioExtension('sound.exe')).toBe(false)
-    expect(hasValidAudioExtension('sound.mp4')).toBe(false)
-    expect(hasValidAudioExtension('sound.avi')).toBe(false)
-  })
-
-  test('rejects empty or extension-less names', () => {
-    expect(hasValidAudioExtension('')).toBe(false)
-    expect(hasValidAudioExtension('nosound')).toBe(false)
-  })
-})
-
-describe('isValidFileSize', () => {
-  const MAX = 50 * 1024 * 1024
-
-  test('accepts valid sizes', () => {
-    expect(isValidFileSize(1)).toBe(true)
-    expect(isValidFileSize(1024)).toBe(true)
-    expect(isValidFileSize(MAX)).toBe(true)
-  })
-
-  test('rejects zero and negative', () => {
-    expect(isValidFileSize(0)).toBe(false)
-    expect(isValidFileSize(-1)).toBe(false)
-  })
-
-  test('rejects sizes over 50MB', () => {
-    expect(isValidFileSize(MAX + 1)).toBe(false)
-    expect(isValidFileSize(100 * 1024 * 1024)).toBe(false)
-  })
-})
+// isValidFilePath, hasValidAudioExtension, and isValidFileSize were removed
+// from utils/validation.ts (PRE-466): they were tested but never called in
+// production. Path/extension/size enforcement now lives at the actual IPC
+// boundary in main/audio-file-guard.js — see __tests__/audio-file-guard.test.ts —
+// which additionally normalizes with path.resolve() so a traversal payload
+// can't pass just because its raw string starts with an allowed prefix
+// (isValidFilePath here only ever did a substring check for '..').
 
 describe('isValidHotkey', () => {
   test('accepts standard combinations', () => {

@@ -1,36 +1,14 @@
 // Audio utility functions for file validation and path handling
 
-export const SUPPORTED_AUDIO_FORMATS = [
-  'mp3', 'wav', 'ogg', 'webm', 'm4a', 'flac', 'aac', 'opus', 'weba'
-]
+import { SUPPORTED_EXTENSIONS, MIME_BY_EXTENSION } from '../config/audio-file-contract'
 
-export const SUPPORTED_MIME_TYPES = [
-  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
-  'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac',
-  'audio/opus', 'audio/x-m4a'
-]
+// Derived from config/audio-file-contract.js, the single source of truth
+// shared with main/index.js. Keeps its pre-existing shape (extension
+// without the leading dot) so callers that already depend on it keep
+// compiling.
+export const SUPPORTED_AUDIO_FORMATS = SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1))
 
-/**
- * Validates if a file is a supported audio format
- */
-export function isValidAudioFile(file: File): boolean {
-  // Check MIME type
-  if (SUPPORTED_MIME_TYPES.includes(file.type)) {
-    return true
-  }
-  
-  // Fallback to extension check
-  const extension = getFileExtension(file.name)
-  return SUPPORTED_AUDIO_FORMATS.includes(extension.toLowerCase())
-}
-
-/**
- * Gets file extension from filename
- */
-export function getFileExtension(filename: string): string {
-  const parts = filename.split('.')
-  return parts.length > 1 ? parts[parts.length - 1] : ''
-}
+export const SUPPORTED_MIME_TYPES = Array.from(new Set(Object.values(MIME_BY_EXTENSION)))
 
 /**
  * Extracts clean filename from path or metadata string

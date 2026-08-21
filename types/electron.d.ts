@@ -13,6 +13,18 @@ interface ElectronAPI {
   } | null>
   readAudioFile: (filePath: string) => Promise<{ buffer: Buffer; mimeType: string; fileName: string } | { error: string }>
 
+  // Directory browsing for the in-app file picker (components/AudioFilePicker.tsx).
+  // All three are enforced against the allowlist in main/audio-file-guard.js —
+  // an out-of-allowlist dirPath/filePath returns `error` instead of throwing.
+  openDirectory: () => Promise<string | null>
+  listDirectory: (dirPath: string) => Promise<{
+    entries: { name: string; path: string; isDir: boolean }[]
+    error: string | null
+    truncated: boolean
+    totalCount: number
+  }>
+  getDefaultAudioDir: () => Promise<string>
+
   // Store management for persistent data
   storeGet: (key: string) => Promise<any>
   storeSet: (key: string, value: any) => Promise<boolean>
