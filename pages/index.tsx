@@ -15,6 +15,7 @@ import { PreliveSettings } from '../components/PreliveSettings'
 import { usePrelive } from '../contexts/PreliveContext'
 import { OBSActionAssigner } from '../components/OBSActionAssigner'
 import { URLInputModal } from '../components/URLInputModal'
+import { AudioFilePicker } from '../components/AudioFilePicker'
 import { ProfileSelector } from '../components/ProfileSelector'
 import { BoardBuilder } from '../components/BoardBuilder'
 import { useProfileManager } from '../hooks/useProfileManager'
@@ -182,6 +183,7 @@ export default function Home() {
   const [showPreliveSettings, setShowPreliveSettings] = useState(false)
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
   const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
+  const [assigningPickerPad, setAssigningPickerPad] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   // Auto-update: only surfaced once an update is fully downloaded and ready to
   // install (checking/downloading stay silent by design — the app is used live).
@@ -661,29 +663,47 @@ export default function Home() {
     setAssigningUrlSound(index)
   }, [])
 
-  const handleMapSound = useCallback(async (index: number) => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectAudioFile) {
-      try {
-        const result = await (window as any).electronAPI.selectAudioFile()
-        if (result && result.filePath) {
-          setSoundMappings(prev => {
-            const newMap = new Map(prev)
-            newMap.set(index, result.filePath)
-            return newMap
-          })
-          setCombinedActions(prev => {
-            const newMap = new Map(prev)
-            newMap.delete(index)
-            return newMap
-          })
-        }
-      } catch (error) {
-        logger.error('Error selecting file:', error)
-      }
+  const handleMapSound = useCallback((index: number) => {
+    // The picker needs listDirectory to browse local folders; without it (web/dev,
+    // no Electron preload) fall straight through to the URL modal.
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.listDirectory) {
+      setAssigningPickerPad(index)
     } else {
       handleMapSoundFromUrl(index)
     }
-  }, [handleMapSoundFromUrl, setSoundMappings, setCombinedActions])
+  }, [handleMapSoundFromUrl])
+
+  const handlePickerSelectFile = useCallback((filePath: string, _fileName: string) => {
+    if (assigningPickerPad === null) return
+    const index = assigningPickerPad
+    setSoundMappings(prev => {
+      const newMap = new Map(prev)
+      newMap.set(index, filePath)
+      return newMap
+    })
+    setCombinedActions(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(index)
+      return newMap
+    })
+    setAssigningPickerPad(null)
+  }, [assigningPickerPad, setSoundMappings, setCombinedActions])
+
+  const handlePickerSelectUrl = useCallback((url: string, _name?: string) => {
+    if (assigningPickerPad === null) return
+    const index = assigningPickerPad
+    setSoundMappings(prev => {
+      const newMap = new Map(prev)
+      newMap.set(index, url)
+      return newMap
+    })
+    setCombinedActions(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(index)
+      return newMap
+    })
+    setAssigningPickerPad(null)
+  }, [assigningPickerPad, setSoundMappings, setCombinedActions])
 
   const handleConfirmUrlSound = useCallback((url: string, _name?: string) => {
     if (assigningUrlSound !== null) {
@@ -1468,6 +1488,15 @@ export default function Home() {
           buttonIndex={assigningUrlSound}
           onConfirm={handleConfirmUrlSound}
           onClose={() => setAssigningUrlSound(null)}
+        />
+      )}
+
+      {assigningPickerPad !== null && (
+        <AudioFilePicker
+          onSelect={handlePickerSelectFile}
+          onSelectUrl={handlePickerSelectUrl}
+          enableNativeBrowse
+          onClose={() => setAssigningPickerPad(null)}
         />
       )}
 

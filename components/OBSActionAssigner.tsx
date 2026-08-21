@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import logger from '../utils/logger'
 import { AudioFilePicker } from './AudioFilePicker'
+import { URLInputModal } from './URLInputModal'
 import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
-import { extractAudioUrl, isValidUrl } from '../utils/audioUrlExtractor'
 import { CombinedAction } from '../types/profile'
 import { useTheme } from '../contexts/ThemeContext'
 
@@ -124,12 +124,11 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const [paramValue, setParamValue] = useState<string>('')
 
   // Sound assignment state
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [volume, setVolume] = useState(currentVolume)
   const [pendingFile, setPendingFile] = useState<{ filePath: string; fileName: string } | null>(null)
   const [showFilePicker, setShowFilePicker] = useState(false)
+  const [showUrlModal, setShowUrlModal] = useState(false)
 
   // Preview audio state
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -196,8 +195,8 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
       if (e.key === 'Escape') {
         stopPreview(); onClose()
       } else if (e.key === 'Enter') {
-        if (selectedTab === 'sound' && url && !loading) {
-          handleAssignSound()
+        if (selectedTab === 'sound' && pendingFile) {
+          handleAssignPending()
         } else if (selectedTab !== 'sound' && selectedType && !(selectedTab === 'obs' && selectedActionType?.needsParams && 'param' in selectedActionType && !paramValue)) {
           handleAssign()
         }
@@ -206,7 +205,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedType, paramValue, selectedTab, selectedActionType, url, loading, stopPreview])
+  }, [selectedType, paramValue, selectedTab, selectedActionType, pendingFile, stopPreview])
 
   // Prevent background scroll
   React.useEffect(() => {
@@ -239,25 +238,11 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
     onClose()
   }
 
-  const handleAssignSound = async () => {
-    if (!url.trim() || !onAssignSound) return
-
-    if (!isValidUrl(url)) {
-      setError('Please enter a valid URL')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const extracted = await extractAudioUrl(url)
-      onAssignSound(extracted.url, extracted.name)
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Failed to extract audio URL')
-      setLoading(false)
-    }
+  const handleUrlConfirm = (url: string, name?: string) => {
+    if (!onAssignSound) return
+    setShowUrlModal(false)
+    onAssignSound(url, name)
+    onClose()
   }
 
   const handleFilePickerClick = () => {
@@ -294,9 +279,6 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   const secondaryBtnClass = theme === 'light'
     ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
     : 'bg-gray-700 hover:bg-gray-600 text-white'
-  const inputClass = theme === 'light'
-    ? 'bg-gray-50 text-gray-900 border-gray-300'
-    : 'bg-gray-800 text-white border-gray-700'
   const selectClass = theme === 'light'
     ? 'bg-white text-gray-900 border-gray-300'
     : 'bg-gray-700 text-white border-gray-600'
@@ -518,33 +500,14 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
                   <div className={`flex-1 border-t ${theme === 'light' ? 'border-gray-200' : 'border-gray-700'}`}></div>
                 </div>
 
-                {/* URL Input */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${labelClass}`}>
-                    Enter Sound URL
-                  </label>
-                  <input
-                    type="url"
-                    value={url}
-                    onChange={(e) => {
-                      setUrl(e.target.value)
-                      setError(null)
-                    }}
-                    placeholder="https://www.myinstants.com/... or direct audio URL"
-                    className={`w-full px-4 py-3 rounded-lg border focus:border-blue-500 focus:outline-none ${inputClass}`}
-                    disabled={loading}
-                    autoFocus={!currentSound}
-                  />
-                </div>
-
-                {/* Supported Sources Info */}
-                <div className={`p-3 rounded-lg ${cardClass}`}>
-                  <div className={`text-xs font-medium mb-2 ${labelClass}`}>Supported Sources:</div>
-                  <div className="text-xs text-gray-500 space-y-1">
-                    <div>🎵 MyInstants.com - Sound button pages</div>
-                    <div>🔗 Direct audio URLs (.mp3, .wav, .ogg, etc.)</div>
-                  </div>
-                </div>
+                {/* URL entry — delegated to the shared URLInputModal */}
+                <button
+                  onClick={() => setShowUrlModal(true)}
+                  className={`w-full px-6 py-4 rounded-lg font-bold transition-colors flex items-center justify-center gap-3 ${secondaryBtnClass}`}
+                >
+                  <span className="text-2xl">🔗</span>
+                  <span>Enter Sound URL</span>
+                </button>
 
                 {/* Volume Control */}
                 <div className={`p-4 rounded-lg ${cardClass}`}>
@@ -614,20 +577,12 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                 {/* Action Buttons */}
                 <div className="flex gap-3 pt-4">
-                  {pendingFile ? (
+                  {pendingFile && (
                     <button
                       onClick={handleAssignPending}
                       className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
                     >
                       Assign Selected File
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleAssignSound}
-                      disabled={!url || loading}
-                      className={`flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors ${disabledAccentBtn}`}
-                    >
-                      {loading ? 'Processing...' : 'Assign Sound'}
                     </button>
                   )}
 
@@ -642,8 +597,7 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
 
                   <button
                     onClick={() => { stopPreview(); onClose() }}
-                    disabled={loading}
-                    className={`px-6 py-3 disabled:cursor-not-allowed font-bold rounded-lg transition-colors ${secondaryBtnClass}`}
+                    className={`px-6 py-3 font-bold rounded-lg transition-colors ${secondaryBtnClass} ${!pendingFile && !(currentSound && onClearSound) ? 'flex-1' : ''}`}
                   >
                     Cancel
                   </button>
@@ -793,6 +747,15 @@ export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
       <AudioFilePicker
         onSelect={handleFilePickerSelect}
         onClose={() => setShowFilePicker(false)}
+      />
+    )}
+
+    {showUrlModal && (
+      <URLInputModal
+        isOpen={showUrlModal}
+        buttonIndex={buttonIndex}
+        onConfirm={handleUrlConfirm}
+        onClose={() => setShowUrlModal(false)}
       />
     )}
   </>

@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext'
 
 interface URLInputModalProps {
   isOpen: boolean
-  buttonIndex: number
+  buttonIndex?: number
   onConfirm: (url: string, name?: string) => void
   onClose: () => void
 }
@@ -106,7 +106,7 @@ export const URLInputModal: React.FC<URLInputModalProps> = ({
       <div className={`rounded-xl p-6 max-w-2xl w-full shadow-2xl animate-scale-in ${theme === 'light' ? 'bg-white' : 'bg-gray-900'}`}>
         <div className="flex justify-between items-center mb-6">
           <h2 id="url-modal-title" className={`text-2xl font-bold ${headingClass}`}>
-            Add Sound URL to Pad {buttonIndex}
+            {typeof buttonIndex === 'number' ? `Add Sound URL to Pad ${buttonIndex}` : 'Add Sound URL'}
           </h2>
           <button
             onClick={onClose}

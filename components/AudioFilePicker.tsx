@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import logger from '../utils/logger'
 import { useTheme } from '../contexts/ThemeContext'
+import { URLInputModal } from './URLInputModal'
 
 interface DirEntry {
   name: string
@@ -11,11 +12,15 @@ interface DirEntry {
 interface AudioFilePickerProps {
   onSelect: (filePath: string, fileName: string) => void
   onClose: () => void
+  /** Optional: shows a "From URL" control that opens URLInputModal and forwards its result here. */
+  onSelectUrl?: (url: string, name?: string) => void
+  /** Optional: shows a "Pick a file..." control that opens the native OS file dialog, forwarding through `onSelect`. */
+  enableNativeBrowse?: boolean
 }
 
 const DEFAULT_DIR_STORE_KEY = 'audioLibrary:defaultDir'
 
-export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onClose }) => {
+export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onClose, onSelectUrl, enableNativeBrowse }) => {
   const api = (window as any).electronAPI
   const { theme } = useTheme()
 
@@ -25,6 +30,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
   const [selectedFile, setSelectedFile] = useState<DirEntry | null>(null)
   const [defaultDir, setDefaultDir] = useState<string | null>(null)
   const [pinSaved, setPinSaved] = useState(false)
+  const [showUrlModal, setShowUrlModal] = useState(false)
 
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
@@ -126,6 +132,20 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     onSelect(selectedFile.path, selectedFile.name.replace(/\.[^/.]+$/, ''))
   }
 
+  const handleNativeBrowse = async () => {
+    const result = await api.selectAudioFile()
+    if (result && result.filePath) {
+      stopPreview()
+      onSelect(result.filePath, result.fileName.replace(/\.[^/.]+$/, ''))
+    }
+  }
+
+  const handleUrlConfirm = (url: string, name?: string) => {
+    stopPreview()
+    setShowUrlModal(false)
+    onSelectUrl?.(url, name)
+  }
+
   const pathParts = currentPath.replace(/\\/g, '/').split('/').filter(Boolean)
 
   // Keyboard: Escape to close, Enter to confirm
@@ -143,6 +163,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) { stopPreview(); onClose() } }}
@@ -194,6 +215,26 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
           >
             Browse...
           </button>
+
+          {/* Optional affordances — hidden unless the caller opts in, so existing
+              callers (e.g. OBSActionAssigner, which has its own native-file and
+              URL flows outside this component) see no change. */}
+          {enableNativeBrowse && (
+            <button
+              onClick={handleNativeBrowse}
+              className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${secondaryBtnClass}`}
+            >
+              Pick a file...
+            </button>
+          )}
+          {onSelectUrl && (
+            <button
+              onClick={() => setShowUrlModal(true)}
+              className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${secondaryBtnClass}`}
+            >
+              From URL
+            </button>
+          )}
           <button
             onClick={() => { stopPreview(); onClose() }}
             className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
@@ -345,5 +386,14 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
         </div>
       </div>
     </div>
+
+    {showUrlModal && onSelectUrl && (
+      <URLInputModal
+        isOpen={showUrlModal}
+        onConfirm={handleUrlConfirm}
+        onClose={() => setShowUrlModal(false)}
+      />
+    )}
+    </>
   )
 }
