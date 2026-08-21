@@ -186,6 +186,7 @@ export default function Home() {
   const [assigningAction, setAssigningAction] = useState<number | null>(null)
   const [assigningUrlSound, setAssigningUrlSound] = useState<number | null>(null)
   const [assigningPickerPad, setAssigningPickerPad] = useState<number | null>(null)
+  const [pickerInitialDir, setPickerInitialDir] = useState<string | undefined>(undefined)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   // Auto-update: only surfaced once an update is fully downloaded and ready to
   // install (checking/downloading stay silent by design — the app is used live).
@@ -665,15 +666,29 @@ export default function Home() {
     setAssigningUrlSound(index)
   }, [])
 
-  const handleMapSound = useCallback((index: number) => {
+  const handleMapSound = useCallback(async (index: number) => {
     // The picker needs listDirectory to browse local folders; without it (web/dev,
     // no Electron preload) fall straight through to the URL modal.
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.listDirectory) {
-      setAssigningPickerPad(index)
-    } else {
+    const api = typeof window !== 'undefined' ? (window as any).electronAPI : undefined
+    if (!api?.listDirectory) {
       handleMapSoundFromUrl(index)
+      return
     }
-  }, [handleMapSoundFromUrl])
+    // When the pad already points at a local file — the relink case — open the
+    // picker in that file's folder so the replacement is one click away. Remote
+    // URLs have no directory, and a failed dirname just falls back to the pin.
+    const existing = soundMappings.get(index)
+    let startDir: string | undefined
+    if (existing && !/^(https?:|blob:|data:)/i.test(existing) && api.pathDirname) {
+      try {
+        startDir = await api.pathDirname(existing)
+      } catch {
+        startDir = undefined
+      }
+    }
+    setPickerInitialDir(startDir)
+    setAssigningPickerPad(index)
+  }, [handleMapSoundFromUrl, soundMappings])
 
   const handlePickerSelectFile = useCallback((filePath: string, _fileName: string) => {
     if (assigningPickerPad === null) return
@@ -689,6 +704,7 @@ export default function Home() {
       return newMap
     })
     setAssigningPickerPad(null)
+    setPickerInitialDir(undefined)
   }, [assigningPickerPad, setSoundMappings, setCombinedActions])
 
   const handlePickerSelectUrl = useCallback((url: string, _name?: string) => {
@@ -705,6 +721,7 @@ export default function Home() {
       return newMap
     })
     setAssigningPickerPad(null)
+    setPickerInitialDir(undefined)
   }, [assigningPickerPad, setSoundMappings, setCombinedActions])
 
   const handleConfirmUrlSound = useCallback((url: string, _name?: string) => {
@@ -1498,7 +1515,8 @@ export default function Home() {
           onSelect={handlePickerSelectFile}
           onSelectUrl={handlePickerSelectUrl}
           enableNativeBrowse
-          onClose={() => setAssigningPickerPad(null)}
+          initialDirectory={pickerInitialDir}
+          onClose={() => { setAssigningPickerPad(null); setPickerInitialDir(undefined) }}
         />
       )}
 

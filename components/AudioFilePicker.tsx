@@ -16,11 +16,18 @@ interface AudioFilePickerProps {
   onSelectUrl?: (url: string, name?: string) => void
   /** Optional: shows a "Pick a file..." control that opens the native OS file dialog, forwarding through `onSelect`. */
   enableNativeBrowse?: boolean
+  /**
+   * Optional: directory to open in, overriding the pinned library folder for this
+   * session only. Used when relinking a broken sound so the picker starts where the
+   * missing file used to live. Falls back to the pin (then the system default) when
+   * absent or when the directory no longer exists. Never written to the pin.
+   */
+  initialDirectory?: string
 }
 
 const DEFAULT_DIR_STORE_KEY = 'audioLibrary:defaultDir'
 
-export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onClose, onSelectUrl, enableNativeBrowse }) => {
+export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onClose, onSelectUrl, enableNativeBrowse, initialDirectory }) => {
   const api = (window as any).electronAPI
   const { theme } = useTheme()
 
@@ -127,11 +134,22 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
       if (stored) setDefaultDir(stored)
       const systemDefault: string = await api.getDefaultAudioDir()
       setFallbackDir(systemDefault)
-      const startDir = stored || systemDefault
-      await navigate(startDir)
+      const pinned = stored || systemDefault
+      // initialDirectory is a per-open override (relinking a broken sound opens
+      // where the file used to be). It can point at a folder that has since been
+      // deleted or moved outside the allowlist, so fall back to the pin rather
+      // than stranding the user in an error state they did not ask for.
+      if (initialDirectory) {
+        const probe = await api.listDirectory(initialDirectory)
+        if (!probe?.error) {
+          await navigate(initialDirectory)
+          return
+        }
+      }
+      await navigate(pinned)
     }
     init()
-  }, [api, navigate])
+  }, [api, navigate, initialDirectory])
 
   // Autofocus the filter box when the picker opens.
   useEffect(() => {

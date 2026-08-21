@@ -250,3 +250,68 @@ describe('AudioFilePicker — confirm-time revalidation', () => {
     expect(await screen.findByText(/no longer in this folder/i)).toBeInTheDocument()
   })
 })
+
+describe('AudioFilePicker — initialDirectory override', () => {
+  const BROKEN_DIR = 'C:\Music\OldSFX'
+
+  test('opens in initialDirectory instead of the pinned library folder', async () => {
+    const { api } = renderPicker(
+      { initialDirectory: BROKEN_DIR },
+      {
+        // The pin points somewhere else entirely; the override must win.
+        storeGet: vi.fn().mockResolvedValue('C:\Music\Pinned'),
+        listDirectory: mockListDirectoryByPath({
+          [BROKEN_DIR]: {
+            entries: [{ name: 'replacement.wav', path: `${BROKEN_DIR}\replacement.wav`, isDir: false }],
+            error: null,
+            truncated: false,
+            totalCount: 1,
+          },
+        }),
+      }
+    )
+
+    expect(await screen.findByText('replacement.wav')).toBeInTheDocument()
+    await waitFor(() => expect(api.listDirectory).toHaveBeenCalledWith(BROKEN_DIR))
+    expect(api.listDirectory).not.toHaveBeenCalledWith('C:\Music\Pinned')
+  })
+
+  test('falls back to the pinned folder when initialDirectory no longer exists', async () => {
+    const PINNED = 'C:\Music\Pinned'
+    const { api } = renderPicker(
+      { initialDirectory: BROKEN_DIR },
+      {
+        storeGet: vi.fn().mockResolvedValue(PINNED),
+        listDirectory: mockListDirectoryByPath({
+          // The old folder was deleted along with the sound.
+          [BROKEN_DIR]: { entries: [], error: 'ENOENT: no such file or directory', truncated: false, totalCount: 0 },
+          [PINNED]: {
+            entries: [{ name: 'pinned.wav', path: `${PINNED}\pinned.wav`, isDir: false }],
+            error: null,
+            truncated: false,
+            totalCount: 1,
+          },
+        }),
+      }
+    )
+
+    // The user lands on their library, not stranded in an error state.
+    expect(await screen.findByText('pinned.wav')).toBeInTheDocument()
+    await waitFor(() => expect(api.listDirectory).toHaveBeenCalledWith(PINNED))
+  })
+
+  test('never writes the override into the pinned-folder store key', async () => {
+    const { api } = renderPicker(
+      { initialDirectory: BROKEN_DIR },
+      {
+        storeGet: vi.fn().mockResolvedValue('C:\Music\Pinned'),
+        listDirectory: mockListDirectoryByPath({
+          [BROKEN_DIR]: { entries: [], error: null, truncated: false, totalCount: 0 },
+        }),
+      }
+    )
+
+    await waitFor(() => expect(api.listDirectory).toHaveBeenCalledWith(BROKEN_DIR))
+    expect(api.storeSet).not.toHaveBeenCalled()
+  })
+})
