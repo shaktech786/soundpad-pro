@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest'
 import { formatSoundError } from '../components/OBSActionAssigner'
 import { extractFilename } from '../components/Haute42Layout'
+import { deriveButtonFileErrors } from '../utils/soundErrors'
 
 // --- formatSoundError ---
 
@@ -70,25 +71,15 @@ describe('extractFilename', () => {
 })
 
 // --- buttonFileErrors derivation ---
+// Exercises the real deriveButtonFileErrors used by pages/index.tsx, not a
+// local re-implementation.
 
 describe('buttonFileErrors derivation', () => {
-  function deriveErrors(
-    soundMappings: Map<number, string>,
-    loadErrors: Map<string, string>
-  ): Map<number, string> {
-    const errors = new Map<number, string>()
-    soundMappings.forEach((filePath, buttonId) => {
-      const err = loadErrors.get(filePath)
-      if (err) errors.set(buttonId, err)
-    })
-    return errors
-  }
-
   test('maps button IDs to their file errors', () => {
     const soundMappings = new Map([[0, 'C:\\missing.mp3'], [1, 'C:\\present.wav']])
     const loadErrors = new Map([['C:\\missing.mp3', 'ENOENT: no such file']])
 
-    const result = deriveErrors(soundMappings, loadErrors)
+    const result = deriveButtonFileErrors(soundMappings, loadErrors)
 
     expect(result.get(0)).toBe('ENOENT: no such file')
     expect(result.has(1)).toBe(false)
@@ -98,21 +89,21 @@ describe('buttonFileErrors derivation', () => {
     const soundMappings = new Map([[0, 'C:\\working.mp3']])
     const loadErrors = new Map<string, string>()
 
-    expect(deriveErrors(soundMappings, loadErrors).size).toBe(0)
+    expect(deriveButtonFileErrors(soundMappings, loadErrors).size).toBe(0)
   })
 
   test('ignores load errors for files not in soundMappings', () => {
     const soundMappings = new Map<number, string>()
     const loadErrors = new Map([['C:\\orphan.mp3', 'ENOENT']])
 
-    expect(deriveErrors(soundMappings, loadErrors).size).toBe(0)
+    expect(deriveButtonFileErrors(soundMappings, loadErrors).size).toBe(0)
   })
 
   test('handles multiple errored buttons', () => {
     const soundMappings = new Map([[0, 'a.mp3'], [1, 'b.mp3'], [2, 'c.mp3']])
     const loadErrors = new Map([['a.mp3', 'ENOENT'], ['c.mp3', 'ENOENT']])
 
-    const result = deriveErrors(soundMappings, loadErrors)
+    const result = deriveButtonFileErrors(soundMappings, loadErrors)
     expect(result.size).toBe(2)
     expect(result.has(0)).toBe(true)
     expect(result.has(1)).toBe(false)
@@ -124,7 +115,19 @@ describe('buttonFileErrors derivation', () => {
     const soundMappings = new Map([[5, path]])
     const loadErrors = new Map([[path, 'ENOENT']])
 
-    const result = deriveErrors(soundMappings, loadErrors)
+    const result = deriveButtonFileErrors(soundMappings, loadErrors)
     expect(result.get(5)).toBe('ENOENT')
+  })
+
+  test('relinking a button to a new, error-free path clears its error', () => {
+    // Simulates what happens after the user relinks button 0: soundMappings
+    // now points it at a fresh path that has no entry in loadErrors yet.
+    const loadErrors = new Map([['C:\\old-missing.mp3', 'ENOENT: no such file']])
+
+    const before = deriveButtonFileErrors(new Map([[0, 'C:\\old-missing.mp3']]), loadErrors)
+    expect(before.get(0)).toBe('ENOENT: no such file')
+
+    const after = deriveButtonFileErrors(new Map([[0, 'C:\\replacement.mp3']]), loadErrors)
+    expect(after.has(0)).toBe(false)
   })
 })

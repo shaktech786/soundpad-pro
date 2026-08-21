@@ -2,6 +2,7 @@ import React, { useMemo, memo } from 'react'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
+import { formatSoundError } from '../utils/soundErrors'
 
 interface Haute42LayoutProps {
   buttonStates: Map<number, boolean>
@@ -118,7 +119,7 @@ const PadButton = memo(({
     <button
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      title={fileError ? `⚠ ${fileError}` : hasSound ? extractFilename(soundFile!) : undefined}
+      title={fileError ? `⚠ ${formatSoundError(fileError)}` : hasSound ? extractFilename(soundFile!) : undefined}
       style={{
         position: 'absolute',
         left: `${x}px`,
@@ -148,7 +149,7 @@ const PadButton = memo(({
                     : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:scale-105'
         }
       `}
-      aria-label={fileError ? `${buttonLabel} — warning: ${fileError}` : buttonLabel}
+      aria-label={fileError ? `${buttonLabel} — warning: ${formatSoundError(fileError)}` : buttonLabel}
       aria-pressed={isPressed}
       role="button"
       tabIndex={0}
@@ -177,10 +178,29 @@ const PadButton = memo(({
         </div>
       )}
       {fileError && (
-        <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-2 flex items-center justify-center bg-amber-500 ${
-          theme === 'light' ? 'border-white' : 'border-gray-900'
-        }`}>
-          <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="currentColor">
+        // Relink affordance: reuses the pad's existing "assign sound" wiring
+        // (onMapSound) rather than a new interaction model — it opens the same
+        // AudioFilePicker used to assign a sound in the first place, for this
+        // button. stopPropagation keeps the click from also hitting the pad's
+        // own onClick (which would otherwise try to play the broken file).
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); onMapSound(index) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.stopPropagation()
+              onMapSound(index)
+            }
+          }}
+          title="Relink this sound"
+          aria-label="Relink this sound"
+          className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-2 flex items-center justify-center bg-amber-500 hover:bg-amber-400 cursor-pointer transition-colors ${
+            theme === 'light' ? 'border-white' : 'border-gray-900'
+          }`}
+        >
+          <svg className="w-3 h-3 text-white pointer-events-none" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2L1 21h22L12 2zm1 13h-2v2h2v-2zm0-6h-2v4h2v-4z"/>
           </svg>
         </div>

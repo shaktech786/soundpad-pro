@@ -24,6 +24,8 @@ import { APP_CONFIG, HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
 import logger from '../utils/logger'
 import { HotkeyScheme, getPadHotkeys, countRiskyPadHotkeys } from '../utils/hotkeyScheme'
+import { deriveButtonFileErrors } from '../utils/soundErrors'
+import { runWithConcurrencyLimit } from '../utils/concurrency'
 
 // --- Inline SVG icons ---
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -245,13 +247,17 @@ export default function Home() {
       } else if (soundMappings.size > 0) {
         setAutoLoadComplete(true)
 
-        for (const [_, filepath] of soundMappings) {
-          try {
-            await loadSound(filepath)
-          } catch (err) {
-            logger.error('Failed to preload:', filepath, err)
-          }
-        }
+        await runWithConcurrencyLimit(
+          Array.from(soundMappings.values()),
+          async (filepath) => {
+            try {
+              await loadSound(filepath)
+            } catch (err) {
+              logger.error('Failed to preload:', filepath, err)
+            }
+          },
+          APP_CONFIG.PERFORMANCE.MAX_CONCURRENT_LOADS
+        )
       }
     }
 
@@ -480,14 +486,10 @@ export default function Home() {
   }, [buttonMapping])
 
   // Map button IDs to their load errors (file missing, corrupt, etc.)
-  const buttonFileErrors = useMemo(() => {
-    const errors = new Map<number, string>()
-    soundMappings.forEach((filePath, buttonId) => {
-      const err = loadErrors.get(filePath)
-      if (err) errors.set(buttonId, err)
-    })
-    return errors
-  }, [soundMappings, loadErrors])
+  const buttonFileErrors = useMemo(
+    () => deriveButtonFileErrors(soundMappings, loadErrors),
+    [soundMappings, loadErrors]
+  )
 
   // Track previous button states for edge detection
   const prevButtonStates = useRef<Map<number, boolean>>(new Map())

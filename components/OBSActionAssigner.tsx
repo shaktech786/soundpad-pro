@@ -6,6 +6,13 @@ import { OBSAction } from '../contexts/OBSContext'
 import { LiveSplitAction } from '../contexts/LiveSplitContext'
 import { CombinedAction } from '../types/profile'
 import { useTheme } from '../contexts/ThemeContext'
+import { formatSoundError } from '../utils/soundErrors'
+
+// Re-exported for backward compatibility — __tests__/fileErrors.test.ts and any
+// other existing callers import formatSoundError from this component. The
+// implementation itself lives in utils/soundErrors.ts so Haute42Layout can use
+// it too without importing a React component.
+export { formatSoundError }
 
 interface OBSActionAssignerProps {
   buttonIndex: number
@@ -89,13 +96,6 @@ const DISCORD_ACTION_TYPES = [
   // Voice
   { value: 'push_to_talk', label: '🎙️ Push-to-Talk', needsParams: false, category: 'Voice', service: 'discord' }
 ]
-
-export function formatSoundError(error: string): string {
-  if (/ENOENT|no such file/i.test(error)) return 'File not found — it may have been moved or deleted.'
-  if (/EACCES|permission/i.test(error)) return 'Permission denied — cannot read this file.'
-  if (/decode|unsupported|format/i.test(error)) return 'File could not be decoded — it may be corrupt or an unsupported format.'
-  return 'Failed to load this file.'
-}
 
 export const OBSActionAssigner: React.FC<OBSActionAssignerProps> = ({
   buttonIndex,
