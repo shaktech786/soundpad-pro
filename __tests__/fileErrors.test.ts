@@ -42,31 +42,55 @@ describe('formatSoundError', () => {
 
 describe('extractFilename', () => {
   test('extracts name from Windows backslash path', () => {
-    expect(extractFilename('C:\\Users\\shake\\sounds\\hello.mp3')).toBe('hello')
+    expect(extractFilename('C:\\Users\\shake\\sounds\\hello.mp3', { stripExtension: true })).toBe('hello')
   })
 
   test('extracts name from Windows forward-slash path', () => {
-    expect(extractFilename('C:/Users/shake/sounds/boom.wav')).toBe('boom')
+    expect(extractFilename('C:/Users/shake/sounds/boom.wav', { stripExtension: true })).toBe('boom')
   })
 
   test('extracts name from Unix path', () => {
-    expect(extractFilename('/home/user/sounds/alert.ogg')).toBe('alert')
+    expect(extractFilename('/home/user/sounds/alert.ogg', { stripExtension: true })).toBe('alert')
   })
 
   test('extracts name from URL', () => {
-    expect(extractFilename('https://example.com/audio/ding.mp3')).toBe('ding')
+    expect(extractFilename('https://example.com/audio/ding.mp3', { stripExtension: true })).toBe('ding')
   })
 
   test('strips file extension', () => {
-    expect(extractFilename('C:\\sounds\\ambience.flac')).toBe('ambience')
+    expect(extractFilename('C:\\sounds\\ambience.flac', { stripExtension: true })).toBe('ambience')
   })
 
   test('returns "Unknown" for empty string', () => {
-    expect(extractFilename('')).toBe('Unknown')
+    expect(extractFilename('', { stripExtension: true })).toBe('Unknown')
   })
 
   test('returns "Unknown" for non-string input', () => {
-    expect(extractFilename(null as any)).toBe('Unknown')
+    expect(extractFilename(null as any, { stripExtension: true })).toBe('Unknown')
+  })
+
+  test('strips a query string from a remote URL', () => {
+    expect(extractFilename('https://example.com/audio/ding.mp3?token=abc', { stripExtension: true })).toBe('ding')
+  })
+
+  test('extracts the name from a url#filename metadata fragment', () => {
+    expect(extractFilename('https://example.com/audio/ding.mp3#My Song.mp3', { stripExtension: true })).toBe('My Song')
+  })
+
+  test('strips only the last extension from a multi-dot filename', () => {
+    expect(extractFilename('C:\\sounds\\my.cool.track.mp3', { stripExtension: true })).toBe('my.cool.track')
+  })
+
+  test('leaves a filename with no extension unchanged', () => {
+    expect(extractFilename('C:\\sounds\\noext', { stripExtension: true })).toBe('noext')
+  })
+
+  test('stripExtension: false keeps the extension', () => {
+    expect(extractFilename('C:\\sounds\\ambience.flac', { stripExtension: false })).toBe('ambience.flac')
+  })
+
+  test('strips the extension from an already-bare filename (AudioFilePicker use)', () => {
+    expect(extractFilename('kick2.wav', { stripExtension: true })).toBe('kick2')
   })
 })
 

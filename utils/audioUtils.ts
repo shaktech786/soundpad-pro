@@ -11,28 +11,32 @@ export const SUPPORTED_AUDIO_FORMATS = SUPPORTED_EXTENSIONS.map((ext) => ext.sli
 export const SUPPORTED_MIME_TYPES = Array.from(new Set(Object.values(MIME_BY_EXTENSION)))
 
 /**
- * Extracts clean filename from path or metadata string
+ * Extracts the display name from a local path, a remote URL (optionally
+ * with a `?query` string or a `#fragment`/metadata suffix), or an
+ * already-bare filename.
+ *
+ * `stripExtension` is required rather than inferred from the input, so
+ * callers state their intent instead of the function guessing it from
+ * content (e.g. "looks like it has a metadata fragment, so strip").
+ *
+ * This is the single canonical implementation — previously
+ * `components/Haute42Layout.tsx` and `components/AudioFilePicker.tsx` each
+ * had their own, subtly different, copy of this logic (PRE-471).
  */
-export function extractFilename(path: string): string {
-  if (!path) return 'Empty'
-  
-  // Handle metadata format (url#filename)
-  if (path.includes('#')) {
-    const metadata = path.split('#')[1]
-    if (metadata) {
-      return metadata.replace(/\.[^/.]+$/, '') // Remove extension
-    }
-  }
-  
-  // Handle blob URLs
-  if (path.startsWith('blob:')) {
-    return 'Audio File'
-  }
-  
-  // Extract from regular path
-  const parts = path.split(/[/\\]/)
-  const filename = parts[parts.length - 1]
-  return filename.replace(/\.[^/.]+$/, '') // Remove extension
+export function extractFilename(input: string, options: { stripExtension: boolean }): string {
+  if (!input || typeof input !== 'string') return 'Unknown'
+
+  // Drop a query string before splitting, e.g. ".../ding.mp3?token=abc".
+  const withoutQuery = input.split('?')[0]
+
+  // Split on path separators AND '#' — the latter covers the
+  // `${url}#${filename}` metadata format created by createAudioMetadata,
+  // treating the fragment the same as a final path segment.
+  const parts = withoutQuery.split(/[/\\#]/)
+  const filename = parts[parts.length - 1] || parts[parts.length - 2] || 'Unknown'
+
+  if (!options.stripExtension) return filename
+  return filename.replace(/\.[^/.]+$/, '') || filename
 }
 
 /**

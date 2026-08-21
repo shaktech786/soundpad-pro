@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import logger from '../utils/logger'
 import { useTheme } from '../contexts/ThemeContext'
 import { URLInputModal } from './URLInputModal'
+import { extractFilename } from '../utils/audioUtils'
 
 interface DirEntry {
   name: string
@@ -242,7 +243,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     }
 
     stopPreview()
-    onSelect(entry.path, entry.name.replace(/\.[^/.]+$/, ''))
+    onSelect(entry.path, extractFilename(entry.name, { stripExtension: true }))
   }, [api, currentPath, onSelect, stopPreview])
 
   const activateEntry = useCallback((entry: DirEntry) => {
@@ -258,7 +259,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     const result = await api.selectAudioFile()
     if (result && result.filePath) {
       stopPreview()
-      onSelect(result.filePath, result.fileName.replace(/\.[^/.]+$/, ''))
+      onSelect(result.filePath, extractFilename(result.fileName, { stripExtension: true }))
     }
   }
 
@@ -313,7 +314,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
         return
       }
       stopPreview()
-      onSelect(result.filePath, result.fileName.replace(/\.[^/.]+$/, ''))
+      onSelect(result.filePath, extractFilename(result.fileName, { stripExtension: true }))
     })
   }, [api, onSelect, stopPreview])
 

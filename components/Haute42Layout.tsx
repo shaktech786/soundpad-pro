@@ -3,7 +3,14 @@ import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
 import { HAUTE42_LAYOUT } from '../config/constants'
 import { useTheme } from '../contexts/ThemeContext'
 import { formatSoundError } from '../utils/soundErrors'
+import { extractFilename } from '../utils/audioUtils'
 import { SUPPORTED_EXTENSIONS } from '../config/audio-file-contract'
+
+// Re-exported so `__tests__/fileErrors.test.ts` (and any other existing
+// import of this symbol from this module) keeps compiling. The
+// implementation lives in utils/audioUtils.ts (PRE-471) — this is not a
+// second copy.
+export { extractFilename }
 
 // How long a drop-rejection message (wrong file type, folder, multi-file
 // notice) stays visible on the pad before it auto-clears.
@@ -54,13 +61,6 @@ interface PadButtonProps {
 
 const BUTTON_RENDER_SIZE = 96 // w-24 = 96px
 const CONTAINER_PADDING = 64
-
-export function extractFilename(path: string): string {
-  if (!path || typeof path !== 'string') return 'Unknown'
-  const parts = path.split(/[/\\#]/)
-  const filename = parts[parts.length - 1] || parts[parts.length - 2] || 'Unknown'
-  return filename.replace(/\.[^/.]+$/, '')
-}
 
 // Fast client-side reject for an obviously-wrong extension, checked against
 // the File's own name (no IPC round-trip needed). This is a pre-check only —
@@ -212,7 +212,7 @@ const PadButton = memo(({
   const buttonLabel = isStopButton
     ? 'Stop all sounds'
     : hasSound
-      ? `Play sound: ${extractFilename(soundFile!)}`
+      ? `Play sound: ${extractFilename(soundFile!, { stripExtension: true })}`
       : 'Assign sound to pad'
 
   return (
@@ -222,7 +222,7 @@ const PadButton = memo(({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      title={fileError ? `⚠ ${formatSoundError(fileError)}` : hasSound ? extractFilename(soundFile!) : undefined}
+      title={fileError ? `⚠ ${formatSoundError(fileError)}` : hasSound ? extractFilename(soundFile!, { stripExtension: true }) : undefined}
       style={{
         position: 'absolute',
         left: `${x}px`,
@@ -326,8 +326,8 @@ const PadButton = memo(({
           STOP
         </div>
       ) : hasSound ? (
-        <div className={`px-1 text-center font-medium leading-tight ${labelStyle(extractFilename(soundFile!)).fontSize} ${labelStyle(extractFilename(soundFile!)).lineClamp} ${fileError ? 'text-amber-200' : 'text-white'}`}>
-          {extractFilename(soundFile!)}
+        <div className={`px-1 text-center font-medium leading-tight ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).fontSize} ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).lineClamp} ${fileError ? 'text-amber-200' : 'text-white'}`}>
+          {extractFilename(soundFile!, { stripExtension: true })}
         </div>
       ) : (
         <div className={`text-lg ${theme === 'light' ? 'text-gray-400' : 'text-gray-500'}`}>+</div>
