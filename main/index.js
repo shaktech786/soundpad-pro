@@ -561,6 +561,16 @@ ipcMain.handle('fs:listDirectory', async (event, dirPath) => {
 
 ipcMain.handle('fs:getDefaultAudioDir', () => app.getPath('music'))
 
+// Parent directory of `p` via Node's path.dirname, computed in the main
+// process so AudioFilePicker's "up" control doesn't have to string-split
+// paths or guess at drive roots client-side (PRE-468 — the old renderer-side
+// logic sliced `currentPath` on '/' and guessed the drive root at
+// slice(0,3), which broke on UNC paths and anywhere the split heuristic
+// didn't match reality). Pure path math — no filesystem access, so no
+// allowlist check is needed here; the resulting path still goes through
+// fs:listDirectory's own allowlist guard before anything is shown.
+ipcMain.handle('path:dirname', (event, p) => path.dirname(p))
+
 ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],

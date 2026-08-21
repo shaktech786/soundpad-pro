@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import logger from '../utils/logger'
 import { useTheme } from '../contexts/ThemeContext'
 import { URLInputModal } from './URLInputModal'
@@ -26,17 +26,34 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
 
   const [currentPath, setCurrentPath] = useState<string>('')
   const [entries, setEntries] = useState<DirEntry[]>([])
+  const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [selectedFile, setSelectedFile] = useState<DirEntry | null>(null)
+  const [truncated, setTruncated] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
   const [defaultDir, setDefaultDir] = useState<string | null>(null)
+  const [fallbackDir, setFallbackDir] = useState<string | null>(null)
   const [pinSaved, setPinSaved] = useState(false)
   const [showUrlModal, setShowUrlModal] = useState(false)
+  const [upTarget, setUpTarget] = useState<string | null>(null)
+
+  const [filterText, setFilterText] = useState('')
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const [isConfirming, setIsConfirming] = useState(false)
 
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const blobRef = useRef<string | null>(null)
+
+  // Bumped on every listDirectory call (from navigate() or confirmFile()) so
+  // an in-flight response that resolves after a newer request has started
+  // gets ignored instead of clobbering fresher state — the user can click
+  // through folders faster than IPC round-trips return.
+  const requestSeqRef = useRef(0)
+  const lastRequestedPathRef = useRef<string>('')
+  const filterInputRef = useRef<HTMLInputElement | null>(null)
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([])
 
   const stopPreview = useCallback(() => {
     if (audioRef.current) {
@@ -82,25 +99,61 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
   }, [previewPath, isPreviewPlaying, stopPreview, api])
 
   const navigate = useCallback(async (dirPath: string) => {
+    const seq = ++requestSeqRef.current
+    lastRequestedPathRef.current = dirPath
+    setIsLoading(true)
     setLoadError(null)
     const result = await api.listDirectory(dirPath)
+    if (seq !== requestSeqRef.current) return // a newer navigate/confirm call has since started; ignore this stale response
+    setIsLoading(false)
     if (result.error) {
       setLoadError(result.error)
+      setEntries([])
+      setTruncated(false)
+      setTotalCount(0)
       return
     }
     setCurrentPath(dirPath)
     setEntries(result.entries)
+    setTruncated(!!result.truncated)
+    setTotalCount(result.totalCount ?? result.entries.length)
+    setFilterText('')
+    setHighlightedIndex(null)
   }, [api])
 
   useEffect(() => {
     const init = async () => {
       const stored: string | null = await api.storeGet(DEFAULT_DIR_STORE_KEY)
       if (stored) setDefaultDir(stored)
-      const startDir = stored || await api.getDefaultAudioDir()
+      const systemDefault: string = await api.getDefaultAudioDir()
+      setFallbackDir(systemDefault)
+      const startDir = stored || systemDefault
       await navigate(startDir)
     }
     init()
   }, [api, navigate])
+
+  // Autofocus the filter box when the picker opens.
+  useEffect(() => {
+    filterInputRef.current?.focus()
+  }, [])
+
+  // Recompute whether "up" has anywhere to go whenever the current folder
+  // changes, via the main-process path.dirname (PRE-468) rather than
+  // string-splitting currentPath. dirname(p) === p means we're at a
+  // filesystem root, so the up control is disabled instead of guessed at.
+  useEffect(() => {
+    let cancelled = false
+    if (!currentPath) {
+      setUpTarget(null)
+      return
+    }
+    api.pathDirname(currentPath).then((parent: string) => {
+      if (cancelled) return
+      setUpTarget(parent === currentPath ? null : parent)
+    })
+    return () => { cancelled = true }
+  }, [currentPath, api])
 
   const handleSetDefault = async () => {
     await api.storeSet(DEFAULT_DIR_STORE_KEY, currentPath)
@@ -113,12 +166,17 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     if (defaultDir) navigate(defaultDir)
   }
 
+  const handleGoToLibrary = () => {
+    const target = defaultDir || fallbackDir
+    if (target) navigate(target)
+  }
+
   const goUp = () => {
-    const parts = currentPath.replace(/\\/g, '/').split('/')
-    if (parts.length <= 1) return
-    parts.pop()
-    const parent = parts.join('/') || currentPath.slice(0, 3)
-    navigate(parent)
+    if (upTarget) navigate(upTarget)
+  }
+
+  const handleRetry = () => {
+    if (lastRequestedPathRef.current) navigate(lastRequestedPathRef.current)
   }
 
   const handleBrowse = async () => {
@@ -126,11 +184,50 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
     if (dir) navigate(dir)
   }
 
-  const handleConfirm = () => {
-    if (!selectedFile) return
+  // Re-validates `entry` still exists in `currentPath` before assigning it —
+  // the entry list can go stale between being listed and being confirmed
+  // (the user browses, another process deletes the file, etc.). Refreshes
+  // the listing either way so the UI reflects reality rather than trusting
+  // the in-memory snapshot.
+  const confirmFile = useCallback(async (entry: DirEntry) => {
+    const seq = ++requestSeqRef.current
+    lastRequestedPathRef.current = currentPath
+    setIsConfirming(true)
+    const result = await api.listDirectory(currentPath)
+    if (seq !== requestSeqRef.current) { setIsConfirming(false); return }
+    setIsConfirming(false)
+
+    if (result.error) {
+      setLoadError(result.error)
+      setEntries([])
+      setTruncated(false)
+      setTotalCount(0)
+      return
+    }
+
+    setEntries(result.entries)
+    setTruncated(!!result.truncated)
+    setTotalCount(result.totalCount ?? result.entries.length)
+
+    const stillExists = result.entries.some((e: DirEntry) => e.path === entry.path && !e.isDir)
+    if (!stillExists) {
+      setLoadError(`"${entry.name}" is no longer in this folder. It may have been moved or deleted.`)
+      setHighlightedIndex(null)
+      return
+    }
+
     stopPreview()
-    onSelect(selectedFile.path, selectedFile.name.replace(/\.[^/.]+$/, ''))
-  }
+    onSelect(entry.path, entry.name.replace(/\.[^/.]+$/, ''))
+  }, [api, currentPath, onSelect, stopPreview])
+
+  const activateEntry = useCallback((entry: DirEntry) => {
+    if (isConfirming) return
+    if (entry.isDir) {
+      navigate(entry.path)
+    } else {
+      confirmFile(entry)
+    }
+  }, [isConfirming, navigate, confirmFile])
 
   const handleNativeBrowse = async () => {
     const result = await api.selectAudioFile()
@@ -148,15 +245,72 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
 
   const pathParts = currentPath.replace(/\\/g, '/').split('/').filter(Boolean)
 
-  // Keyboard: Escape to close, Enter to confirm
+  // Filters the already-loaded entries by case-insensitive substring match
+  // on name — no recursive filesystem search, just narrowing what's in memory.
+  const filteredEntries = useMemo(() => {
+    const needle = filterText.trim().toLowerCase()
+    if (!needle) return entries
+    return entries.filter((entry) => entry.name.toLowerCase().includes(needle))
+  }, [entries, filterText])
+
+  // Clamp the highlight into range whenever the filtered list shrinks (e.g.
+  // typing in the filter box), rather than pointing at a stale index.
+  useEffect(() => {
+    setHighlightedIndex((prev) => {
+      if (prev === null) return null
+      if (filteredEntries.length === 0) return null
+      return Math.min(prev, filteredEntries.length - 1)
+    })
+  }, [filteredEntries.length])
+
+  useEffect(() => {
+    itemRefs.current = itemRefs.current.slice(0, filteredEntries.length)
+  }, [filteredEntries.length])
+
+  useEffect(() => {
+    if (highlightedIndex === null) return
+    itemRefs.current[highlightedIndex]?.scrollIntoView?.({ block: 'nearest' })
+  }, [highlightedIndex])
+
+  const highlightedEntry = highlightedIndex !== null ? (filteredEntries[highlightedIndex] ?? null) : null
+  const selectedFile = highlightedEntry && !highlightedEntry.isDir ? highlightedEntry : null
+
+  const handleConfirm = () => {
+    if (!selectedFile || isConfirming) return
+    confirmFile(selectedFile)
+  }
+
+  // Keyboard: Escape to close, ArrowUp/Down to move the highlight, Enter to
+  // activate it (descend into a directory or confirm a file) — one highlight
+  // concept shared with mouse clicks, not a separate keyboard-only cursor.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { stopPreview(); onClose() }
-      if (e.key === 'Enter' && selectedFile) handleConfirm()
+      if (e.key === 'Escape') { stopPreview(); onClose(); return }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => {
+          if (filteredEntries.length === 0) return null
+          if (prev === null) return 0
+          return Math.min(prev + 1, filteredEntries.length - 1)
+        })
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => {
+          if (filteredEntries.length === 0) return null
+          if (prev === null) return filteredEntries.length - 1
+          return Math.max(prev - 1, 0)
+        })
+        return
+      }
+      if (e.key === 'Enter' && highlightedEntry) {
+        activateEntry(highlightedEntry)
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [selectedFile, stopPreview, onClose])
+  }, [filteredEntries.length, highlightedEntry, activateEntry, stopPreview, onClose])
 
   const secondaryBtnClass = theme === 'light'
     ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
@@ -251,7 +405,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
         <div className={`flex items-center gap-1 px-4 py-2 border-b flex-shrink-0 overflow-x-auto ${theme === 'light' ? 'border-gray-200' : 'border-gray-800'}`}>
           <button
             onClick={goUp}
-            disabled={pathParts.length <= 1}
+            disabled={!upTarget}
             className={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
               theme === 'light'
                 ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
@@ -280,29 +434,78 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
           </div>
         </div>
 
+        {/* Filter */}
+        <div className={`px-4 py-2 border-b flex-shrink-0 ${theme === 'light' ? 'border-gray-200' : 'border-gray-800'}`}>
+          <input
+            ref={filterInputRef}
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Filter files in this folder..."
+            aria-label="Filter files"
+            className={`w-full px-3 py-1.5 text-sm rounded-lg outline-none ${
+              theme === 'light'
+                ? 'bg-gray-100 text-gray-900 placeholder-gray-400'
+                : 'bg-gray-800 text-white placeholder-gray-500'
+            }`}
+          />
+        </div>
+
         {/* File list */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-          {loadError && (
-            <div className="p-4 text-red-400 text-sm">{loadError}</div>
+          {isLoading && (
+            <div className="p-6 flex items-center justify-center gap-2 text-gray-500 text-sm">
+              <span className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+              Loading...
+            </div>
           )}
-          {!loadError && entries.length === 0 && (
+
+          {!isLoading && loadError && (
+            <div className="p-4 text-center">
+              <p className={`text-sm font-medium ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
+                We couldn&apos;t read this folder.
+              </p>
+              <p className="text-red-400 text-sm mt-1">{loadError}</p>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <button
+                  onClick={handleRetry}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${secondaryBtnClass}`}
+                >
+                  Retry
+                </button>
+                {(defaultDir || fallbackDir) && (
+                  <button
+                    onClick={handleGoToLibrary}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${secondaryBtnClass}`}
+                  >
+                    Go to library
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !loadError && entries.length === 0 && (
             <div className="p-4 text-gray-500 text-sm text-center">No audio files in this folder</div>
           )}
-          {entries.map((entry) => {
-            const isSelected = selectedFile?.path === entry.path
+
+          {!isLoading && !loadError && entries.length > 0 && filteredEntries.length === 0 && (
+            <div className="p-4 text-gray-500 text-sm text-center">No files match &quot;{filterText}&quot;</div>
+          )}
+
+          {!isLoading && !loadError && filteredEntries.map((entry, index) => {
+            const isHighlighted = highlightedEntry?.path === entry.path
             const isThisPlaying = isPreviewPlaying && previewPath === entry.path
             const isThisLoading = previewLoading && previewPath === entry.path
 
             return (
               <div
                 key={entry.path}
-                onDoubleClick={() => {
-                  if (entry.isDir) navigate(entry.path)
-                  else { setSelectedFile(entry); setTimeout(handleConfirm, 0) }
-                }}
-                onClick={() => { if (!entry.isDir) setSelectedFile(entry) }}
+                ref={(el) => { itemRefs.current[index] = el }}
+                onDoubleClick={() => activateEntry(entry)}
+                onClick={() => setHighlightedIndex(index)}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors select-none ${
-                  isSelected
+                  isHighlighted
                     ? 'bg-blue-600 text-white'
                     : theme === 'light' ? 'hover:bg-gray-100 text-gray-800' : 'hover:bg-gray-800 text-gray-200'
                 }`}
@@ -328,7 +531,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                     className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
                       isThisPlaying
                         ? 'bg-blue-500 hover:bg-blue-400'
-                        : isSelected
+                        : isHighlighted
                           ? 'bg-blue-500 hover:bg-blue-400'
                           : theme === 'light' ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-700 hover:bg-gray-600'
                     }`}
@@ -339,7 +542,7 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
                     ) : isThisPlaying ? (
                       <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                     ) : (
-                      <svg className={`w-3.5 h-3.5 ml-0.5 ${isSelected ? 'text-white' : theme === 'light' ? 'text-gray-700' : 'text-white'}`} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                      <svg className={`w-3.5 h-3.5 ml-0.5 ${isHighlighted ? 'text-white' : theme === 'light' ? 'text-gray-700' : 'text-white'}`} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                     )}
                   </button>
                 )}
@@ -353,6 +556,12 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
               </div>
             )
           })}
+
+          {!isLoading && !loadError && truncated && (
+            <div className={`p-3 mt-1 text-xs rounded-lg text-center ${theme === 'light' ? 'bg-yellow-50 text-yellow-700' : 'bg-yellow-900/30 text-yellow-300'}`}>
+              Showing {entries.length} of {totalCount} files. {Math.max(totalCount - entries.length, 0)} hidden — narrow the list with the filter box above.
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -376,12 +585,12 @@ export const AudioFilePicker: React.FC<AudioFilePickerProps> = ({ onSelect, onCl
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!selectedFile}
+            disabled={!selectedFile || isConfirming}
             className={`px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-bold ${
               theme === 'light' ? 'disabled:bg-gray-300' : 'disabled:bg-gray-700'
             }`}
           >
-            Select
+            {isConfirming ? 'Checking...' : 'Select'}
           </button>
         </div>
       </div>

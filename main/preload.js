@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
   listDirectory: (dirPath) => ipcRenderer.invoke('fs:listDirectory', dirPath),
   getDefaultAudioDir: () => ipcRenderer.invoke('fs:getDefaultAudioDir'),
+  pathDirname: (p) => ipcRenderer.invoke('path:dirname', p),
 
   // Store management for persistent data
   storeGet: (key) => ipcRenderer.invoke('store:get', key),

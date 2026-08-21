@@ -24,6 +24,12 @@ interface ElectronAPI {
     totalCount: number
   }>
   getDefaultAudioDir: () => Promise<string>
+  // Parent directory of `p`, computed via Node's path.dirname in the main
+  // process — backs AudioFilePicker's goUp() so it doesn't string-split
+  // paths or guess at drive roots client-side. Pure path math, not
+  // allowlist-checked (see main/index.js's path:dirname handler); the
+  // result still passes through listDirectory's own allowlist guard.
+  pathDirname: (p: string) => Promise<string>
 
   // Store management for persistent data
   storeGet: (key: string) => Promise<any>

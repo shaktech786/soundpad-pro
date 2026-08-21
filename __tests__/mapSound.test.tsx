@@ -79,6 +79,7 @@ function stubElectronAPI() {
     storeGet: vi.fn().mockResolvedValue(null),
     storeSet: vi.fn().mockResolvedValue(true),
     getDefaultAudioDir: vi.fn().mockResolvedValue('C:\\Music'),
+    pathDirname: vi.fn().mockResolvedValue('C:\\'),
     readAudioFile: vi.fn(),
     openDirectory: vi.fn(),
   }
