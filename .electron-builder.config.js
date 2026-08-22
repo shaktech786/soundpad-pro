@@ -8,6 +8,13 @@ module.exports = {
   files: [
     "main/**/*",
     "out/**/*",
+    // main/index.js and main/audio-file-guard.js require this at runtime. It lives
+    // outside main/ because the renderer imports it too — it is the single source of
+    // truth for audio extensions/MIME/limits. Without it listed here the packaged app
+    // dies on launch with "Cannot find module '../config/audio-file-contract'", which
+    // CI does not catch: CI builds the installer but never launches it.
+    // __tests__/electron-builder-files.test.ts guards this.
+    "config/audio-file-contract.js",
     "package.json",
     "!**/{test,tests,docs,example,examples,.github,.vscode}/**",
     "!**/*.{md,map,ts,tsx,flow}",
