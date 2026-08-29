@@ -130,6 +130,39 @@ function defaultIsProcessRunning(exeName) {
   });
 }
 
+const PROCESS_LIST_TIMEOUT_MS = 4000;
+
+/**
+ * Every currently-running executable basename (lowercase, `.exe` stripped), or
+ * `null` when the list can't be obtained (unsupported platform, spawn failure,
+ * timeout, unparseable output).
+ *
+ * One child process per call, and only ever called from forcePoll's last-resort
+ * fallback — never from the 3s background poll.
+ */
+function defaultListRunningProcesses() {
+  const windows = process.platform === 'win32';
+  const file = windows ? 'tasklist' : 'ps';
+  const args = windows ? ['/NH', '/FO', 'CSV'] : ['-A', '-o', 'comm='];
+
+  return new Promise(resolve => {
+    execFile(file, args, { timeout: PROCESS_LIST_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      if (err || !stdout) return resolve(null);
+      const names = new Set();
+      for (const line of String(stdout).split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // tasklist CSV quotes every field; the image name is the first one.
+        const raw = windows ? (trimmed.match(/^"([^"]*)"/) || [])[1] : trimmed;
+        if (!raw) continue;
+        const base = String(raw).split(/[\\/]/).pop();
+        if (base) names.add(stripExe(base));
+      }
+      return resolve(names.size > 0 ? names : null);
+    });
+  });
+}
+
 // A transient launcher/installer window: the storefront process itself, or any
 // window whose title reads as an in-progress operation. Checked independently of
 // process name because Steam's "Launching <Game>..." dialog is owned by
@@ -225,6 +258,15 @@ const EMPTY_SNAPSHOT = Object.freeze({
 // rescan far less often than the 3s foreground poll — every 12 minutes.
 const DEFAULT_SCAN_INTERVAL_MS = 12 * 60 * 1000;
 
+// How long a cached foreground stays servable. Deliberately long: the cache is
+// already gated on the process still being alive (_lastForegroundAlive), which
+// is a far stronger staleness guard than a clock, and the original five minutes
+// was the single biggest source of "detection is stuck on my last game" — launch
+// a game, then spend twenty minutes in OBS and the browser setting the stream up,
+// and every recheck reported nothing at all. A game you have not quit is still
+// the game you are playing, however long ago you alt-tabbed away from it.
+const DEFAULT_LAST_GOOD_TTL_MS = 12 * 60 * 60 * 1000;
+
 class GameDetector {
   // `activeWindow` is injectable for tests; in production it's lazily required
   // from active-win (8.x — CommonJS + N-API, ABI-stable across Electron so no
@@ -244,8 +286,9 @@ class GameDetector {
     activeWindow,
     scanLocalLibraries,
     getPreliveTier,
-    lastGoodTtlMs = 5 * 60 * 1000,
+    lastGoodTtlMs = DEFAULT_LAST_GOOD_TTL_MS,
     isProcessRunning,
+    listRunningProcesses,
     now,
   } = {}) {
     this._intervalMs = intervalMs;
@@ -272,6 +315,8 @@ class GameDetector {
     this._lastForeground = null;
     this._isProcessRunning =
       typeof isProcessRunning === 'function' ? isProcessRunning : defaultIsProcessRunning;
+    this._listRunningProcesses =
+      typeof listRunningProcesses === 'function' ? listRunningProcesses : defaultListRunningProcesses;
   }
 
   start() {
@@ -365,7 +410,66 @@ class GameDetector {
         return lastGood;
       }
     }
+
+    // Last resort: nothing in the foreground and no usable cache, but a known
+    // game may still be RUNNING. This is the cold-start hole the cache can't
+    // cover — start (or restart) Prelive Deck while a game is already up and
+    // never alt-tab back into it, and no poll ever saw that window, so recheck
+    // reported the browser/OBS the click itself focused.
+    const running = await this._detectRunningGame();
+    if (running) return running;
+
     return snapshot;
+  }
+
+  /**
+   * A game from the detection tiers whose executable is running right now,
+   * regardless of what has ever held focus. Matches on `exe` entries only —
+   * a tier's `title` values describe a window, and there is no window here.
+   *
+   * Tier priority is preserved (prelive history -> local library scan ->
+   * curated allowlist), so the same game wins as it would in the foreground
+   * path. Confidence is 'low': the process being alive is real evidence, but
+   * unlike a focused window it does not prove this is what's on screen.
+   */
+  async _detectRunningGame() {
+    let names;
+    try {
+      names = await this._listRunningProcesses();
+    } catch (err) {
+      console.error(`[GameDetection] running-process scan failed: ${err.message}`);
+      return null;
+    }
+    if (!names || names.size === 0) return null;
+
+    let preliveTier = [];
+    try {
+      const t = this._getPreliveTier();
+      if (Array.isArray(t)) preliveTier = t;
+    } catch (err) {
+      console.error(`[GameDetection] prelive tier getter failed: ${err.message}`);
+    }
+
+    for (const tier of [preliveTier, this._localTier, GAME_ALLOWLIST]) {
+      if (!Array.isArray(tier)) continue;
+      for (const entry of tier) {
+        if (!entry || !Array.isArray(entry.exe)) continue;
+        for (const exe of entry.exe) {
+          const base = stripExe(String(exe || '').trim());
+          if (!base || !names.has(base)) continue;
+          // A storefront or installer that happens to be listed as a game's exe
+          // is never the answer, same rule the foreground path applies.
+          if (LAUNCHER_PROCESSES.has(base) || DENYLIST.has(base)) continue;
+          return {
+            processName: `${base}.exe`,
+            windowTitle: null,
+            detectedGame: entry.game,
+            confidence: 'low',
+          };
+        }
+      }
+    }
+    return null;
   }
 
   // The cached foreground is only worth serving while its process is still
@@ -463,6 +567,7 @@ class GameDetector {
 module.exports = {
   GameDetector,
   detectGame,
+  DEFAULT_LAST_GOOD_TTL_MS,
   matchTier,
   isRejectedForeground,
   GAME_ALLOWLIST,

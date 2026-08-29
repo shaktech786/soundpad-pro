@@ -657,6 +657,106 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     detector.stop()
     setIntervalSpy.mockRestore()
   })
+
+  it('reports a known game whose process is running when nothing has ever held focus', async () => {
+    // Cold start: Prelive Deck is launched (or restarted) while the game is
+    // already up, and the user never alt-tabs back into it before hitting
+    // recheck from the OBS dock. No poll ever saw that window, so there is
+    // nothing in the last-good cache to fall back to.
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
+      listRunningProcesses: async () => new Set(['obs64', 'chrome', 'valorant-win64-shipping']),
+    })
+
+    const snap = await detector.forcePoll()
+
+    expect(snap.detectedGame).toBe('VALORANT')
+    expect(snap.processName).toBe('valorant-win64-shipping.exe')
+    // Not a focused window, so this is weaker evidence than the foreground path.
+    expect(snap.confidence).toBe('low')
+  })
+
+  it('prefers the foreground game over a different game that merely happens to be running', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: 'VALORANT', owner: { name: '', path: 'C:/r/valorant.exe' } }),
+      listRunningProcesses: async () => new Set(['r5apex']),
+    })
+
+    expect((await detector.forcePoll()).detectedGame).toBe('VALORANT')
+  })
+
+  it('prefers the cached foreground over the running-process scan', async () => {
+    let win: any = { title: 'Apex Legends', owner: { name: '', path: 'C:/a/r5apex.exe' } }
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => true,
+      listRunningProcesses: async () => new Set(['valorant']),
+    })
+    await detector._poll() // caches Apex as the last usable foreground
+
+    win = { title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }
+    expect((await detector.forcePoll()).detectedGame).toBe('Apex Legends')
+  })
+
+  it('keeps serving a cached foreground long after the five minutes that used to expire it', async () => {
+    // The regression this fixes: launch a game, spend twenty minutes setting the
+    // stream up in OBS and the browser, hit recheck — and get nothing. Liveness,
+    // not a clock, is what makes the cache safe.
+    let clock = 0
+    let win: any = { title: 'VALORANT', owner: { name: '', path: 'C:/v/valorant.exe' } }
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => win,
+      isProcessRunning: async () => true,
+      listRunningProcesses: async () => new Set(),
+      now: () => clock,
+    })
+    await detector._poll()
+
+    win = { title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }
+    clock = 30 * 60 * 1000 // half an hour later
+
+    expect((await detector.forcePoll()).detectedGame).toBe('VALORANT')
+  })
+
+  it('never reports a launcher or denylisted process as the running game', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
+      listRunningProcesses: async () => new Set(['steam', 'chrome']),
+    })
+    detector._localTier = [
+      { game: 'Definitely Not Steam', exe: ['steam.exe'] },
+      { game: 'Definitely Not Chrome', exe: ['chrome.exe'] },
+    ]
+
+    expect((await detector.forcePoll()).detectedGame).toBeNull()
+  })
+
+  it('degrades to the raw foreground when the process list is unavailable', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
+      listRunningProcesses: async () => null,
+    })
+
+    const snap = await detector.forcePoll()
+    expect(snap.detectedGame).toBeNull()
+    expect(snap.processName).toBe('obs64.exe')
+  })
+
+  it('survives a running-process scan that throws', async () => {
+    const detector = new GameDetector({
+      intervalMs: 10_000,
+      activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
+      listRunningProcesses: async () => { throw new Error('spawn ENOENT') },
+    })
+
+    expect((await detector.forcePoll()).detectedGame).toBeNull()
+  })
 })
 
 describe('NowPlayingServer /current-game/recheck route', () => {
