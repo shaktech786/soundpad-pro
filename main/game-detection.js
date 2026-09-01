@@ -267,6 +267,9 @@ const DEFAULT_SCAN_INTERVAL_MS = 12 * 60 * 1000;
 // the game you are playing, however long ago you alt-tabbed away from it.
 const DEFAULT_LAST_GOOD_TTL_MS = 12 * 60 * 60 * 1000;
 
+/** How long a running-process scan result is reused before rescanning. */
+const RUNNING_SCAN_TTL_MS = 10 * 1000;
+
 class GameDetector {
   // `activeWindow` is injectable for tests; in production it's lazily required
   // from active-win (8.x — CommonJS + N-API, ABI-stable across Electron so no
@@ -313,6 +316,8 @@ class GameDetector {
     this._lastGoodTtlMs = lastGoodTtlMs;
     this._now = typeof now === 'function' ? now : () => Date.now();
     this._lastForeground = null;
+    // { result, at } of the last running-process scan — see _detectRunningGame.
+    this._runningScan = null;
     this._isProcessRunning =
       typeof isProcessRunning === 'function' ? isProcessRunning : defaultIsProcessRunning;
     this._listRunningProcesses =
@@ -400,6 +405,24 @@ class GameDetector {
   // denylisted) is NOT overridden — it falls through with its own process/title.
   async forcePoll() {
     await this._poll();
+    return this.resolve();
+  }
+
+  /**
+   * The best answer available right now WITHOUT forcing a fresh foreground
+   * sample: latest poll -> cached last-good foreground -> running-process scan.
+   *
+   * This is the same chain forcePoll() applies, and it has to be, because the
+   * passive GET /current-game reading is what the Meta dock's background poll
+   * follows every few seconds. Serving it the raw snapshot meant the dock was
+   * blind in exactly the situation it exists for: the dock lives in an OBS
+   * browser panel, so the foreground is OBS or a browser essentially all the
+   * time, the snapshot's detectedGame is therefore null, and the dock kept
+   * showing whatever game was last written to the field. Detection looked stuck
+   * on the previous game while a recheck click — the one path that ran this
+   * chain — answered correctly.
+   */
+  async resolve() {
     const snapshot = this.getSnapshot();
     if (snapshot.detectedGame) return snapshot;
 
@@ -433,6 +456,19 @@ class GameDetector {
    * unlike a focused window it does not prove this is what's on screen.
    */
   async _detectRunningGame() {
+    // Throttled because resolve() now runs on the periodic passive read, not
+    // just a manual recheck, and this is the one step that spawns a process.
+    // The steady state where it fires is "no game detected at all", i.e. exactly
+    // when a dock polls repeatedly and learns nothing new.
+    if (this._runningScan && this._now() - this._runningScan.at <= RUNNING_SCAN_TTL_MS) {
+      return this._runningScan.result;
+    }
+    const result = await this._scanRunningGame();
+    this._runningScan = { result, at: this._now() };
+    return result;
+  }
+
+  async _scanRunningGame() {
     let names;
     try {
       names = await this._listRunningProcesses();

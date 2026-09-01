@@ -113,8 +113,10 @@ class NowPlayingServer {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(this._snapshot()));
     } else if (url === '/current-game') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(this._currentGame()));
+      this._currentGame().then((game) => {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(game));
+      });
     } else if (url === '/current-game/recheck') {
       // On-demand recheck: force an immediate active-win query + reclassification
       // rather than returning the interval-cached snapshot. POST-only, since it
@@ -168,10 +170,12 @@ class NowPlayingServer {
     }));
   }
 
-  _currentGame() {
+  /** Await the getter: it resolves the same fallback chain the recheck does,
+   * which needs a process-liveness check and possibly a running-process scan. */
+  async _currentGame() {
     let state;
     try {
-      state = this.getCurrentGame();
+      state = await this.getCurrentGame();
     } catch (_) {
       state = null;
     }

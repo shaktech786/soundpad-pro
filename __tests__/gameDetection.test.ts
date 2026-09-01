@@ -892,3 +892,58 @@ describe('NowPlayingServer /current-game route', () => {
     expect(res.headers.get('access-control-allow-private-network')).toBe('true')
   })
 })
+
+describe('passive GET /current-game applies the full resolution chain', () => {
+  const OBS = { owner: { name: 'OBS Studio', path: 'C:\obs\obs64.exe' }, title: 'OBS 32.2.2' }
+  const GAME = {
+    owner: { name: 'Yakuza', path: 'C:\g\yakuzakiwami2_r.exe' },
+    title: 'YAKUZA KIWAMI 2',
+  }
+  const tier = [{ game: 'Yakuza Kiwami 2', exe: ['yakuzakiwami2_r.exe'], title: ['yakuza kiwami 2'] }]
+
+  it('serves the cached foreground game while OBS holds focus', async () => {
+    let win: any = GAME
+    const detector = new GameDetector({
+      activeWindow: async () => win,
+      getPreliveTier: () => tier,
+      scanLocalLibraries: async () => [],
+    })
+    await detector.forcePoll()
+    win = OBS
+    await detector.forcePoll()
+
+    // The raw snapshot is now OBS with no game — this is what GET used to return.
+    expect(detector.getSnapshot().detectedGame).toBeNull()
+    // resolve(), which GET now serves, falls back to the game still running.
+    await expect(detector.resolve()).resolves.toMatchObject({ detectedGame: 'Yakuza Kiwami 2' })
+  })
+
+  it('falls through to the running-process scan with no cached foreground', async () => {
+    const detector = new GameDetector({
+      activeWindow: async () => OBS,
+      getPreliveTier: () => tier,
+      scanLocalLibraries: async () => [],
+      listRunningProcesses: async () => new Set(['yakuzakiwami2_r']),
+    })
+    await detector.forcePoll()
+    await expect(detector.resolve()).resolves.toMatchObject({
+      detectedGame: 'Yakuza Kiwami 2',
+      confidence: 'low',
+    })
+  })
+
+  it('reports nothing once the game exits, rather than pinning the old one', async () => {
+    let win: any = GAME
+    const detector = new GameDetector({
+      activeWindow: async () => win,
+      getPreliveTier: () => tier,
+      scanLocalLibraries: async () => [],
+      isProcessRunning: async () => false,
+      listRunningProcesses: async () => new Set<string>(),
+    })
+    await detector.forcePoll()
+    win = OBS
+    await detector.forcePoll()
+    await expect(detector.resolve()).resolves.toMatchObject({ detectedGame: null })
+  })
+})

@@ -366,7 +366,10 @@ app.whenReady().then(() => {
     port: 3006,
     getAsioPlaying: () => (asioEngine && asioEngine.isInitialized() ? asioEngine.getActiveSounds() : []),
     getWdmPlaying: () => wdmPlaying,
-    getCurrentGame: () => (gameDetector ? gameDetector.getSnapshot() : null),
+    // resolve(), not getSnapshot(): the passive reading must apply the same
+    // cached-foreground / running-process fallbacks the recheck does, or the
+    // dock's background poll only ever sees a game while it is literally focused.
+    getCurrentGame: () => (gameDetector ? gameDetector.resolve() : null),
     forcePoll: () => (gameDetector ? gameDetector.forcePoll() : null),
     onNowPlayingChange: (track) => {
       lastNowPlaying = track;
