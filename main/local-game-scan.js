@@ -249,7 +249,11 @@ async function scanSteam({ steamPath } = {}) {
             const installDir = path.resolve(commonDir, manifest.installdir);
             // installdir comes from an on-disk manifest and is untrusted; reject
             // anything that resolves outside steamapps/common (e.g. "../../..").
-            if (installDir === commonDir || installDir.startsWith(commonDir + path.sep)) {
+            // `installDir === commonDir` would claim every game's process.
+            if (installDir.startsWith(commonDir + path.sep)) {
+              // The directory itself identifies a running process whose window
+              // title is a codename and whose exe name matched nothing.
+              entry.dir = installDir;
               const gameExe = findGameExe(installDir, manifest.name);
               if (gameExe) entry.exe = [gameExe];
             }
@@ -300,12 +304,16 @@ function parseEpicItem(json) {
   const launchExe = typeof json.LaunchExecutable === 'string' ? json.LaunchExecutable.trim() : '';
   if (!displayName) return null;
 
+  const installLocation =
+    typeof json.InstallLocation === 'string' ? json.InstallLocation.trim() : '';
+
   const entry = { game: displayName, title: [displayName.toLowerCase()] };
   if (launchExe) {
     // LaunchExecutable is relative to InstallLocation; we only need its basename.
     const exeBase = path.basename(launchExe.replace(/\\/g, '/')).toLowerCase();
     if (exeBase) entry.exe = [exeBase];
   }
+  if (installLocation) entry.dir = path.normalize(installLocation);
   return entry;
 }
 

@@ -130,35 +130,79 @@ function defaultIsProcessRunning(exeName) {
   });
 }
 
-const PROCESS_LIST_TIMEOUT_MS = 4000;
+// PowerShell cold-starts in about half a second here; the budget leaves room
+// for a slow disk without letting a hung shell pin a recheck for long.
+const PROCESS_LIST_TIMEOUT_MS = 8000;
+
+// Windows only lists the fields tasklist can't: the executable path (which
+// places a process inside a game's install directory), the main window title
+// (which names a game that has never held focus), and the start time (which
+// orders two games that are up at once). tasklist's one flag that adds window
+// titles, /V, resolves the owning user of every process first and took 27
+// seconds on an ordinary desktop; Get-Process answers in about half a second.
+const POWERSHELL_LIST_SCRIPT =
+  "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+  "Get-Process | Select-Object Name,Path,MainWindowTitle," +
+  "@{n='StartedAt';e={try{[int64](($_.StartTime.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds)}catch{$null}}} " +
+  '| ConvertTo-Json -Compress';
 
 /**
- * Every currently-running executable basename (lowercase, `.exe` stripped), or
- * `null` when the list can't be obtained (unsupported platform, spawn failure,
- * timeout, unparseable output).
+ * Parses Get-Process JSON into `{ name, path, title, startedAt }[]` — `name` is
+ * the lowercase executable basename without `.exe`, the other three are null
+ * when Windows withheld them (system processes have no readable path or start
+ * time; most processes have no window). Returns null for unparseable input.
+ */
+function parseGetProcessOutput(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(stdout || '').replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  const procs = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const procPath = typeof row.Path === 'string' && row.Path ? row.Path : null;
+    const fromPath = procPath ? procPath.split(/[\\/]/).pop() : '';
+    const name = stripExe(fromPath || (typeof row.Name === 'string' ? row.Name : ''));
+    if (!name) continue;
+    procs.push({
+      name,
+      path: procPath,
+      title: typeof row.MainWindowTitle === 'string' && row.MainWindowTitle ? row.MainWindowTitle : null,
+      startedAt: Number.isFinite(row.StartedAt) ? row.StartedAt : null,
+    });
+  }
+  return procs.length > 0 ? procs : null;
+}
+
+/**
+ * Every running process as `{ name, path, title, startedAt }` (see
+ * parseGetProcessOutput), or `null` when the list can't be obtained
+ * (unsupported platform, spawn failure, timeout, unparseable output). Off
+ * Windows only `name` is populated.
  *
- * One child process per call, and only ever called from forcePoll's last-resort
- * fallback — never from the 3s background poll.
+ * One child process per call, and only ever called from the resolve chain's
+ * last-resort fallback — never from the 3s background poll.
  */
 function defaultListRunningProcesses() {
   const windows = process.platform === 'win32';
-  const file = windows ? 'tasklist' : 'ps';
-  const args = windows ? ['/NH', '/FO', 'CSV'] : ['-A', '-o', 'comm='];
+  const file = windows ? 'powershell' : 'ps';
+  const args = windows
+    ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', POWERSHELL_LIST_SCRIPT]
+    : ['-A', '-o', 'comm='];
 
   return new Promise(resolve => {
-    execFile(file, args, { timeout: PROCESS_LIST_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    execFile(file, args, { timeout: PROCESS_LIST_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
       if (err || !stdout) return resolve(null);
-      const names = new Set();
+      if (windows) return resolve(parseGetProcessOutput(stdout));
+      const procs = [];
       for (const line of String(stdout).split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        // tasklist CSV quotes every field; the image name is the first one.
-        const raw = windows ? (trimmed.match(/^"([^"]*)"/) || [])[1] : trimmed;
-        if (!raw) continue;
-        const base = String(raw).split(/[\\/]/).pop();
-        if (base) names.add(stripExe(base));
+        const base = line.trim().split(/[\\/]/).pop();
+        if (base) procs.push({ name: stripExe(base), path: null, title: null, startedAt: null });
       }
-      return resolve(names.size > 0 ? names : null);
+      return resolve(procs.length > 0 ? procs : null);
     });
   });
 }
@@ -189,23 +233,48 @@ function isRejectedForeground(processName, windowTitle) {
   return isTransientLauncherWindow(procBase, title);
 }
 
-// Match a focused window against a single tier — a `{game, exe?, title?}[]`
-// list. `exe` values match the process's executable basename; `title` values
-// are case-insensitive substrings of the window title.
+// Whether an executable lives inside a game's install directory. Separators are
+// folded so a forward-slash path from active-win compares against a backslash
+// path from a Steam manifest.
+function pathUnderDir(procPath, dir) {
+  if (!procPath || !dir) return false;
+  const p = String(procPath).replace(/\//g, '\\').toLowerCase();
+  const d = String(dir).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  return d.length > 0 && p.startsWith(d + '\\');
+}
+
+// How a tier entry was matched, strongest first. An exe name is exact; an
+// install directory is exact too but shared by a few games (every GoldSrc title
+// lives in "Half-Life"); a title is a substring of whatever the window says.
+const MATCH_KIND_RANK = { exe: 3, dir: 2, title: 1 };
+
+// Match a process against a single tier — a `{game, exe?, title?, dir?}[]`
+// list. `exe` values match the executable basename; `title` values are
+// case-insensitive substrings of the window title; `dir` is an install
+// directory the executable's path must sit under.
 //
 // An exe hit is exact, so the first one wins. Title hits are substring matches
 // and therefore ambiguous — a Steam library containing both "Counter-Strike"
 // and "Counter-Strike 2" would match the shorter, wrong entry for a window
 // titled "Counter-Strike 2" purely on manifest ordering. The LONGEST matching
-// title wins instead, which is always the more specific entry.
-function matchTier(tier, procBase, title) {
+// title wins instead, which is always the more specific entry. A directory hit
+// comes last, and only when exactly one entry claims that directory: it is what
+// identifies a game whose window is titled after an internal codename, or that
+// is still on a splash screen with no title at all, but Counter-Strike and
+// Half-Life share one install directory and a title is the only thing that
+// tells them apart.
+//
+// Returns `{ game, kind }` with kind in MATCH_KIND_RANK, or null.
+function matchTierDetailed(tier, procBase, title, procPath) {
   if (!Array.isArray(tier)) return null;
   let bestTitleGame = null;
   let bestTitleLength = 0;
+  let dirGame = null;
+  let dirHits = 0;
   for (const entry of tier) {
     if (!entry) continue;
     if (procBase && Array.isArray(entry.exe) && entry.exe.some((e) => stripExe(e) === procBase)) {
-      return entry.game;
+      return { game: entry.game, kind: 'exe' };
     }
     if (title && Array.isArray(entry.title)) {
       for (const t of entry.title) {
@@ -215,8 +284,19 @@ function matchTier(tier, procBase, title) {
         }
       }
     }
+    if (procPath && entry.dir && pathUnderDir(procPath, entry.dir)) {
+      dirHits += 1;
+      dirGame = entry.game;
+    }
   }
-  return bestTitleGame;
+  if (bestTitleGame) return { game: bestTitleGame, kind: 'title' };
+  if (dirHits === 1) return { game: dirGame, kind: 'dir' };
+  return null;
+}
+
+function matchTier(tier, procBase, title, procPath) {
+  const match = matchTierDetailed(tier, procBase, title, procPath);
+  return match ? match.game : null;
 }
 
 // Pure classifier. Returns { detectedGame: string | null, confidence: 'high' | 'low' }.
@@ -228,7 +308,10 @@ function matchTier(tier, procBase, title) {
 // tier) without touching this function. The denylist still short-circuits
 // everything before any tier is consulted. Default is the curated allowlist
 // alone, preserving the original single-list behaviour.
-function detectGame(processName, windowTitle, tiers = [GAME_ALLOWLIST]) {
+//
+// `processPath`, when known, lets an entry's install directory identify the
+// process — see matchTierDetailed.
+function detectGame(processName, windowTitle, tiers = [GAME_ALLOWLIST], processPath = null) {
   const proc = (processName || '').trim();
   const title = (windowTitle || '').trim().toLowerCase();
   if (!proc && !title) return { detectedGame: null, confidence: 'low' };
@@ -241,7 +324,7 @@ function detectGame(processName, windowTitle, tiers = [GAME_ALLOWLIST]) {
 
   const procBase = proc ? stripExe(proc) : '';
   for (const tier of tiers) {
-    const game = matchTier(tier, procBase, title);
+    const game = matchTier(tier, procBase, title, processPath);
     if (game) return { detectedGame: game, confidence: 'high' };
   }
   return { detectedGame: null, confidence: 'low' };
@@ -269,6 +352,15 @@ const DEFAULT_LAST_GOOD_TTL_MS = 12 * 60 * 60 * 1000;
 
 /** How long a running-process scan result is reused before rescanning. */
 const RUNNING_SCAN_TTL_MS = 10 * 1000;
+
+/**
+ * Floor between library rescans triggered by a manual recheck that found no
+ * game. The scheduled scan runs every twelve minutes, so a game installed since
+ * the last one is invisible to every tier until then — and a recheck click is
+ * exactly when the streamer is looking. A scan is cheap (well under a second)
+ * but rechecks come every fifteen seconds from the dock, so keep it bounded.
+ */
+const RESCAN_ON_MISS_MIN_INTERVAL_MS = 60 * 1000;
 
 class GameDetector {
   // `activeWindow` is injectable for tests; in production it's lazily required
@@ -318,6 +410,8 @@ class GameDetector {
     this._lastForeground = null;
     // { result, at } of the last running-process scan — see _detectRunningGame.
     this._runningScan = null;
+    // When the local-library tier was last rebuilt — see _rescanLibraryIfStale.
+    this._lastScanAt = null;
     this._isProcessRunning =
       typeof isProcessRunning === 'function' ? isProcessRunning : defaultIsProcessRunning;
     this._listRunningProcesses =
@@ -374,8 +468,35 @@ class GameDetector {
       // keep the previous tier and log — never let it bubble into the poll loop.
       console.error(`[GameDetection] local library scan failed: ${err.message}`);
     } finally {
+      this._lastScanAt = this._now();
       this._scanning = false;
     }
+  }
+
+  /**
+   * Rebuilds the local-library tier now unless it was rebuilt within the last
+   * minute. Returns whether a rescan ran, so the caller knows a retry is worth
+   * anything. The scan start() kicks off is the baseline: until it has
+   * completed there is nothing stale to refresh.
+   */
+  async _rescanLibraryIfStale() {
+    if (this._lastScanAt == null || this._now() - this._lastScanAt < RESCAN_ON_MISS_MIN_INTERVAL_MS) {
+      return false;
+    }
+    await this._runLocalScan();
+    return true;
+  }
+
+  /** The detection tiers in priority order: prelive history → local library → curated. */
+  _tiers() {
+    let preliveTier = [];
+    try {
+      const t = this._getPreliveTier();
+      if (Array.isArray(t)) preliveTier = t;
+    } catch (err) {
+      console.error(`[GameDetection] prelive tier getter failed: ${err.message}`);
+    }
+    return [preliveTier, this._localTier, GAME_ALLOWLIST];
   }
 
   getSnapshot() {
@@ -403,9 +524,19 @@ class GameDetector {
   //
   // A genuinely unknown *game* in the foreground (unrecognized exe, not
   // denylisted) is NOT overridden — it falls through with its own process/title.
+  //
+  // A recheck is a click, so it gets the freshest answer the machine can give:
+  // the running-process scan bypasses its throttle, and when nothing at all is
+  // recognised the local library is rescanned (rate-limited) and the chain is
+  // run once more — a game installed since the last scheduled scan is otherwise
+  // invisible for up to twelve minutes, which reads as "detection is slow".
   async forcePoll() {
     await this._poll();
-    return this.resolve();
+    const first = await this.resolve({ fresh: true });
+    if (first.detectedGame) return first;
+    if (!(await this._rescanLibraryIfStale())) return first;
+    await this._poll();
+    return this.resolve({ fresh: true });
   }
 
   /**
@@ -421,46 +552,88 @@ class GameDetector {
    * showing whatever game was last written to the field. Detection looked stuck
    * on the previous game while a recheck click — the one path that ran this
    * chain — answered correctly.
+   *
+   * When the cache and the running-process scan disagree, the cached game wins
+   * unless the other one was launched after the cached one last held focus:
+   * that is the streamer quitting one game and starting the next, and the old
+   * process is either lingering on its way out or was deliberately left open.
+   *
+   * `fresh` skips the running-scan throttle — for a manual recheck.
    */
-  async resolve() {
+  async resolve({ fresh = false } = {}) {
     const snapshot = this.getSnapshot();
     if (snapshot.detectedGame) return snapshot;
 
     const unusable = isRejectedForeground(snapshot.processName, snapshot.windowTitle);
-    if (unusable && this._lastForeground) {
-      const { at, ...lastGood } = this._lastForeground;
-      if (this._now() - at <= this._lastGoodTtlMs && (await this._lastForegroundAlive(lastGood))) {
-        return lastGood;
+    const lastGood = unusable ? await this._usableLastForeground() : null;
+
+    if (lastGood && lastGood.snapshot.detectedGame) {
+      const running = await this._detectRunningGame(fresh);
+      if (
+        running &&
+        running.snapshot.detectedGame !== lastGood.snapshot.detectedGame &&
+        running.startedAt != null &&
+        running.startedAt > lastGood.at
+      ) {
+        return running.snapshot;
       }
+      return lastGood.snapshot;
     }
 
-    // Last resort: nothing in the foreground and no usable cache, but a known
-    // game may still be RUNNING. This is the cold-start hole the cache can't
-    // cover — start (or restart) Prelive Deck while a game is already up and
-    // never alt-tab back into it, and no poll ever saw that window, so recheck
-    // reported the browser/OBS the click itself focused.
-    const running = await this._detectRunningGame();
-    if (running) return running;
+    // Nothing recognised in the foreground and nothing recognised in the cache,
+    // but a known game may still be RUNNING. This covers the cold start (Prelive
+    // Deck launched while the game is already up, never alt-tabbed back into it)
+    // and the freshly launched game that has not held focus yet, or is still on
+    // a splash screen that gave the foreground path nothing to go on.
+    const running = await this._detectRunningGame(fresh);
+    if (running) return running.snapshot;
+
+    // An unrecognised but real foreground is still worth handing back: its
+    // process name and title are what the dock searches Twitch's catalog for,
+    // and OBS's own window title would resolve to nothing.
+    if (lastGood) return lastGood.snapshot;
 
     return snapshot;
   }
 
   /**
-   * A game from the detection tiers whose executable is running right now,
-   * regardless of what has ever held focus. Matches on `exe` entries only —
-   * a tier's `title` values describe a window, and there is no window here.
+   * The cached last-good foreground as `{ snapshot, at }`, re-classified
+   * against the CURRENT tiers so a library rescan or a prelive-history refresh
+   * takes effect on it without the window having to be focused again. Null
+   * when there is none, it has expired, or its process has exited.
+   */
+  async _usableLastForeground() {
+    if (!this._lastForeground) return null;
+    const { at, processPath, ...lastGood } = this._lastForeground;
+    if (this._now() - at > this._lastGoodTtlMs) return null;
+    if (!(await this._lastForegroundAlive(lastGood))) return null;
+    const { detectedGame, confidence } = detectGame(
+      lastGood.processName,
+      lastGood.windowTitle,
+      this._tiers(),
+      processPath,
+    );
+    return { snapshot: { ...lastGood, detectedGame, confidence }, at };
+  }
+
+  /**
+   * A game from the detection tiers that is running right now, regardless of
+   * what has ever held focus, as `{ snapshot, startedAt }` — or null. Every
+   * running process is matched the way a focused window is (executable name,
+   * then window title, then install directory), minus the ones the foreground
+   * path rejects: storefronts, overlays, chat apps and progress dialogs.
    *
    * Tier priority is preserved (prelive history -> local library scan ->
    * curated allowlist), so the same game wins as it would in the foreground
    * path. Confidence is 'low': the process being alive is real evidence, but
    * unlike a focused window it does not prove this is what's on screen.
    */
-  async _detectRunningGame() {
-    // Throttled because resolve() now runs on the periodic passive read, not
-    // just a manual recheck, and this is the one step that spawns a process.
-    // The steady state where it fires is "no game detected at all", i.e. exactly
+  async _detectRunningGame(fresh = false) {
+    // Throttled because resolve() runs on the periodic passive read, not just a
+    // manual recheck, and this is the one step that spawns a process. The
+    // steady state where it fires is "no game detected at all", i.e. exactly
     // when a dock polls repeatedly and learns nothing new.
-    if (this._runningScan && this._now() - this._runningScan.at <= RUNNING_SCAN_TTL_MS) {
+    if (!fresh && this._runningScan && this._now() - this._runningScan.at <= RUNNING_SCAN_TTL_MS) {
       return this._runningScan.result;
     }
     const result = await this._scanRunningGame();
@@ -469,40 +642,47 @@ class GameDetector {
   }
 
   async _scanRunningGame() {
-    let names;
+    let procs;
     try {
-      names = await this._listRunningProcesses();
+      procs = await this._listRunningProcesses();
     } catch (err) {
       console.error(`[GameDetection] running-process scan failed: ${err.message}`);
       return null;
     }
-    if (!names || names.size === 0) return null;
+    if (!Array.isArray(procs) || procs.length === 0) return null;
 
-    let preliveTier = [];
-    try {
-      const t = this._getPreliveTier();
-      if (Array.isArray(t)) preliveTier = t;
-    } catch (err) {
-      console.error(`[GameDetection] prelive tier getter failed: ${err.message}`);
-    }
+    const candidates = procs.filter(
+      (p) => p && p.name && !isRejectedForeground(`${p.name}.exe`, p.title || ''),
+    );
+    if (candidates.length === 0) return null;
 
-    for (const tier of [preliveTier, this._localTier, GAME_ALLOWLIST]) {
-      if (!Array.isArray(tier)) continue;
-      for (const entry of tier) {
-        if (!entry || !Array.isArray(entry.exe)) continue;
-        for (const exe of entry.exe) {
-          const base = stripExe(String(exe || '').trim());
-          if (!base || !names.has(base)) continue;
-          // A storefront or installer that happens to be listed as a game's exe
-          // is never the answer, same rule the foreground path applies.
-          if (LAUNCHER_PROCESSES.has(base) || DENYLIST.has(base)) continue;
-          return {
-            processName: `${base}.exe`,
-            windowTitle: null,
-            detectedGame: entry.game,
-            confidence: 'low',
-          };
+    for (const tier of this._tiers()) {
+      let best = null;
+      for (const proc of candidates) {
+        const match = matchTierDetailed(tier, proc.name, (proc.title || '').toLowerCase(), proc.path);
+        if (!match) continue;
+        // An exact match beats a title substring from some other window; among
+        // equals — two games up at once, say the one just quit still winding
+        // down beside the one just launched — the newest process wins.
+        const rank = MATCH_KIND_RANK[match.kind];
+        if (
+          !best ||
+          rank > best.rank ||
+          (rank === best.rank && proc.startedAt != null && (best.startedAt == null || proc.startedAt > best.startedAt))
+        ) {
+          best = { game: match.game, proc, rank, startedAt: proc.startedAt };
         }
+      }
+      if (best) {
+        return {
+          snapshot: {
+            processName: `${best.proc.name}.exe`,
+            windowTitle: best.proc.title || null,
+            detectedGame: best.game,
+            confidence: 'low',
+          },
+          startedAt: best.startedAt == null ? null : best.startedAt,
+        };
       }
     }
     return null;
@@ -560,24 +740,15 @@ class GameDetector {
       // Prefer the exe basename: on Windows active-win sets owner.name to the
       // friendly app name ("OBS Studio"), which never matches DENYLIST's exe
       // basenames ("obs64"), silently disabling the focus-stolen fallback.
-      const exeBase = win.owner.path ? path.basename(win.owner.path) : '';
+      const processPath = win.owner.path || null;
+      const exeBase = processPath ? path.basename(processPath) : '';
       const processName = exeBase || win.owner.name || '';
       const windowTitle = win.title || '';
       // Priority order: prelive game-history tier (highest — games the user has
       // actually streamed) → local Steam/Epic scan → curated allowlist fallback.
       // The prelive tier is read live each poll, so pairing/unpairing a key takes
-      // effect on the next poll with no other change. A getter throwing (or
-      // returning a non-array) degrades to an empty tier rather than breaking the
-      // poll.
-      let preliveTier = [];
-      try {
-        const t = this._getPreliveTier();
-        if (Array.isArray(t)) preliveTier = t;
-      } catch (err) {
-        console.error(`[GameDetection] prelive tier getter failed: ${err.message}`);
-      }
-      const tiers = [preliveTier, this._localTier, GAME_ALLOWLIST];
-      const { detectedGame, confidence } = detectGame(processName, windowTitle, tiers);
+      // effect on the next poll with no other change.
+      const { detectedGame, confidence } = detectGame(processName, windowTitle, this._tiers(), processPath);
       this._snapshot = {
         processName: processName || null,
         windowTitle: windowTitle || null,
@@ -588,9 +759,10 @@ class GameDetector {
       // OBS (which steals focus) can fall back to it. A rejected read must leave
       // the previous value intact: caching a Steam "Launching <Game>..." dialog
       // here made every subsequent recheck report the launcher instead of the
-      // game that was actually running.
+      // game that was actually running. The path rides along so the cache can
+      // be re-classified against a rescanned library.
       if (processName && !isRejectedForeground(processName, windowTitle)) {
-        this._lastForeground = { ...this._snapshot, at: this._now() };
+        this._lastForeground = { ...this._snapshot, processPath, at: this._now() };
       }
     } catch (err) {
       console.error(`[GameDetection] poll failed: ${err.message}`);
@@ -604,7 +776,11 @@ module.exports = {
   GameDetector,
   detectGame,
   DEFAULT_LAST_GOOD_TTL_MS,
+  RUNNING_SCAN_TTL_MS,
+  RESCAN_ON_MISS_MIN_INTERVAL_MS,
   matchTier,
+  matchTierDetailed,
+  parseGetProcessOutput,
   isRejectedForeground,
   GAME_ALLOWLIST,
   DENYLIST,

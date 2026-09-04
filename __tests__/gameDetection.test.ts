@@ -4,6 +4,12 @@ const { detectGame, GameDetector, GAME_ALLOWLIST, isRejectedForeground } = requi
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { NowPlayingServer } = require('../main/now-playing-server')
 
+type RunningProcess = { name: string; path: string | null; title: string | null; startedAt: number | null }
+
+/** A running-process list of bare executable names, as `ps` would report them. */
+const running = (...names: string[]): RunningProcess[] =>
+  names.map((name) => ({ name, path: null, title: null, startedAt: null }))
+
 describe('detectGame (pure classifier)', () => {
   it('recognises a game by exe name with high confidence', () => {
     expect(detectGame('VALORANT-Win64-Shipping.exe', 'VALORANT')).toEqual({
@@ -294,7 +300,7 @@ describe('detectGame (Counter-Strike 1.6 discrimination)', () => {
 
 describe('GameDetector (polling wrapper, active-win mocked)', () => {
   const makeDetector = (winResult: unknown) =>
-    new GameDetector({ intervalMs: 10_000, activeWindow: async () => winResult })
+    new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => winResult })
 
   it('maps active-win output shape to a game snapshot', async () => {
     const detector = makeDetector({
@@ -346,6 +352,7 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
 
   it('detects a scanned local-library game once a scan has populated the tier', async () => {
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => ({
         title: 'Baldur’s Gate 3',
@@ -366,6 +373,7 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
 
   it('degrades to an empty tier (no throw) when the scanner rejects', async () => {
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
       scanLocalLibraries: async () => {
@@ -380,6 +388,7 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
 
   it('the injected prelive tier outranks the local scan and curated allowlist', async () => {
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => ({
         title: 'Counter-Strike 2',
@@ -399,6 +408,7 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
       { game: 'Streamed Game', title: ['counter-strike 2'] },
     ]
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => ({
         title: 'Counter-Strike 2',
@@ -419,6 +429,7 @@ describe('GameDetector (polling wrapper, active-win mocked)', () => {
 
   it('a throwing prelive getter degrades to no prelive tier (no crash)', async () => {
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
       getPreliveTier: () => {
@@ -437,7 +448,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
   const alive = async () => true
   it('forces an immediate poll and returns the freshly-classified snapshot, not the cached one', async () => {
     let win: any = { title: 'Inbox - Chrome', owner: { name: 'chrome.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     // Prime the cache with a non-game window.
     await detector._poll()
@@ -463,7 +474,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // and clicks recheck — active-win now reports OBS (denylisted). On Windows
     // owner.name is the friendly name, so the exe basename must come from path.
     let win: any = { title: 'VALORANT', owner: { name: 'VALORANT-Win64-Shipping.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // primes _lastDetected with VALORANT
     expect(detector.getSnapshot().detectedGame).toBe('VALORANT')
@@ -477,6 +488,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     let clock = 1_000
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => win,
       lastGoodTtlMs: 5_000,
@@ -496,7 +508,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // focus. Remembering only classified detections handed back OBS's own
     // window, so the dock had nothing to search Twitch's catalog with.
     let win: any = { title: 'Slay the Spire 2', owner: { name: 'SlayTheSpire2.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll()
     expect(detector.getSnapshot().detectedGame).toBeNull() // not in any tier
@@ -511,7 +523,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // Switching to a genuinely unknown game must report null so the dock offers
     // catalog search — the last-good fallback only covers denylisted apps.
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // _lastDetected = VALORANT
     win = { title: 'Some Obscure Indie', owner: { name: 'obscure-indie.exe', path: '' } }
@@ -526,7 +538,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // game, because the Steam launch dialog had been cached as _lastForeground
     // and the recheck click always steals focus to a denylisted app.
     let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Steam\\steamapps\\common\\Half-Life\\hl.exe' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
 
     await detector._poll() // caches the real game as last-good
     expect(detector.getSnapshot().detectedGame).toBe('Counter-Strike')
@@ -547,7 +559,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
 
   it('falls back to the last real foreground when the recheck itself lands on the launcher', async () => {
     let win: any = { title: 'Counter-Strike', owner: { name: 'hl.exe', path: 'C:\\Games\\hl.exe' } }
-    const detector = new GameDetector({ intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
+    const detector = new GameDetector({ listRunningProcesses: async () => running(), intervalMs: 10_000, activeWindow: async () => win, isProcessRunning: alive })
     await detector._poll()
 
     // A transient launcher window is unusable, exactly like a denylisted app.
@@ -566,6 +578,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
     let running = true
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => running,
@@ -586,6 +599,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
     let running = true
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => running,
@@ -608,6 +622,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     // must never make detection worse than it was before the probe existed.
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => null,
@@ -623,6 +638,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
   it('keeps trusting the cache when the liveness probe throws', async () => {
     let win: any = { title: 'VALORANT', owner: { name: 'valorant.exe', path: '' } }
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => { throw new Error('spawn ENOENT') },
@@ -638,6 +654,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
   it('leaves the background polling interval and its 3000ms cadence untouched', async () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval')
     const detector = new GameDetector({
+      listRunningProcesses: async () => running(),
       intervalMs: 3000,
       activeWindow: async () => ({ title: '', owner: { name: 'valorant.exe', path: '' } }),
       scanLocalLibraries: async () => [],
@@ -666,7 +683,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     const detector = new GameDetector({
       intervalMs: 10_000,
       activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
-      listRunningProcesses: async () => new Set(['obs64', 'chrome', 'valorant-win64-shipping']),
+      listRunningProcesses: async () => running('obs64', 'chrome', 'valorant-win64-shipping'),
     })
 
     const snap = await detector.forcePoll()
@@ -681,7 +698,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     const detector = new GameDetector({
       intervalMs: 10_000,
       activeWindow: async () => ({ title: 'VALORANT', owner: { name: '', path: 'C:/r/valorant.exe' } }),
-      listRunningProcesses: async () => new Set(['r5apex']),
+      listRunningProcesses: async () => running('r5apex'),
     })
 
     expect((await detector.forcePoll()).detectedGame).toBe('VALORANT')
@@ -693,7 +710,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => true,
-      listRunningProcesses: async () => new Set(['valorant']),
+      listRunningProcesses: async () => running('valorant'),
     })
     await detector._poll() // caches Apex as the last usable foreground
 
@@ -711,7 +728,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
       intervalMs: 10_000,
       activeWindow: async () => win,
       isProcessRunning: async () => true,
-      listRunningProcesses: async () => new Set(),
+      listRunningProcesses: async () => running(),
       now: () => clock,
     })
     await detector._poll()
@@ -726,7 +743,7 @@ describe('GameDetector.forcePoll (on-demand recheck)', () => {
     const detector = new GameDetector({
       intervalMs: 10_000,
       activeWindow: async () => ({ title: 'OBS 31.0.0', owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' } }),
-      listRunningProcesses: async () => new Set(['steam', 'chrome']),
+      listRunningProcesses: async () => running('steam', 'chrome'),
     })
     detector._localTier = [
       { game: 'Definitely Not Steam', exe: ['steam.exe'] },
@@ -894,9 +911,9 @@ describe('NowPlayingServer /current-game route', () => {
 })
 
 describe('passive GET /current-game applies the full resolution chain', () => {
-  const OBS = { owner: { name: 'OBS Studio', path: 'C:\obs\obs64.exe' }, title: 'OBS 32.2.2' }
+  const OBS = { owner: { name: 'OBS Studio', path: 'C:/obs/obs64.exe' }, title: 'OBS 32.2.2' }
   const GAME = {
-    owner: { name: 'Yakuza', path: 'C:\g\yakuzakiwami2_r.exe' },
+    owner: { name: 'Yakuza', path: 'C:/g/yakuzakiwami2_r.exe' },
     title: 'YAKUZA KIWAMI 2',
   }
   const tier = [{ game: 'Yakuza Kiwami 2', exe: ['yakuzakiwami2_r.exe'], title: ['yakuza kiwami 2'] }]
@@ -907,6 +924,8 @@ describe('passive GET /current-game applies the full resolution chain', () => {
       activeWindow: async () => win,
       getPreliveTier: () => tier,
       scanLocalLibraries: async () => [],
+      isProcessRunning: async () => true,
+      listRunningProcesses: async () => running(),
     })
     await detector.forcePoll()
     win = OBS
@@ -923,7 +942,7 @@ describe('passive GET /current-game applies the full resolution chain', () => {
       activeWindow: async () => OBS,
       getPreliveTier: () => tier,
       scanLocalLibraries: async () => [],
-      listRunningProcesses: async () => new Set(['yakuzakiwami2_r']),
+      listRunningProcesses: async () => running('yakuzakiwami2_r'),
     })
     await detector.forcePoll()
     await expect(detector.resolve()).resolves.toMatchObject({
@@ -939,7 +958,7 @@ describe('passive GET /current-game applies the full resolution chain', () => {
       getPreliveTier: () => tier,
       scanLocalLibraries: async () => [],
       isProcessRunning: async () => false,
-      listRunningProcesses: async () => new Set<string>(),
+      listRunningProcesses: async () => running(),
     })
     await detector.forcePoll()
     win = OBS

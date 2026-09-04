@@ -110,6 +110,7 @@ describe('parseEpicItem', () => {
       game: 'Rocket League',
       title: ['rocket league'],
       exe: ['rocketleague.exe'],
+      dir: 'C:\\Games\\rocketleague',
     })
   })
 
@@ -156,8 +157,13 @@ describe('scanSteam (fixture library on disk)', () => {
 
   it('returns title-only entries for each valid manifest and skips the bad one', async () => {
     const entries = await scanSteam({ steamPath })
-    expect(entries).toContainEqual({ game: 'Counter-Strike 2', title: ['counter-strike 2'] })
-    expect(entries).toContainEqual({ game: 'Dota 2', title: ['dota 2'] })
+    const common = path.join(steamPath, 'steamapps', 'common')
+    expect(entries).toContainEqual({
+      game: 'Counter-Strike 2',
+      title: ['counter-strike 2'],
+      dir: path.join(common, 'csgo'),
+    })
+    expect(entries).toContainEqual({ game: 'Dota 2', title: ['dota 2'], dir: path.join(common, 'dota 2 beta') })
     expect(entries.every((e: any) => !('exe' in e))).toBe(true)
     // Only the two valid manifests survived.
     expect(entries).toHaveLength(2)
@@ -279,6 +285,7 @@ describe('scanSteam — shipping-exe upgrade', () => {
         game: 'Palworld',
         title: ['palworld'],
         exe: ['palworld-win64-shipping.exe'],
+        dir: path.join(steamapps, 'common', 'Palworld'),
       })
     } finally {
       fs.rmSync(steamPath, { recursive: true, force: true })
@@ -346,6 +353,7 @@ describe('scanEpic (fixture manifests on disk)', () => {
       game: 'Rocket League',
       title: ['rocket league'],
       exe: ['rocketleague.exe'],
+      dir: 'C:\\Games\\rl',
     })
     expect(entries).toContainEqual({
       game: 'Fall Guys',
