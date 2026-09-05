@@ -19,11 +19,18 @@ export const SUPPORTED_MIME_TYPES = Array.from(new Set(Object.values(MIME_BY_EXT
  * callers state their intent instead of the function guessing it from
  * content (e.g. "looks like it has a metadata fragment, so strip").
  *
+ * `humanize` (optional, default false) additionally replaces underscores
+ * with spaces after extension stripping — e.g. "air_horn.mp3" -> "air horn"
+ * with `{ stripExtension: true, humanize: true }`. It defaults to false so
+ * every pre-existing caller keeps its exact prior output.
+ *
  * This is the single canonical implementation — previously
- * `components/Haute42Layout.tsx` and `components/AudioFilePicker.tsx` each
- * had their own, subtly different, copy of this logic (PRE-471).
+ * `components/Haute42Layout.tsx`, `components/AudioFilePicker.tsx`, and
+ * `pages/dock.tsx` each had their own, subtly different, copy of this logic
+ * (PRE-471, PRE-473). `humanize` exists specifically to preserve dock.tsx's
+ * underscore-to-space display behaviour after that migration.
  */
-export function extractFilename(input: string, options: { stripExtension: boolean }): string {
+export function extractFilename(input: string, options: { stripExtension: boolean; humanize?: boolean }): string {
   if (!input || typeof input !== 'string') return 'Unknown'
 
   // Drop a query string before splitting, e.g. ".../ding.mp3?token=abc".
@@ -35,8 +42,11 @@ export function extractFilename(input: string, options: { stripExtension: boolea
   const parts = withoutQuery.split(/[/\\#]/)
   const filename = parts[parts.length - 1] || parts[parts.length - 2] || 'Unknown'
 
-  if (!options.stripExtension) return filename
-  return filename.replace(/\.[^/.]+$/, '') || filename
+  const stripped = options.stripExtension
+    ? filename.replace(/\.[^/.]+$/, '') || filename
+    : filename
+
+  return options.humanize ? stripped.replace(/_/g, ' ') : stripped
 }
 
 /**

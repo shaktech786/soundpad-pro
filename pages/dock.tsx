@@ -6,6 +6,7 @@ import { useAudioEngine } from '../hooks/useAudioEngine'
 import { useOBS, OBSAction } from '../contexts/OBSContext'
 import { useLiveSplit, LiveSplitAction } from '../contexts/LiveSplitContext'
 import { ButtonPosition, ButtonShape, CombinedAction } from '../types/profile'
+import { extractFilename } from '../utils/audioUtils'
 
 export default function DockMode() {
   const { playSound, stopAll, loadSound } = useAudioEngine()
@@ -106,13 +107,6 @@ export default function DockMode() {
     }
   }, [soundMappings, loadSound, getAudioUrl])
 
-  const extractFilename = (path: string) => {
-    if (!path || typeof path !== 'string') return ''
-    const parts = path.split(/[/\\#]/)
-    const filename = parts[parts.length - 1] || parts[parts.length - 2] || ''
-    return filename.replace(/\.[^/.]+$/, '').replace(/_/g, ' ')
-  }
-
   // Send trigger to main app via API (OBS docks can't play audio directly)
   const sendTrigger = async (type: string, index: number, filePath?: string, volume?: number) => {
     try {
@@ -198,7 +192,7 @@ export default function DockMode() {
     if (isStopButton) {
       label = 'STOP'
     } else if (hasSound) {
-      label = extractFilename(soundFile)
+      label = extractFilename(soundFile, { stripExtension: true, humanize: true })
     } else if (hasAction) {
       label = getActionLabel(action)
     }
