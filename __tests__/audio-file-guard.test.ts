@@ -10,6 +10,10 @@ const {
   resolveAllowedRoots,
   isPathAllowed,
   hasSupportedExtension,
+  resolveGrantedFiles,
+  isFileExactlyGranted,
+  grantAudioFile,
+  getGrantedAudioFiles,
   isDriveRoot,
   readAudioFileGuarded,
   listDirectoryGuarded,
@@ -112,6 +116,116 @@ describe('hasSupportedExtension', () => {
     expect(hasSupportedExtension('C:\\Users\\shake\\Music\\hello')).toBe(false)
     expect(hasSupportedExtension('')).toBe(false)
     expect(hasSupportedExtension(null as any)).toBe(false)
+  })
+})
+
+// --- grantedFiles (PRE-472) ---
+// A file sitting directly at a drive root (e.g. D:\song.mp3) has dirname
+// "D:\", which isDriveRoot/grantAudioRoot always refuse — so picking it via
+// dialog:openFile used to grant nothing and read-audio-file failed every
+// launch. audioLibrary:grantedFiles is a single-file grant list, distinct
+// from audioLibrary:grantedRoots, for exactly that case.
+
+function fakeStore(initial: Record<string, any> = {}) {
+  const data: Record<string, any> = { ...initial }
+  return {
+    get: (key: string) => data[key],
+    set: (key: string, value: any) => { data[key] = value },
+  }
+}
+
+describe('resolveGrantedFiles', () => {
+  test('resolves each file to an absolute, normalized path', () => {
+    const result = resolveGrantedFiles(['D:\\song.mp3', 'D:\\other.wav'])
+    expect(result).toEqual([path.resolve('D:\\song.mp3'), path.resolve('D:\\other.wav')])
+  })
+
+  test('drops null, undefined, and empty-string entries', () => {
+    expect(resolveGrantedFiles(['D:\\song.mp3', null, undefined, ''])).toEqual([path.resolve('D:\\song.mp3')])
+  })
+
+  test('returns an empty array for an empty or missing input', () => {
+    expect(resolveGrantedFiles([])).toEqual([])
+    expect(resolveGrantedFiles(undefined as any)).toEqual([])
+  })
+})
+
+describe('isFileExactlyGranted', () => {
+  const grantedFiles = ['D:\\song.mp3']
+
+  test('accepts the exact granted file', () => {
+    expect(isFileExactlyGranted('D:\\song.mp3', grantedFiles)).toBe(true)
+  })
+
+  test('rejects a sibling file at the same drive root', () => {
+    expect(isFileExactlyGranted('D:\\other.mp3', grantedFiles)).toBe(false)
+  })
+
+  test('rejects a traversal payload that does not resolve to the granted file', () => {
+    // Looks related by raw string, but resolves to a different file — a
+    // naive prefix/startsWith check would be fooled by this; exact-match on
+    // the resolved path is not.
+    expect(isFileExactlyGranted('D:\\song.mp3\\..\\evil.exe', grantedFiles)).toBe(false)
+  })
+
+  test('accepts an equivalent path that resolves to the same granted file', () => {
+    expect(isFileExactlyGranted('D:\\subdir\\..\\song.mp3', grantedFiles)).toBe(true)
+  })
+
+  test('rejects empty, non-string, or missing paths', () => {
+    expect(isFileExactlyGranted('', grantedFiles)).toBe(false)
+    expect(isFileExactlyGranted(null as any, grantedFiles)).toBe(false)
+    expect(isFileExactlyGranted(undefined as any, grantedFiles)).toBe(false)
+  })
+
+  test('rejects everything when there are no granted files', () => {
+    expect(isFileExactlyGranted('D:\\song.mp3', [])).toBe(false)
+    expect(isFileExactlyGranted('D:\\song.mp3', undefined)).toBe(false)
+  })
+})
+
+describe('grantAudioFile / getGrantedAudioFiles', () => {
+  test('grants a file and reads it back resolved', () => {
+    const store = fakeStore()
+    grantAudioFile('D:\\song.mp3', store)
+    expect(getGrantedAudioFiles(store)).toEqual([path.resolve('D:\\song.mp3')])
+  })
+
+  test('persists across a simulated restart (round-trips through the store, not memory)', () => {
+    const store = fakeStore()
+    grantAudioFile('D:\\song.mp3', store)
+
+    // Simulate "restart" by reading through a fresh store handle backed by
+    // the same underlying data, the way electron-store would after a
+    // relaunch — the grant must have actually been written, not just held
+    // in a closure.
+    const reopened = { get: store.get, set: store.set }
+    expect(getGrantedAudioFiles(reopened)).toEqual([path.resolve('D:\\song.mp3')])
+  })
+
+  test('does not duplicate an already-granted file', () => {
+    const store = fakeStore()
+    grantAudioFile('D:\\song.mp3', store)
+    grantAudioFile('D:\\song.mp3', store)
+    expect(getGrantedAudioFiles(store)).toEqual([path.resolve('D:\\song.mp3')])
+  })
+
+  test('accumulates multiple distinct grants', () => {
+    const store = fakeStore()
+    grantAudioFile('D:\\song.mp3', store)
+    grantAudioFile('E:\\other.wav', store)
+    expect(getGrantedAudioFiles(store)).toEqual([path.resolve('D:\\song.mp3'), path.resolve('E:\\other.wav')])
+  })
+
+  test('ignores empty or non-string paths without touching the store', () => {
+    const store = fakeStore()
+    grantAudioFile('', store)
+    grantAudioFile(null as any, store)
+    expect(getGrantedAudioFiles(store)).toEqual([])
+  })
+
+  test('getGrantedAudioFiles returns an empty array when nothing has been granted', () => {
+    expect(getGrantedAudioFiles(fakeStore())).toEqual([])
   })
 })
 
@@ -220,6 +334,44 @@ describe('readAudioFileGuarded', () => {
 
     expect((result as any).mimeType).toBe('audio/mpeg')
   })
+
+  // --- grantedFiles (PRE-472): a file picked at a drive root, granted
+  // individually since it has no allowlist-able parent folder ---
+
+  test('accepts a drive-root file that is individually granted, even though it is outside every allowed root', async () => {
+    const stat = async () => ({ size: 1024 })
+    const readFile = async () => Buffer.from('fake-audio-bytes')
+
+    const result = await readAudioFileGuarded('D:\\song.mp3', {
+      allowedRoots, grantedFiles: ['D:\\song.mp3'], maxFileSizeBytes, mimeByExtension, stat, readFile,
+    })
+
+    expect('error' in result).toBe(false)
+    expect((result as any).fileName).toBe('song.mp3')
+  })
+
+  test('rejects a sibling file at the same drive root even though one file there is granted', async () => {
+    const stat = () => { throw new Error('should not be called') }
+    const readFile = () => { throw new Error('should not be called') }
+
+    const result = await readAudioFileGuarded('D:\\other.mp3', {
+      allowedRoots, grantedFiles: ['D:\\song.mp3'], maxFileSizeBytes, mimeByExtension, stat, readFile,
+    })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toMatch(/outside the folders/i)
+  })
+
+  test('rejects a drive-root file with no grantedFiles list at all (backward compatible with existing callers)', async () => {
+    const result = await readAudioFileGuarded('D:\\song.mp3', {
+      allowedRoots, maxFileSizeBytes, mimeByExtension,
+      stat: () => { throw new Error('should not be called') },
+      readFile: () => { throw new Error('should not be called') },
+    })
+
+    expect('error' in result).toBe(true)
+    expect((result as any).error).toMatch(/outside the folders/i)
+  })
 })
 
 // --- listDirectoryGuarded ---
@@ -286,6 +438,21 @@ describe('listDirectoryGuarded', () => {
     expect(result.entries).toEqual([])
     expect(result.truncated).toBe(false)
     expect(result.totalCount).toBe(0)
+  })
+
+  test('still rejects a drive root even with an individually granted file on that drive (PRE-472 does not widen directory access)', async () => {
+    // listDirectoryGuarded takes no grantedFiles param at all — granting a
+    // single file must never make its drive root browsable.
+    let readdirCalled = false
+    const readdir = async () => { readdirCalled = true; return [] }
+
+    const result = await listDirectoryGuarded('D:\\', {
+      allowedRoots, audioExtensions: ['.mp3'], maxEntries: 10, readdir,
+    })
+
+    expect(result.error).toMatch(/outside the folders/i)
+    expect(result.entries).toEqual([])
+    expect(readdirCalled).toBe(false)
   })
 })
 

@@ -66,6 +66,66 @@ function hasSupportedExtension(filePath) {
 }
 
 /**
+ * Resolves every candidate granted file to an absolute, normalized path and
+ * drops anything empty/nullish — the single-file counterpart to
+ * resolveAllowedRoots, backing PRE-472's `audioLibrary:grantedFiles` list
+ * (files picked directly at a drive root, which have no grantable parent
+ * folder for grantAudioRoot to persist).
+ * @param {Array<string | null | undefined>} files
+ * @returns {string[]}
+ */
+function resolveGrantedFiles(files) {
+  return (files || [])
+    .filter((file) => typeof file === 'string' && file.length > 0)
+    .map((file) => path.resolve(file));
+}
+
+/**
+ * True when `targetPath` resolves to exactly one of `grantedFiles` — an
+ * exact match, not the prefix match isPathAllowed does for roots, since a
+ * single-file grant must not imply access to its siblings. Both sides are
+ * resolved before comparison so a traversal payload can't land on a
+ * granted file's path string without actually resolving to it.
+ * @param {unknown} targetPath
+ * @param {Array<string | null | undefined>} grantedFiles
+ * @returns {boolean}
+ */
+function isFileExactlyGranted(targetPath, grantedFiles) {
+  if (typeof targetPath !== 'string' || targetPath.length === 0) return false;
+  const resolvedTarget = path.resolve(targetPath);
+  return resolveGrantedFiles(grantedFiles).includes(resolvedTarget);
+}
+
+/**
+ * Persists `filePath` into `store`'s 'audioLibrary:grantedFiles' list
+ * (PRE-472). The single-file counterpart to main/index.js's grantAudioRoot,
+ * used when the user picks a file via dialog:openFile whose parent is a
+ * drive root (e.g. D:\song.mp3 — dirname is D:\, which grantAudioRoot
+ * always refuses). `store` is injected so this stays unit-testable without
+ * booting electron-store.
+ * @param {unknown} filePath
+ * @param {{ get: (key: string) => any, set: (key: string, value: any) => void }} store
+ */
+function grantAudioFile(filePath, store) {
+  if (typeof filePath !== 'string' || filePath.length === 0) return;
+  const resolved = path.resolve(filePath);
+  const granted = store.get('audioLibrary:grantedFiles') || [];
+  if (!granted.includes(resolved)) {
+    store.set('audioLibrary:grantedFiles', [...granted, resolved]);
+  }
+}
+
+/**
+ * Reads and resolves the persisted single-file grant list back out of
+ * `store`, for read-audio-file to check alongside the root allowlist.
+ * @param {{ get: (key: string) => any }} store
+ * @returns {string[]}
+ */
+function getGrantedAudioFiles(store) {
+  return resolveGrantedFiles(store.get('audioLibrary:grantedFiles') || []);
+}
+
+/**
  * True when `dirPath` resolves to a filesystem root ("C:\\", "D:\\", "/").
  * The allowlist explicitly blocks drive roots even when a user explicitly
  * picks one via dialog:openDirectory/openFile — see main/index.js's grant
@@ -90,6 +150,7 @@ function isDriveRoot(dirPath) {
  * @param {unknown} filePath
  * @param {{
  *   allowedRoots: Array<string | null | undefined>,
+ *   grantedFiles?: Array<string | null | undefined>,
  *   maxFileSizeBytes: number,
  *   mimeByExtension: Record<string, string>,
  *   stat: (p: string) => Promise<{ size: number }>,
@@ -98,9 +159,12 @@ function isDriveRoot(dirPath) {
  * @returns {Promise<{ buffer: Buffer, mimeType: string, fileName: string } | { error: string }>}
  */
 async function readAudioFileGuarded(filePath, deps) {
-  const { allowedRoots, maxFileSizeBytes, mimeByExtension, stat, readFile } = deps;
+  const { allowedRoots, grantedFiles, maxFileSizeBytes, mimeByExtension, stat, readFile } = deps;
 
-  if (!isPathAllowed(filePath, allowedRoots)) {
+  // A path is readable if it's inside an allowed root OR it's one of the
+  // exact files granted individually (PRE-472 — drive-root files, which
+  // have no allowlist-able parent folder).
+  if (!isPathAllowed(filePath, allowedRoots) && !isFileExactlyGranted(filePath, grantedFiles)) {
     return {
       error: 'This file is outside the folders Prelive Deck can read. Pick it again from Music, Documents, Downloads, Desktop, or your pinned library folder.',
     };
@@ -245,6 +309,10 @@ module.exports = {
   resolveAllowedRoots,
   isPathAllowed,
   hasSupportedExtension,
+  resolveGrantedFiles,
+  isFileExactlyGranted,
+  grantAudioFile,
+  getGrantedAudioFiles,
   isDriveRoot,
   readAudioFileGuarded,
   listDirectoryGuarded,

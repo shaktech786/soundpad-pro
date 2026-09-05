@@ -534,6 +534,10 @@ function getAllowedAudioRoots() {
 // fs:listDirectory calls trust it too. Never grants a drive root ("C:\",
 // "D:\") even when the user explicitly picked one — the allowlist blocks
 // drive roots unconditionally (see main/audio-file-guard.js's isDriveRoot).
+// When dialog:openFile hits that case it falls back to grantAudioFile
+// below, a single-file grant list (`audioLibrary:grantedFiles`, distinct
+// from this root list) rather than widening the allowlist to the whole
+// drive (PRE-472).
 function grantAudioRoot(rootPath) {
   if (!rootPath || audioFileGuard.isDriveRoot(rootPath)) return
   const resolved = path.resolve(rootPath)
@@ -585,12 +589,21 @@ ipcMain.handle('dialog:openFile', async () => {
 
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
+    const dirPath = path.dirname(filePath);
     // The user explicitly picked this file, so its containing folder becomes
     // a granted root (unless that folder is itself a drive root — see
     // grantAudioRoot). That's what lets read-audio-file succeed for it below
     // and on every future launch, without widening the allowlist to
     // "everything the user could ever pick".
-    grantAudioRoot(path.dirname(filePath));
+    if (audioFileGuard.isDriveRoot(dirPath)) {
+      // A file sitting directly at a drive root (e.g. D:\song.mp3) has no
+      // grantable parent — grantAudioRoot would always refuse dirPath here.
+      // Grant this exact file instead (PRE-472), without widening access to
+      // its siblings on the same drive.
+      audioFileGuard.grantAudioFile(filePath, store);
+    } else {
+      grantAudioRoot(dirPath);
+    }
     // Return the raw file path - it will be converted to URL in the renderer
     return {
       filePath: filePath,
@@ -609,10 +622,11 @@ ipcMain.handle('dialog:openFile', async () => {
 // the shared contract and its containing folder is granted (grantAudioRoot
 // above) so read-audio-file can actually read it back afterward. Never
 // widens the allowlist beyond that one folder — grantAudioRoot already
-// refuses to grant a drive root, which is the known gap tracked as PRE-472
-// (e.g. a file dropped as `D:\song.mp3` has no grantable parent and stays
-// unreadable; the guard still returns a clean 'not-found'-shaped result for
-// it instead of throwing).
+// refuses to grant a drive root. PRE-472 fixed this gap for the
+// dialog:openFile path (see grantAudioFile above); a file dropped as
+// `D:\song.mp3` still has no grantable parent here and stays unreadable —
+// the guard still returns a clean 'not-found'-shaped result for it instead
+// of throwing.
 ipcMain.handle('fs:prepareDroppedAudioFile', async (event, filePath) => {
   return audioFileGuard.prepareDroppedAudioFileGuarded(filePath, {
     stat: (p) => fs.stat(p),
@@ -627,6 +641,7 @@ ipcMain.handle('fs:prepareDroppedAudioFile', async (event, filePath) => {
 ipcMain.handle('read-audio-file', async (event, filePath) => {
   return audioFileGuard.readAudioFileGuarded(filePath, {
     allowedRoots: getAllowedAudioRoots(),
+    grantedFiles: audioFileGuard.getGrantedAudioFiles(store),
     maxFileSizeBytes: AUDIO_MAX_FILE_SIZE_BYTES,
     mimeByExtension: AUDIO_MIME_BY_EXTENSION,
     stat: (p) => fs.stat(p),
