@@ -326,7 +326,7 @@ const PadButton = memo(({
           STOP
         </div>
       ) : hasSound ? (
-        <div className={`px-1 text-center font-medium leading-tight ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).fontSize} ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).lineClamp} ${fileError ? 'text-amber-200' : 'text-white'}`}>
+        <div className={`w-full px-1.5 [overflow-wrap:anywhere] text-center font-medium leading-tight ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).fontSize} ${labelStyle(extractFilename(soundFile!, { stripExtension: true })).lineClamp} ${fileError ? 'text-amber-200' : 'text-white'}`}>
           {extractFilename(soundFile!, { stripExtension: true })}
         </div>
       ) : (
