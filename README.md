@@ -215,7 +215,7 @@ MIT
 
 ## Author
 
-Prelive Deck Team
+Built by [Shakeel Bhamani](https://shak-tech.com) at [ShakTech Labs](https://shak-tech.com), a product engineering studio. Part of [Prelive](https://prelive.ai).
 
 ---
 
