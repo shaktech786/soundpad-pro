@@ -19,6 +19,7 @@ const { DiscordRpcClient } = require('./discord-rpc-client');
 const { PreliveClient } = require('./prelive-client');
 const { AutoUpdaterManager } = require('./auto-updater');
 const { resolveLegacyUserDataPath } = require('./user-data-path');
+const { enforceSingleInstance, focusWindow } = require('./single-instance');
 const {
   resolveObsSetupBinaryPath,
   resolveObsSetupVersionFilePath,
@@ -38,6 +39,18 @@ const audioFileGuard = require('./audio-file-guard');
 // without this the rename would move every existing user's data to an empty
 // folder. This must run before every consumer; see main/user-data-path.js.
 app.setPath('userData', resolveLegacyUserDataPath(app.getPath('appData')));
+
+// Must sit after the userData pin (the lock is keyed on that directory) and
+// before anything below opens settings, the controller or a port.
+const isFirstInstance = enforceSingleInstance(app, () => {
+  if (!focusWindow(mainWindow) && app.isReady()) {
+    createWindow();
+  }
+});
+if (!isFirstInstance) {
+  app.quit();
+  return;
+}
 
 let gp2040api = new GP2040ceApi();
 
